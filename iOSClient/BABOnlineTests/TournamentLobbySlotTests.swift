@@ -60,13 +60,17 @@ final class TournamentLobbySlotTests: XCTestCase {
     }
 
     /// Between rounds past the ready deadline the host may start with the ready players, ready or
-    /// not (pressing Begin puts the host in the round): Begin with a small Ready under it.
+    /// not (pressing Begin puts the host in the round): Begin, and no Ready toggle under it, since
+    /// the host's flag gates nothing there (review of PR #430: a grey "Ready" under "Start with
+    /// ready players" read as "you are ready").
     func testPastTheDeadlineTheHostStartsWithTheReadyPlayers() {
         let some = [p("kim", ready: true), p("hal", ready: false)]
         XCTAssertEqual(slot("between_rounds", host: "ivy", ready: false, others: some, deadline: true),
-                       TournamentLobbySlot(primary: .begin("Start with ready players"), toggle: .ready,
+                       TournamentLobbySlot(primary: .begin("Start with ready players"),
                                            caption: "Players who aren't ready sit this round out."))
-        XCTAssertEqual(slot("between_rounds", host: "ivy", ready: true, others: some, deadline: true)?.toggle, .unready)
+        XCTAssertNil(slot("between_rounds", host: "ivy", ready: true, others: some, deadline: true)?.toggle)
+        XCTAssertEqual(slot("between_rounds", host: "ivy", ready: true, others: allReadyOthers, deadline: true),
+                       TournamentLobbySlot(primary: .begin("Begin Next Round")))
         // the deadline means nothing in the lobby phase
         XCTAssertEqual(slot("lobby", host: "ivy", ready: true, others: some, deadline: true)?.primary, .unready)
     }
@@ -86,7 +90,8 @@ final class TournamentLobbySlotTests: XCTestCase {
                         let ctx = "\(phase) deadline=\(deadline) ready=\(meReady) mask=\(mask)"
                         if can {
                             XCTAssertEqual(s?.primary, .begin(TournamentBegin.label(phase: phase, deadlinePassed: deadline, players: players)), ctx)
-                            XCTAssertEqual(s?.toggle, meReady ? .unready : .ready, ctx)
+                            let flagMatters = !(phase == "between_rounds" && deadline)
+                            XCTAssertEqual(s?.toggle, flagMatters ? (meReady ? .unready : .ready) : nil, ctx)
                         } else {
                             XCTAssertEqual(s?.primary, meReady ? .unready : .ready, ctx)
                             XCTAssertNil(s?.toggle, ctx)
@@ -106,6 +111,30 @@ final class TournamentLobbySlotTests: XCTestCase {
                                            deadlinePassed: false, players: players, me: "ivy", host: "ivy")
         XCTAssertEqual(before?.primary, .unready)
         XCTAssertEqual(after?.primary, .begin("Begin Tournament"))
+    }
+
+    /// The host's tap flips the local flag at once; the server's row follows with
+    /// tournamentReadyUpdate. The slot reads my row with the local flag (review of PR #430), so
+    /// Unready under Begin takes Begin away at once and a quick second tap cannot ready again.
+    func testMyOwnRowFollowsTheLocalFlagBeforeTheServerAnswers() {
+        let serverSaysReady = [p("ivy", ready: true, host: true)] + allReadyOthers
+        let afterUnready = TournamentLobbySlot.of(phase: "lobby", isCreator: true, isSpectator: false, isReady: false,
+                                                  deadlinePassed: false, players: serverSaysReady, me: "ivy", host: "ivy")
+        XCTAssertEqual(afterUnready, TournamentLobbySlot(primary: .ready), "no Begin, no toggle reading Ready")
+        let serverSaysNotReady = [p("ivy", ready: false, host: true)] + allReadyOthers
+        let afterReady = TournamentLobbySlot.of(phase: "lobby", isCreator: true, isSpectator: false, isReady: true,
+                                                deadlinePassed: false, players: serverSaysNotReady, me: "ivy", host: "ivy")
+        XCTAssertEqual(afterReady, TournamentLobbySlot(primary: .begin("Begin Tournament"), toggle: .unready))
+        // a member's count of who it waits for never includes me either way
+        let member = TournamentLobbySlot.of(phase: "lobby", isCreator: false, isSpectator: false, isReady: true,
+                                            deadlinePassed: false, players: [p("ivy", ready: false)] + [p("kim", ready: true, host: true)],
+                                            me: "ivy", host: "kim")
+        XCTAssertEqual(member?.caption, "Waiting for kim to begin")
+    }
+
+    func testTheToggleReadsAsAButton() {
+        XCTAssertEqual(TournamentLobbySlot.Copy.markReady, "Mark me ready")
+        XCTAssertEqual(TournamentLobbySlot.Copy.markNotReady, "Mark me not ready")
     }
 
     // MARK: - No slot
@@ -138,19 +167,62 @@ final class TournamentLobbySlotTests: XCTestCase {
 
     func testTheConfirmationsSayWhatHappens() {
         typealias M = TournamentLobbyMenu
+        func msg(_ item: M.Item, _ phase: String, host: Bool = false, others: Int = 2) -> String {
+            M.confirmMessage(item, phase: phase, isCreator: host, othersConnected: others)
+        }
         XCTAssertEqual(M.confirmTitle(.cancel), "Cancel the tournament?")
         XCTAssertEqual(M.confirmButton(.cancel), "Cancel Tournament")
         XCTAssertEqual(M.keepButton(.cancel), "Keep Tournament", "never a second 'Cancel'")
-        XCTAssertTrue(M.confirmMessage(.cancel, phase: "lobby", isCreator: true).contains("everyone"))
-        XCTAssertTrue(M.confirmMessage(.cancel, phase: "round_active", isCreator: true).contains("games still in play"))
-        XCTAssertTrue(M.confirmMessage(.leave, phase: "lobby", isCreator: false).contains("join again"))
-        XCTAssertTrue(M.confirmMessage(.leave, phase: "between_rounds", isCreator: false).contains("lowest"))
-        XCTAssertTrue(M.confirmMessage(.leave, phase: "lobby", isCreator: true).contains("Another player becomes the host"))
-        XCTAssertFalse(M.confirmMessage(.leave, phase: "lobby", isCreator: false).contains("host"))
+        XCTAssertTrue(msg(.cancel, "lobby", host: true).contains("everyone"))
+        XCTAssertTrue(msg(.cancel, "round_active", host: true).contains("games still in play"))
+        XCTAssertEqual(msg(.leave, "lobby"), "You can join again while it's waiting to start.")
+        XCTAssertEqual(msg(.leave, "lobby", host: true),
+                       "You can join again while it's waiting to start. Another player becomes the host.")
+        XCTAssertFalse(msg(.leave, "lobby").contains("host"))
         for item in [M.Item.cancel, .leave, .stopWatching] {
-            for words in [M.title(item), M.confirmTitle(item), M.confirmMessage(item, phase: "lobby", isCreator: true)] {
+            for words in [M.title(item), M.confirmTitle(item), msg(item, "lobby", host: true)] {
                 XCTAssertFalse(words.contains("Team"), words)
             }
         }
+    }
+
+    /// Once it has begun a member who leaves is no longer a member (review of PR #430): no score
+    /// for the rounds to come (scoreMissedRound covers members only), no way back (joinTournament
+    /// refuses after the lobby phase), never a winner (getWinners takes members only). Never the
+    /// old "a missed round scores that round's lowest".
+    func testLeavingOnceItHasBegunIsForGood() {
+        typealias M = TournamentLobbyMenu
+        for phase in ["between_rounds", "round_active"] {
+            for host in [false, true] {
+                let words = M.confirmMessage(.leave, phase: phase, isCreator: host, othersConnected: 2)
+                XCTAssertTrue(words.hasPrefix("You can't come back to this tournament, and you won't be among the winners."), words)
+                XCTAssertFalse(words.contains("lowest"), words)
+                XCTAssertFalse(words.contains("join again"), words)
+                XCTAssertEqual(words.contains("Another player becomes the host."), host, words)
+            }
+        }
+    }
+
+    /// The cut: leaving takes me out of it (cutForABuck.memberLeft); no "rounds still to come".
+    func testLeavingDuringTheCut() {
+        let words = TournamentLobbyMenu.confirmMessage(.leave, phase: CutForABuck.phase, isCreator: false, othersConnected: 3)
+        XCTAssertEqual(words, "You'll be out of cut for a buck.", "lowercase mid-sentence (the owner's rule)")
+        XCTAssertFalse(words.contains("round"))
+    }
+
+    /// A host alone in the lobby: leaving deletes the tournament (GameManager.leaveTournament:
+    /// deleteTournamentIfAbandoned before transferCreator), so no rejoin and no new host.
+    func testAHostAloneClosesTheTournamentByLeaving() {
+        typealias M = TournamentLobbyMenu
+        let alone = M.confirmMessage(.leave, phase: "lobby", isCreator: true, othersConnected: 0)
+        XCTAssertEqual(alone, "The tournament closes, since nobody else has joined.")
+        XCTAssertFalse(alone.contains("join again"))
+        XCTAssertFalse(alone.contains("host"))
+        // with someone else there the role passes on
+        XCTAssertTrue(M.confirmMessage(.leave, phase: "lobby", isCreator: true, othersConnected: 1).contains("Another player becomes the host."))
+        // anyone alone in the lobby (a lone member is handed the role): the same
+        XCTAssertEqual(M.confirmMessage(.leave, phase: "lobby", isCreator: false, othersConnected: 0), alone)
+        // once begun, a host alone has no one to hand the role to
+        XCTAssertFalse(M.confirmMessage(.leave, phase: "between_rounds", isCreator: true, othersConnected: 0).contains("host"))
     }
 }

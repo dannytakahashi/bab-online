@@ -12,6 +12,10 @@ final class HapticSettings: ObservableObject {
         didSet { defaults.set(vibratesOnTurn, forKey: Self.turnKey) }
     }
 
+    /// The switch is offered on a phone only (review of PR #430): an iPad has no haptic engine,
+    /// so there it would do nothing.
+    nonisolated static func isOffered(on device: DeviceClass) -> Bool { device == .phone }
+
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {

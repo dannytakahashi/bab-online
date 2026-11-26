@@ -167,12 +167,23 @@ final class TournamentExtrasUITests: XCTestCase {
         return app
     }
 
-    /// Rows are about 300 to 400 pt tall at AX5: short drags until all of `e` is on screen.
+    /// Rows are about 300 to 400 pt tall at AX5: short drags until all of `e` is on screen, up
+    /// when it hangs below the window, down when a swipe carried it past the top (the closed
+    /// Duo: "(44.0, -22.67, 318.0, 401.0) outside the window").
     private func dragFullyIn(_ app: XCUIApplication, _ e: XCUIElement) {
         let window = app.windows.firstMatch.frame
-        for _ in 0..<8 where e.frame.maxY > window.maxY - 20 {
-            let start = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
-            start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -160)))
+        for _ in 0..<8 {
+            let f = e.frame
+            let dy: CGFloat
+            if f.maxY > window.maxY - 20 {
+                dy = -min(160, f.maxY - window.maxY + 40)
+            } else if f.minY < window.minY {
+                dy = min(160, window.minY - f.minY + 40)
+            } else {
+                break
+            }
+            let start = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: dy < 0 ? 0.75 : 0.4))
+            start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: dy)))
         }
     }
 

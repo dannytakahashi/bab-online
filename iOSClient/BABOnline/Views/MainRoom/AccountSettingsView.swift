@@ -171,18 +171,28 @@ struct AccountSettingsView: View {
                 }
                 #endif
             }
-            #if os(iOS)
-            Toggle("Vibrate on my turn", isOn: $haptics.vibratesOnTurn)
-                .foregroundColor(Theme.textPrimary)
-                .tint(Theme.primary)
-                .accessibilityHint("A tap when it's your turn to bid or play")
-                .accessibilityIdentifier("settings.vibrateOnTurn")
-            #endif
+            if offersVibrate {
+                Toggle("Vibrate on my turn", isOn: $haptics.vibratesOnTurn)
+                    .foregroundColor(Theme.textPrimary)
+                    .tint(Theme.primary)
+                    .accessibilityHint("A tap when it's your turn to bid or play")
+                    .accessibilityIdentifier("settings.vibrateOnTurn")
+            }
         } footer: {
-            Text("Card, turn and trick sounds. The silent switch mutes them, except during voice chat. Vibrate on my turn taps once when your bid or play turn opens.")
+            Text("Card, turn and trick sounds. The silent switch mutes them, except during voice chat."
+                 + (offersVibrate ? " Vibrate on my turn taps once when your bid or play turn opens." : ""))
                 .foregroundColor(Theme.textDim)
         }
         .listRowBackground(Theme.surface)
+    }
+
+    /// "Vibrate on my turn" on a phone only (HapticSettings.isOffered).
+    private var offersVibrate: Bool {
+        #if os(iOS)
+        HapticSettings.isOffered(on: .current)
+        #else
+        false
+        #endif
     }
 
     @ViewBuilder

@@ -129,15 +129,6 @@ private struct TournamentLobbyScreen: View {
                 }
             }
         }
-        .confirmationDialog(confirming.map(TournamentLobbyMenu.confirmTitle) ?? "",
-                            isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
-                            titleVisibility: .visible, presenting: confirming) { item in
-            Button(TournamentLobbyMenu.confirmButton(item), role: .destructive) { perform(item) }
-                .accessibilityIdentifier("tournament.confirm")
-            Button(TournamentLobbyMenu.keepButton(item), role: .cancel) {}
-        } message: { item in
-            Text(TournamentLobbyMenu.confirmMessage(item, phase: tournamentState.phase, isCreator: isCreator))
-        }
         // the role or the phase changed under an open question (a host hand-off, the cut, the
         // results): a choice the menu no longer offers is dropped
         .onChange(of: menuItems) { _, items in
@@ -256,14 +247,20 @@ private struct TournamentLobbyScreen: View {
     /// buttons. `height` ignores the keyboard: with the keyboard up the chat
     /// ends at the keyboard's top (the top part shrinks) and the keyboard
     /// covers the buttons, as in Messages.
+    ///
+    /// At the accessibility sizes only the header's controls row stays fixed; the title, round
+    /// line, count and the host's Rounds picker scroll at the top of the players (review of PR
+    /// #430: at AX5 on an iPhone 17 the header took about half the screen, so the short-space
+    /// rule unpinned Begin / Ready, which then scrolled in a strip one row tall).
     private func compactLayout(height: CGFloat) -> some View {
         // pinned until measured, so the first frame does not move them
         let pinned = headerHeight == 0 || height - headerHeight - buttonsHeight >= Self.compactMinMiddle
         let keyboard = visibleHeight > 0 ? max(0, height - visibleHeight) : 0
+        let detailsScroll = typeSize.isAccessibilitySize
         if showsCut { return AnyView(compactCut) }
         if showsFinal { return AnyView(compactFinal(keyboard: keyboard)) }
         return AnyView(VStack(spacing: 0) {
-            headerBar
+            header(scrollsDetails: detailsScroll)
                 // never squeezed under its content (a wrapped round line and the voice-full
                 // notice at AX5 ran over the divider): the players and chat give the room
                 .fixedSize(horizontal: false, vertical: true)
@@ -271,6 +268,7 @@ private struct TournamentLobbyScreen: View {
                 .zIndex(1)  // the voice panel tip hangs over what follows
             CappedAboveChat(chatMin: Self.compactChatMin) {
                 VStack(spacing: Theme.Space.s4) {
+                    if detailsScroll { headerDetails }
                     TournamentPlayerListView()
                     TournamentScoreboardView()
                     TournamentPairingsView()
@@ -423,18 +421,32 @@ private struct TournamentLobbyScreen: View {
     /// At the accessibility text sizes (AX1 to AX5) one row left the title a letter wide on a
     /// phone, so the controls take a row of their own and the title, the round line and the count
     /// wrap under them. In the vertical bar the menu / Main Room is a toolbar item.
-    private var headerBar: some View {
-        VStack(spacing: 0) {
+    private var headerBar: some View { header() }
+
+    /// The host's Rounds picker shows (the lobby phase only).
+    private var showsRoundsPicker: Bool {
+        TournamentRounds.showsPicker(phase: tournamentState.phase, isCreator: isCreator,
+                                     isSpectator: tournamentState.isSpectator)
+    }
+
+    private var roundsPicker: some View {
+        TournamentRoundsPicker(enabled: canSendTournamentActions)
+    }
+
+    /// `scrollsDetails`: the compact layout at the accessibility sizes keeps only the controls row
+    /// (the mic and "…") fixed; the title, the round line, the count and the host's Rounds picker
+    /// scroll at the top of the players instead (`headerDetails`, compactLayout).
+    private func header(scrollsDetails: Bool = false) -> some View {
+        let controlsOnly = scrollsDetails
+        let hasControls = showsHeaderBack || showsMic || (!bar.usesVerticalBar && !menuItems.isEmpty)
+        return VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: Theme.Space.s2) {
                 Group {
-                    if typeSize.isAccessibilitySize {
+                    if controlsOnly {
+                        if hasControls { accessibilityControlsRow }
+                    } else if typeSize.isAccessibilitySize {
                         VStack(alignment: .leading, spacing: Theme.Space.s2) {
-                            HStack {
-                                if showsHeaderBack { mainRoomButton.lineLimit(1).fixedSize() }
-                                Spacer()
-                                headerMic
-                                headerMenu
-                            }
+                            accessibilityControlsRow
                             titleBlock(alignment: .leading)
                             countText
                         }
@@ -455,15 +467,14 @@ private struct TournamentLobbyScreen: View {
                     }
                 }
                 // the mic coming and going never changes the header's height
-                .frame(minHeight: Theme.hitTarget)
+                .frame(minHeight: controlsOnly && !hasControls ? 0 : Theme.hitTarget)
                 // the host's round count, 1 to 5, before the tournament begins (TournamentRounds):
                 // under "Waiting to start · N rounds"; everyone else reads the count in that line
-                if TournamentRounds.showsPicker(phase: tournamentState.phase, isCreator: isCreator,
-                                                isSpectator: tournamentState.isSpectator) {
-                    TournamentRoundsPicker(enabled: canSendTournamentActions)
+                if !controlsOnly && showsRoundsPicker {
+                    roundsPicker
                 }
             }
-            .padding()
+            .padding(controlsOnly && !hasControls ? 0 : Theme.Space.s4)
             // the voice panel tip, once (VoicePanelTip): just under the header, off its mic
             .overlay(alignment: .bottom) {
                 VoicePanelTipToast()
@@ -474,6 +485,28 @@ private struct TournamentLobbyScreen: View {
             Divider().background(Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
         }
         .zIndex(1)  // the tip hangs over the player list
+    }
+
+    /// The accessibility sizes' controls row: Main Room (complete phase), the mic and "…".
+    private var accessibilityControlsRow: some View {
+        HStack {
+            if showsHeaderBack { mainRoomButton.lineLimit(1).fixedSize() }
+            Spacer()
+            headerMic
+            headerMenu
+        }
+    }
+
+    /// What `header(scrollsDetails: true)` leaves out, at the top of the scrolling players.
+    private var headerDetails: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s2) {
+            titleBlock(alignment: .leading)
+            countText
+            if showsRoundsPicker { roundsPicker.padding(.top, Theme.Space.s2) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, Theme.Space.s4)
+        .padding(.top, Theme.Space.s3)
     }
 
     /// The complete phase's back control in the content (the vertical bar has its own).
@@ -531,6 +564,24 @@ private struct TournamentLobbyScreen: View {
         .accessibilityHint(tournamentState.isSpectator ? "Stop watching the tournament"
                            : isCreator ? "Leave or cancel the tournament" : "Leave the tournament")
         .accessibilityIdentifier("tournament.more")
+        // on the menu, not the screen (review of PR #430): iOS shows the question as a popover
+        // from the view it is attached to, so it opens from "…" (the header, or the Duo's
+        // vertical bar) instead of mid-screen with its arrow into the chat
+        .confirmationDialog(confirming.map(TournamentLobbyMenu.confirmTitle) ?? "",
+                            isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
+                            titleVisibility: .visible, presenting: confirming) { item in
+            Button(TournamentLobbyMenu.confirmButton(item), role: .destructive) { perform(item) }
+                .accessibilityIdentifier("tournament.confirm")
+            Button(TournamentLobbyMenu.keepButton(item), role: .cancel) {}
+        } message: { item in
+            Text(TournamentLobbyMenu.confirmMessage(item, phase: tournamentState.phase, isCreator: isCreator,
+                                                    othersConnected: othersConnected))
+        }
+    }
+
+    /// Connected members besides me (a host alone closes the tournament by leaving).
+    private var othersConnected: Int {
+        tournamentState.players.filter { $0.connected && $0.username != authState.username }.count
     }
 
     /// `oneLine`: the one-row header's title stays on one line (shrunk to 0.8, then cut at its
@@ -632,9 +683,9 @@ private struct TournamentLobbyScreen: View {
                 primaryButton(slot.primary)
                 if let toggle = slot.toggle {
                     Button(action: toggleReady) {
-                        Text(toggle == .ready ? TournamentLobbySlot.Copy.ready : TournamentLobbySlot.Copy.unready)
+                        Text(toggle == .ready ? TournamentLobbySlot.Copy.markReady : TournamentLobbySlot.Copy.markNotReady)
                             .font(.subheadline.bold())
-                            .foregroundColor(Theme.textSecondary)
+                            .foregroundColor(Theme.primary)
                             .frame(minWidth: Theme.hitTarget * 2, minHeight: Theme.hitTarget)
                             .contentShape(Rectangle())
                     }

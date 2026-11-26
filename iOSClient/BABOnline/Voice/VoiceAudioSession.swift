@@ -22,6 +22,8 @@ enum VoiceAudioPolicy {
     /// both (AirPods and other headsets), so it would only add output-only Bluetooth speakers,
     /// which then take the voice off the phone while its mic records.
     static let options: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetoothHFP]
+    /// The turn haptic (TurnHaptic) and the app's other haptics keep playing while voice records.
+    static let allowsHapticsWhileRecording = true
 
     /// WebRTC's own configuration with this category, mode and options; sample rate, I/O
     /// buffer and channel counts stay WebRTC's defaults. Builds an object, touches no session.
@@ -111,6 +113,7 @@ final class VoiceAudioSession {
         rtc.lockForConfiguration()
         defer { rtc.unlockForConfiguration() }
         try rtc.setCategory(VoiceAudioPolicy.category, mode: VoiceAudioPolicy.mode, options: VoiceAudioPolicy.options)
+        Self.allowHapticsWhileRecording(rtc.session)
         if !activated {
             try rtc.setActive(true)
             activated = true
@@ -179,11 +182,24 @@ final class VoiceAudioSession {
         defer { rtc.unlockForConfiguration() }
         do {
             try rtc.setCategory(VoiceAudioPolicy.category, mode: VoiceAudioPolicy.mode, options: VoiceAudioPolicy.options)
+            Self.allowHapticsWhileRecording(rtc.session)
             print("[Voice] media services were reset, voice's category set again")
         } catch {
             print("[Voice] could not set voice's category after a media services reset: \(error)")
         }
         forceSpeakerIfNeeded(rtc)
+    }
+
+    /// iOS mutes haptics and system sounds while the session records from the mic unless the app
+    /// opts out (review of PR #430: "Vibrate on my turn" would be silent at exactly the tables
+    /// with voice). A media services reset clears it, so it goes back on with the category.
+    nonisolated static func allowHapticsWhileRecording(_ session: AVAudioSession) {
+        guard session.allowHapticsAndSystemSoundsDuringRecording != VoiceAudioPolicy.allowsHapticsWhileRecording else { return }
+        do {
+            try session.setAllowHapticsAndSystemSoundsDuringRecording(VoiceAudioPolicy.allowsHapticsWhileRecording)
+        } catch {
+            print("[Voice] could not allow haptics while recording: \(error)")
+        }
     }
 
     /// Voice's category on the receiver alone with nothing plugged in or paired (reads only:

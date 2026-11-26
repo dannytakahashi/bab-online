@@ -53,6 +53,27 @@ final class LobbyMenuLayoutUITests: XCTestCase {
         XCTAssertTrue(window.insetBy(dx: -1, dy: -1).contains(e.frame), "\(what) \(e.frame) outside the window \(window)")
     }
 
+    /// The confirmation's words (TournamentLobbyMenu.Copy; the UI tests do not link the app).
+    private enum TournamentCopy {
+        static let noWayBack = "You can't come back to this tournament, and you won't be among the winners."
+    }
+
+    /// The confirmation opens from "…" (review of PR #430: attached to the screen it floated
+    /// mid-screen, its arrow into the chat on the closed Duo). Where the system shows it as a
+    /// popover (the iPad, the closed Duo's narrow window) its button is near More; where it is an
+    /// action sheet at the bottom (an iPhone) there is nothing to point from.
+    /// `m`: More's frame, read before the menu opened (with the question up the closed Duo's
+    /// vertical bar is out of the accessibility tree).
+    private func assertOpensFromMore(_ app: XCUIApplication, _ m: CGRect, _ confirm: XCUIElement, _ what: String) {
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3), "\(what): the confirming button")
+        let window = app.windows.firstMatch.frame
+        let c = confirm.frame
+        let isSheet = c.maxY > window.maxY - 140 && c.width > window.width * 0.7
+        if isSheet { return }
+        let gap = max(0, max(c.minY - m.maxY, m.minY - c.maxY))
+        XCTAssertLessThan(gap, 220, "\(what) \(c) opens from More \(m), not mid-screen")
+    }
+
     private var more: (XCUIApplication) -> XCUIElement {
         { $0.buttons.matching(NSPredicate(format: "label == %@", "More")).firstMatch }
     }
@@ -85,7 +106,7 @@ final class LobbyMenuLayoutUITests: XCTestCase {
         XCTAssertTrue(begin.waitForExistence(timeout: 5))
         XCTAssertEqual(begin.label, "Begin Tournament")
         let toggle = element(app, "tournament.readyToggle")
-        XCTAssertEqual(toggle.label, "Unready", "the host can still take it back")
+        XCTAssertEqual(toggle.label, "Mark me not ready", "the host can still take it back (a button, not a status)")
         XCTAssertLessThan(begin.frame.maxY, toggle.frame.minY + 1, "the small Unready under Begin")
         XCTAssertFalse(element(app, "tournament.ready").exists)
         shot("lobby-host-canbegin")
@@ -156,6 +177,7 @@ final class LobbyMenuLayoutUITests: XCTestCase {
         let button = more(app)
         XCTAssertTrue(button.waitForExistence(timeout: 5))
         XCTAssertTrue(button.isHittable, "More is reachable (the vertical bar on the closed Duo)")
+        let moreFrame = button.frame
         button.tap()
         let cancel = app.buttons["Cancel Tournament"].firstMatch
         XCTAssertTrue(cancel.waitForExistence(timeout: 3))
@@ -166,6 +188,7 @@ final class LobbyMenuLayoutUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Cancel the tournament?"].waitForExistence(timeout: 3), "asks first")
         XCTAssertTrue(app.staticTexts["The tournament ends for everyone before it starts."].exists)
         XCTAssertEqual(sent(app), "-", "nothing sent before the confirmation")
+        assertOpensFromMore(app, moreFrame, confirm, "Cancel Tournament")
         shot("menu-host-confirm")
         confirm.tap()
         waitFor("cancelTournament sent") { sent(app) == "cancelTournament" }
@@ -175,6 +198,8 @@ final class LobbyMenuLayoutUITests: XCTestCase {
     /// A member's menu: Leave Tournament only, confirmed, then leaveTournament.
     func testAMembersMenuLeavesAfterAConfirmation() {
         let app = lobby("tournament-between")
+        XCTAssertTrue(more(app).waitForExistence(timeout: 5))
+        let moreFrame = more(app).frame
         more(app).tap()
         let leave = app.buttons["Leave Tournament"].firstMatch
         XCTAssertTrue(leave.waitForExistence(timeout: 3))
@@ -182,8 +207,13 @@ final class LobbyMenuLayoutUITests: XCTestCase {
         shot("menu-member")
         leave.tap()
         XCTAssertTrue(app.staticTexts["Leave the tournament?"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts[TournamentCopy.noWayBack].exists,
+                      "between rounds a member who leaves is gone for good, never 'a missed round scores...'")
         XCTAssertEqual(sent(app), "-")
-        app.buttons.matching(NSPredicate(format: "label == %@", "Leave Tournament")).firstMatch.tap()
+        let confirm = app.buttons.matching(NSPredicate(format: "label == %@", "Leave Tournament")).firstMatch
+        assertOpensFromMore(app, moreFrame, confirm, "Leave Tournament")
+        shot("menu-member-confirm")
+        confirm.tap()
         waitFor("leaveTournament sent") { sent(app) == "leaveTournament" }
         app.terminate()
     }
@@ -199,18 +229,21 @@ final class LobbyMenuLayoutUITests: XCTestCase {
 
     // MARK: - Text sizes
 
-    /// XXXL and AX5: the slot's button and caption are whole and on screen, the menu reachable.
+    /// XXXL and AX5: the slot's button and caption are whole and on screen without scrolling
+    /// (pinned: at AX5 the host's Rounds picker scrolls with the players, review of PR #430),
+    /// the menu reachable, and the picker still there under the header.
     func testTheSlotAtLargeTextSizes() {
         for (tag, size) in [("xxxl", Self.xxxl), ("ax5", Self.ax5)] {
             let app = lobby("tournament-rounds", size + ["-uiMeReady", "YES"])
             let slot = element(app, "tournament.ready")
-            for _ in 0..<6 where !(slot.exists && slot.isHittable) { app.swipeUp(velocity: .slow) }
-            XCTAssertTrue(slot.isHittable, "\(tag): the slot")
+            XCTAssertTrue(slot.waitForExistence(timeout: 5), "\(tag): the slot")
+            XCTAssertTrue(slot.isHittable, "\(tag): the slot is pinned, on screen at once")
             assertOnScreen(app, slot, "\(tag) slot")
             XCTAssertGreaterThan(slot.frame.height, 44, "\(tag): it grows with the text")
             let caption = element(app, "tournament.slotCaption")
             assertOnScreen(app, caption, "\(tag) caption")
             XCTAssertTrue(more(app).exists, "\(tag): the menu")
+            XCTAssertTrue(element(app, "tournament.rounds").exists, "\(tag): the host's Rounds picker")
             shot("lobby-host-ready-\(tag)")
             app.terminate()
         }

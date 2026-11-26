@@ -141,6 +141,19 @@ final class SoundToggleUITests: XCTestCase {
             XCTAssertTrue(toggle.waitForExistence(timeout: 5))
             return (app, toggle)
         }
+        if UIDevice.current.userInterfaceIdiom != .phone {
+            // no haptic engine on an iPad: no switch, and the footer does not promise one
+            let app = Fixture.launch("main-room")
+            XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 15))
+            app.buttons.matching(NSPredicate(format: "label == %@", "Account settings")).firstMatch.tap()
+            let sound = app.switches["settings.sound"]
+            revealSound(app, sound)
+            XCTAssertTrue(sound.waitForExistence(timeout: 5))
+            XCTAssertFalse(app.switches["settings.vibrateOnTurn"].exists, "no Vibrate on my turn on an iPad")
+            XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Vibrate")).firstMatch.exists)
+            app.terminate()
+            return
+        }
         var (app, toggle) = open()
         XCTAssertEqual(toggle.label, "Vibrate on my turn")
         let start = toggle.value as? String ?? ""

@@ -4,8 +4,10 @@ import AVFoundation
 @testable import BAB_Online
 
 /// Voice's audio session values and the loudspeaker safety net (owner 2026-11-17, iPhone Air:
-/// voice only from the earpiece). Pure: nothing here touches AVAudioSession or RTCAudioSession;
-/// the real route is only heard on a device (the simulator has no earpiece).
+/// voice only from the earpiece). Pure: nothing here touches AVAudioSession or RTCAudioSession
+/// (but `testHapticsStayOnWhileVoiceRecords`, which sets one flag and the category, never
+/// activating the session); the real route is only heard on a device (the simulator has no
+/// earpiece).
 final class VoiceAudioSessionTests: XCTestCase {
     func testTheSessionValues() {
         XCTAssertEqual(VoiceAudioPolicy.category, .playAndRecord)
@@ -14,6 +16,25 @@ final class VoiceAudioSessionTests: XCTestCase {
         XCTAssertTrue(VoiceAudioPolicy.options.contains(.allowBluetoothHFP), "AirPods / headsets with their mic")
         XCTAssertFalse(VoiceAudioPolicy.options.contains(.allowBluetoothA2DP))
         XCTAssertFalse(VoiceAudioPolicy.options.contains(.mixWithOthers))
+        XCTAssertTrue(VoiceAudioPolicy.allowsHapticsWhileRecording, "the turn haptic during voice chat")
+    }
+
+    /// iOS mutes haptics while the session records unless the app opts out (review of PR #430):
+    /// the opt-out sets the flag and survives voice's category being set again (WebRTC's
+    /// configureWebRTCSession when a call starts playout). The haptic itself is only felt on a
+    /// device.
+    func testHapticsStayOnWhileVoiceRecords() throws {
+        let session = AVAudioSession.sharedInstance()
+        let before = (session.category, session.mode, session.categoryOptions, session.allowHapticsAndSystemSoundsDuringRecording)
+        defer {
+            try? session.setCategory(before.0, mode: before.1, options: before.2)
+            try? session.setAllowHapticsAndSystemSoundsDuringRecording(before.3)
+        }
+        try session.setAllowHapticsAndSystemSoundsDuringRecording(false)
+        VoiceAudioSession.allowHapticsWhileRecording(session)
+        XCTAssertTrue(session.allowHapticsAndSystemSoundsDuringRecording)
+        try session.setCategory(VoiceAudioPolicy.category, mode: VoiceAudioPolicy.mode, options: VoiceAudioPolicy.options)
+        XCTAssertTrue(session.allowHapticsAndSystemSoundsDuringRecording, "kept across the category")
     }
 
     /// The bug: WebRTC's default configuration (applied when a call starts playout) has no

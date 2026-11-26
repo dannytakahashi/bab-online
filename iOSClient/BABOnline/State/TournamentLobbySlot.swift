@@ -27,13 +27,27 @@ struct TournamentLobbySlot: Equatable {
     /// nil: no slot (a round in play, the cut, the results, a spectator, an unknown phase).
     /// `isReady` is the ready flag to show (TournamentLobbyView's `showsReady`: not ready while a
     /// re-entry waits); `me` my username.
+    ///
+    /// My own row is read with `isReady` (review of PR #430): a tap flips the local flag at once
+    /// while the server's row only changes with tournamentReadyUpdate, so the host's Unready under
+    /// Begin left Begin up (and the toggle reading Ready) until the server answered.
+    ///
+    /// Past the ready deadline between rounds the host's own flag gates nothing (pressing Begin
+    /// puts the host in the round, `TournamentBegin.sitsOut`), so Begin has no toggle under it.
     static func of(phase: String, isCreator: Bool, isSpectator: Bool, isReady: Bool,
                    deadlinePassed: Bool, players: [TournamentPlayer], me: String?, host: String?) -> TournamentLobbySlot? {
         guard phase == "lobby" || phase == "between_rounds", !isSpectator else { return nil }
+        let players = players.map { row -> TournamentPlayer in
+            guard let me, row.username == me, row.isReady != isReady else { return row }
+            var mine = row
+            mine.isReady = isReady
+            return mine
+        }
         if isCreator && TournamentBegin.canBegin(phase: phase, deadlinePassed: deadlinePassed, players: players) {
             let label = TournamentBegin.label(phase: phase, deadlinePassed: deadlinePassed, players: players)
             let sitOut = TournamentBegin.startsWithReadyOnly(phase: phase, deadlinePassed: deadlinePassed, players: players)
-            return TournamentLobbySlot(primary: .begin(label), toggle: isReady ? .unready : .ready,
+            let flagMatters = !(phase == "between_rounds" && deadlinePassed)
+            return TournamentLobbySlot(primary: .begin(label), toggle: flagMatters ? (isReady ? .unready : .ready) : nil,
                                        caption: sitOut ? Copy.sitOutNote : nil)
         }
         guard isReady else { return TournamentLobbySlot(primary: .ready) }
@@ -42,7 +56,7 @@ struct TournamentLobbySlot: Equatable {
         if waiting > 0 {
             caption = isCreator ? Copy.hostWaiting(waiting) : Copy.waitingFor(waiting)
         } else if isCreator {
-            caption = Copy.waitingFor(0)  // my own row not yet updated by the server
+            caption = Copy.waitingFor(0)  // my own row not in the list yet
         } else {
             caption = Copy.waitingForHost(host)
         }
@@ -58,6 +72,10 @@ struct TournamentLobbySlot: Equatable {
     enum Copy {
         static let ready = "Ready"
         static let unready = "Unready"
+        /// The small text button under Begin (a button, not a status: "Ready" under Begin read
+        /// as "you are ready").
+        static let markReady = "Mark me ready"
+        static let markNotReady = "Mark me not ready"
         static let sitOutNote = "Players who aren't ready sit this round out."
 
         static func players(_ n: Int) -> String { n == 1 ? "1 player" : "\(n) players" }
@@ -117,25 +135,46 @@ enum TournamentLobbyMenu {
         }
     }
 
-    /// What happens, in plain words.
-    static func confirmMessage(_ item: Item, phase: String, isCreator: Bool) -> String {
+    /// What happens, in plain words, as the server does it (review of PR #430):
+    /// - the lobby phase: a member may join again while it waits to start; the host's role passes
+    ///   to another member; with nobody else connected the tournament is deleted
+    ///   (`GameManager.leaveTournament`: deleteTournamentIfAbandoned before transferCreator);
+    /// - once it has begun a member who leaves is gone: no score for later rounds (scoreMissedRound
+    ///   covers members only), no way back (joinTournament refuses non-members after the lobby
+    ///   phase), never a winner (getWinners takes members only);
+    /// - the cut: leaving takes me out of it (cutForABuck.memberLeft).
+    /// `othersConnected`: connected members besides me.
+    static func confirmMessage(_ item: Item, phase: String, isCreator: Bool, othersConnected: Int) -> String {
         switch item {
         case .cancel:
             return phase == "lobby"
                 ? "The tournament ends for everyone before it starts."
                 : "The tournament ends for everyone, and any games still in play stop now."
         case .leave:
-            var lines: [String] = []
-            if phase == "lobby" {
-                lines.append("You can join again while it's waiting to start.")
-            } else {
-                lines.append("You'll miss the rounds still to come; a missed round scores that round's lowest.")
+            // alone in the lobby (the host, in practice: a lone member is handed the role)
+            if phase == "lobby" && othersConnected == 0 {
+                return Copy.closesAlone
             }
-            if isCreator { lines.append("Another player becomes the host.") }
+            var lines: [String] = []
+            switch phase {
+            case "lobby": lines.append(Copy.rejoinWhileWaiting)
+            case CutForABuck.phase: lines.append(Copy.outOfTheCut)
+            default: lines.append(Copy.noWayBack)
+            }
+            if isCreator && othersConnected > 0 { lines.append(Copy.newHost) }
             return lines.joined(separator: " ")
         case .stopWatching:
             return "You go back to the main room."
         }
+    }
+
+    enum Copy {
+        static let rejoinWhileWaiting = "You can join again while it's waiting to start."
+        static let closesAlone = "The tournament closes, since nobody else has joined."
+        static let noWayBack = "You can't come back to this tournament, and you won't be among the winners."
+        /// Lowercase mid-sentence (the owner's rule, CutCopy).
+        static let outOfTheCut = "You'll be out of cut for a buck."
+        static let newHost = "Another player becomes the host."
     }
 
     /// The confirming button (destructive role); the other one keeps things as they are.

@@ -205,6 +205,13 @@ final class TurnHapticTests: XCTestCase {
         XCTAssertFalse(HapticSettings(defaults: defaults).vibratesOnTurn)
     }
 
+    /// The switch is offered on a phone only: an iPad has no haptic engine (review of PR #430).
+    func testTheSwitchIsOfferedOnAPhoneOnly() {
+        XCTAssertTrue(HapticSettings.isOffered(on: .phone))
+        XCTAssertFalse(HapticSettings.isOffered(on: .pad))
+        XCTAssertFalse(HapticSettings.isOffered(on: .mac))
+    }
+
     // MARK: - Through ActionCoordinator
 
     func testTheCoordinatorTapsOnceForMyTurnAndNotForASnapshot() throws {
