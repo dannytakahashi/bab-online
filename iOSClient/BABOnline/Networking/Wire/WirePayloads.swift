@@ -54,11 +54,41 @@ enum WirePayload {
         /// positions order, true only for a native bot seat (controller `bot`), never a draw-phase
         /// leaver's resign bot, whose isBot is true too (additive 2026-11-19; nil from an older server).
         var nativeBot: [Bool]?
+        /// positions order, each seat's owner (null for a native bot; additive 2026-11-26, nil from
+        /// an older server): a draw-phase leaver's resign bot shows the bot in `usernames` while the
+        /// seat is the leaver's. Lenient: an entry that is not a non-empty string is no owner, and a
+        /// value that is not an array is none at all, never a decode failure of the event.
+        var owners: Owners?
         var usernames: [Name]?
         var pics: [PicWire]?
         var avatarUrls: [String: String]?
         var yourPosition: Int?
         var seq: Int?
+    }
+
+    /// `positionUpdate.owners`, read leniently: a value that is not an array reads as no owners
+    /// (the LenientShoulder shape, never a decode failure of the event); each entry is
+    /// `LenientOwner`.
+    struct Owners: Decodable, Equatable {
+        typealias List = [LenientOwner]
+        var list: List?
+        init(_ names: [String?]) { list = names.map(LenientOwner.init(name:)) }
+        init(from decoder: Decoder) throws { list = try? List(from: decoder) }
+        /// The owner of the seat at `i` (positions order), nil when there is none.
+        func name(at i: Int) -> String? { i < (list?.count ?? 0) ? list![i].name : nil }
+    }
+
+    /// One `positionUpdate.owners` entry: a non-empty string, else nil (null, a number, an
+    /// empty string), never a decode failure.
+    struct LenientOwner: Decodable, Equatable {
+        var name: String?
+        init(name: String?) { self.name = name }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.singleValueContainer()
+            if c.decodeNil() { name = nil; return }
+            let s = try? c.decode(String.self)
+            name = (s?.isEmpty ?? true) ? nil : s
+        }
     }
 
     struct TeamsAnnounced: Decodable, Equatable { var team1: [String]?; var team2: [String]?; var resumeInMs: Int?; var seq: Int? }

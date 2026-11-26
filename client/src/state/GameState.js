@@ -1608,9 +1608,18 @@ export class GameState {
       if (i !== -1) mine = positions[i] || null;
     }
     if (mine) this.position = mine;
+    // Each seat's owner: positionUpdate.owners (additive 2026-11-26), else
+    // the name the seat shows. A draw-phase leaver is seated as a resign bot:
+    // usernames names the bot, owners the leaver (as a snapshot's
+    // ownerUsername does), so the owner labels name the leaver here too
+    // (getSeatOwnerName, teamPlayerData). A native bot's owner is null: its
+    // persona, as before. A server without owners: usernames, as before
+    const owners = Array.isArray(d.owners) ? d.owners : null;
     this.seatOwners = {};
     positions.forEach((pos, i) => {
-      if (typeof names[i] === 'string') this.seatOwners[pos] = names[i];
+      const owner = owners?.[i];
+      if (typeof owner === 'string' && owner) this.seatOwners[pos] = owner;
+      else if (typeof names[i] === 'string') this.seatOwners[pos] = names[i];
     });
     // The human seats (the voice rule): isBot[] per seat, else the bot:
     // prefix of the seat socket id (a server before isBot). A native bot

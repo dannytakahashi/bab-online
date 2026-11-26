@@ -389,7 +389,11 @@ extension TableReducer {
             seat.isBot = isBot
             seat.controller = !isBot ? .human : native ? .bot : .resignBot
             seat.presence = isBot ? .none : (seat.presence == .none ? .connected : seat.presence)
-            seat.ownerUsername = isBot ? nil : name
+            // owners (additive 2026-11-26): the seat's owner, so a draw-phase leaver's resign bot
+            // seat is named by the leaver (PlayersSlice.ownerName / teamName), as a snapshot's
+            // ownerUsername says; nil (a native bot, an older server): as before
+            let owner = p.owners?.name(at: i)
+            seat.ownerUsername = owner ?? (isBot ? nil : name)
             seat.lazy = false
             s.players.seats[pos] = seat
             if let sid { s.players.socketBySeat[pos] = sid }

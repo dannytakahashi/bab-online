@@ -60,3 +60,52 @@ describe('getSeatOwnerName', () => {
     expect(new GameState().getSeatOwnerName(2)).toBe('P2');
   });
 });
+
+describe('positionUpdate.owners (2026-11-26): a draw-phase leaver seated as a resign bot', () => {
+  const seating = (extra = {}) => ({
+    positions: [1, 2, 3, 4],
+    sockets: ['s1', 'bot:z', 's3', 'bot:m'],
+    usernames: [{ username: 'ann' }, { username: '🤖 Zach' }, { username: 'cy' }, { username: '🤖 Mary' }],
+    pics: [1, 7, 3, 4],
+    isBot: [false, true, false, true],
+    nativeBot: [false, false, false, true],
+    ...extra,
+  });
+
+  it('owners[] names the leaver on its seat; the seat itself shows the bot; a native bot keeps its persona', () => {
+    const s = new GameState();
+    s.username = 'ann';
+    s.applyPositionUpdate(seating({ owners: ['ann', 'bo', 'cy', null] }));
+    expect(s.seatOwners).toEqual({ 1: 'ann', 2: 'bo', 3: 'cy', 4: '🤖 Mary' });
+    expect(s.getPlayerNameByPosition(2)).toBe('🤖 Zach');
+    expect(s.getSeatOwnerName(2)).toBe('bo');
+    expect(s.getSeatOwnerName(4)).toBe('🤖 Mary');
+    expect(s.teamPlayerData.username.map((u) => u.username)).toEqual(['ann', 'bo', 'cy', '🤖 Mary']);
+  });
+
+  it('matches what a snapshot of the same table gives (a reload, a later spectator)', () => {
+    const live = new GameState();
+    live.applyPositionUpdate(seating({ owners: ['ann', 'bo', 'cy', null] }));
+    const reloaded = new GameState();
+    reloaded._seatsToPlayerData([
+      { position: 1, username: 'ann', ownerUsername: 'ann', pic: 1 },
+      { position: 2, username: '🤖 Zach', ownerUsername: 'bo', pic: 7 },
+      { position: 3, username: 'cy', ownerUsername: 'cy', pic: 3 },
+      { position: 4, username: '🤖 Mary', ownerUsername: null, pic: 4 },
+    ]);
+    expect(live.seatOwners).toEqual(reloaded.seatOwners);
+    expect([1, 2, 3, 4].map((p) => live.getSeatOwnerName(p))).toEqual([1, 2, 3, 4].map((p) => reloaded.getSeatOwnerName(p)));
+  });
+
+  it('an older server (no owners): the names seated, as before', () => {
+    const s = new GameState();
+    s.applyPositionUpdate(seating());
+    expect(s.seatOwners).toEqual({ 1: 'ann', 2: '🤖 Zach', 3: 'cy', 4: '🤖 Mary' });
+  });
+
+  it('a malformed owners entry falls back to that seat\'s name', () => {
+    const s = new GameState();
+    s.applyPositionUpdate(seating({ owners: ['ann', 7, '', null] }));
+    expect(s.seatOwners).toEqual({ 1: 'ann', 2: '🤖 Zach', 3: 'cy', 4: '🤖 Mary' });
+  });
+});
