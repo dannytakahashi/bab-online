@@ -15,6 +15,9 @@ import { parseWatching } from './snapshotV2.js';
 import { bidClockNow, clockFrom, parseBidClockEvent } from './bidClock.js';
 import { isShoulder, validShoulder } from './shoulder.js';
 import { helpNoticeSeat, tutorialTag } from './seatBadges.js';
+import { teamPlayerDataOf } from './teamPlayerData.js';
+
+export { teamPlayerDataOf };
 
 // Game phases
 export const PHASE = {
@@ -1177,6 +1180,17 @@ export class GameState {
   applyMyLazy(isLazy) {
     this.isLazy = !!isLazy;
     this._changed();
+  }
+
+  /**
+   * playerData for team names and the score screen (owner rule: teams by
+   * player names): each seat named by its owner (seatOwners: a lazy or
+   * resigned seat's owner, never the bot playing it), else the name the
+   * seat shows (a native bot's persona). The avatars keep playerData.
+   * @returns {Object|null} { position, username: [{username}], ... } or playerData itself
+   */
+  get teamPlayerData() {
+    return teamPlayerDataOf(this);
   }
 
   /**

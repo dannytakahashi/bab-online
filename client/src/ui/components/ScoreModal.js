@@ -354,7 +354,7 @@ function cutStrip(returnBtn, label) {
  * Cut for a buck at a tournament's last table (spec section 3.3): the score
  * screen stays as long as the player wants, with a strip ("Cut for a buck
  * starts in 12" / "Cut for a buck has started. We'll draw for you until you
- * join.") and its Return button reading "Join Cut for a buck" (main.js
+ * join.") and its Return button reading "Join cut for a buck" (main.js
  * syncScoreCutStrip). null: no strip, the button's own label.
  * @param {{text: string, buttonLabel?: string}|null} info
  */

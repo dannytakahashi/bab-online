@@ -208,18 +208,18 @@ A tournament is a series of rounds (1 to 5; the host picks the number in the tou
 
 ### Cut for a buck
 
-Right after the last round, everyone still in the tournament lobby plays **Cut for a buck**, a finale just for bragging rights (it does not change the tournament's winners):
+Right after the last round, everyone still in the tournament lobby plays **Cut for a buck**, a finale that does not change the tournament's winners:
 
 - It starts about 15 seconds after the last game ends, so people can come back from their score screens. Whoever is connected then takes part; there are no bots, and spectators watch
 - Every round, each player draws one card from the face-down deck. **The lowest card is out.** Suits don't count; aces are high and the jokers higher still (LO joker, then HI joker). Everyone tied on the lowest card is out together
 - If everyone still in draws the same rank, nobody is out and everyone draws again
 - Cards drawn stay out of the deck; when too few cards are left for everyone still in, the whole deck is shuffled back in
 - You have 15 seconds to draw; after that a card is drawn for you. Players who are away, disconnected or on an older app are drawn for automatically
-- The last player left wins Cut for a buck. Leaving the tournament takes you out of it; the host can end it early, which just finishes the tournament
+- The last player left wins cut for a buck. Leaving the tournament takes you out of it; the host can end it early, which just finishes the tournament
 
 ### Tournament history
 
-Every finished tournament is kept: your profile shows how many tournaments you finished and won (a tie for the top score counts as a win for everyone tied), your Cut for a buck wins out of the cuts you played, and your last 5 results. The Records page's **Lucky Buck** title goes to the player with the most Cut for a buck wins in the period, from 2 wins up; tied players share it.
+Every finished tournament is kept: your profile shows how many tournaments you finished and won (a tie for the top score counts as a win for everyone tied), your cut for a buck wins out of the cuts you played, and your last 5 results. The Records page's **Lucky Buck** title goes to the player with the most Cut for a buck wins in the period, from 2 wins up; tied players share it.
 
 ## Get Your Bid
 

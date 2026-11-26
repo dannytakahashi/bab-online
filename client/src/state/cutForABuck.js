@@ -230,8 +230,7 @@ export const RULES_LINE = "Lowest card is out. Suits don't count; aces are high 
 export const RESHUFFLE_LINE = 'Not enough cards left. Shuffling them back in.';
 /** My draw was the server's (I was away, disconnected or the window closed). */
 export const DREW_FOR_YOU_LINE = 'We drew a card for you';
-export const BRAGGING_LINE = 'Just for bragging rights.';
-export const WATCHING_LINE = 'Watching Cut for a buck';
+export const WATCHING_LINE = 'Watching cut for a buck';
 
 /** Am I a player still in? */
 export const isAlive = (s, me) => !!s && s.alive.includes(me);
@@ -302,9 +301,9 @@ export function revealAnnouncement(reveal, me) {
   return `Round ${reveal.round}: ${cards}. ${verdictLines(reveal, me).join('. ')}.`;
 }
 
-/** "dan wins Cut for a buck!" / "You win Cut for a buck!" */
+/** "dan wins cut for a buck!" / "You win cut for a buck!" */
 export function winnerLine(winner, me) {
-  return winner === me ? 'You win Cut for a buck!' : `${winner} wins Cut for a buck!`;
+  return winner === me ? 'You win cut for a buck!' : `${winner} wins cut for a buck!`;
 }
 
 /**
@@ -340,7 +339,7 @@ export function statusLines(s, { me, spectator = false, now = Date.now() } = {})
       return { main: lines[0] || '', sub: lines.slice(1).join('. ') };
     }
     case STAGE.WINNER:
-      return { main: s.winner ? winnerLine(s.winner, me) : '', sub: BRAGGING_LINE };
+      return { main: s.winner ? winnerLine(s.winner, me) : '', sub: '' };
     default:
       return { main: '', sub: '' };
   }
@@ -406,8 +405,8 @@ export function tournamentWinnerLine(winners, me) {
   return `${joinNames(names)} share the win!`;
 }
 
-/** "dan won Cut for a buck" / "You won Cut for a buck" */
+/** "dan won cut for a buck" / "You won cut for a buck" */
 export function cutWonLine(cut, me) {
   if (!cut?.winner) return '';
-  return cut.winner === me ? 'You won Cut for a buck' : `${cut.winner} won Cut for a buck`;
+  return cut.winner === me ? 'You won cut for a buck' : `${cut.winner} won cut for a buck`;
 }
