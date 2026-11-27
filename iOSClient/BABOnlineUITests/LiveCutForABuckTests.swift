@@ -88,7 +88,8 @@ final class LiveCutForABuckTests: XCTestCase {
         XCTAssertTrue(name.waitForExistence(timeout: 10))
         name.tap(); name.typeText(user)
         fillPasswords(app, pass)
-        let tournament = app.buttons["Tournament"]
+        // the main room is up once New Game is (a tournament is New Game's choice since 2026-11-26)
+        let tournament = app.buttons["New Game"].firstMatch
         for _ in 0..<3 where !tournament.exists {
             sleep(1)
             app.buttons.matching(NSPredicate(format: "label == %@", "Register")).firstMatch.tap()

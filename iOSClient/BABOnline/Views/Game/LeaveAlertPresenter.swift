@@ -2,7 +2,7 @@
 import UIKit
 
 /// A confirmation as a UIKit alert: the in-game Leave ("Exit game?", which LeaveAlertFlow closes
-/// and opens again) and the tournament lobby's Leave / Cancel Tournament / Stop Watching
+/// and opens again) and the tournament lobby's Leave / End Tournament / Stop Watching
 /// (TournamentLobbyMenu, whose open alert's message changes in place).
 ///
 /// Not SwiftUI's `.alert(isPresented:)`: when that alert was closed and presented again

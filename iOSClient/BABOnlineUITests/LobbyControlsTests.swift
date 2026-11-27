@@ -63,30 +63,38 @@ final class LobbyControlsTests: XCTestCase {
         XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 20))
         sleep(1)
         let column = verticalBarColumn(app)
-        let labels = ["New Game", "Tournament", "Stats", "7 online", "Account settings"]
+        // New Game (the spade menu, Tournament among its choices) and the trophy (the leaderboard);
+        // no Tournament or Stats button any more (owner 2026-11-26)
+        let labels = ["New Game", "Leaderboard", "7 online", "Account settings"]
         for label in labels {
             assertControl(app, "label == %@", label, column: column)
         }
         assertContentClear(app, column: column, barLabels: labels)
+        XCTAssertTrue(buttons(app, "label == %@", "Stats").isEmpty, "no Stats icon")
+        XCTAssertTrue(buttons(app, "label == %@", "Tournament").isEmpty, "no Tournament button")
 
-        buttons(app, "label == %@", "Stats").first?.tap()
-        XCTAssertTrue(app.navigationBars["Stats"].waitForExistence(timeout: 5), "Stats opens the Stats sheet")
+        buttons(app, "label == %@", "Leaderboard").first?.tap()
+        XCTAssertTrue(app.navigationBars["Leaderboard"].waitForExistence(timeout: 5), "the trophy opens the leaderboard")
         app.terminate()
     }
 
     /// Owner 2026-11-16: "New Game" keeps its word wherever the header is in the content (every
-    /// phone, the iPad, the open Duo's panel) at the default text size; only Tournament and Stats
-    /// drop to icons when the row is tight. The vertical bar draws symbols only (toolbar items).
+    /// phone, the iPad, the open Duo's panel) at the default text size; only the trophy drops to
+    /// its icon when the row is tight. The vertical bar draws symbols only (toolbar items).
     func testNewGameKeepsItsWord() throws {
         let app = Fixture.launch("main-room")
         XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 20))
         sleep(1)
         if verticalBarColumn(app) != nil { throw XCTSkip("the vertical bar shows symbols only") }
         let newGame = try XCTUnwrap(buttons(app, "label == %@", "New Game").first)
-        let stats = try XCTUnwrap(buttons(app, "label == %@", "Stats").first)
+        let stats = try XCTUnwrap(buttons(app, "label == %@", "Leaderboard").first)
         // an icon-only button is 44 pt wide (headerButton's minWidth); with its word it is far wider
         XCTAssertGreaterThan(newGame.frame.width, 80, "New Game shows its word: \(newGame.frame)")
-        XCTAssertGreaterThan(newGame.frame.width, stats.frame.width + 20, "New Game is wider than an icon: \(newGame.frame) vs \(stats.frame)")
+        // where the row is tight the trophy drops to its icon and New Game keeps its word (with two
+        // actions the whole row fits with words on most screens since 2026-11-26)
+        if stats.frame.width < 60 {
+            XCTAssertGreaterThan(newGame.frame.width, stats.frame.width + 20, "New Game is wider than an icon: \(newGame.frame) vs \(stats.frame)")
+        }
         let a = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         a.name = "main-room-header"
         a.lifetime = .keepAlways
@@ -99,11 +107,11 @@ final class LobbyControlsTests: XCTestCase {
     }
 
     /// The tournament lobby's Leave (owner 2026-11-26): a member's is a button ("Leave Tournament"),
-    /// the host's is in the "…" menu ("More") with Cancel Tournament; in the vertical bar on the
-    /// Duo, in the header elsewhere.
+    /// the host's two buttons are Leave Tournament and End Tournament (one action = one icon); in the
+    /// vertical bar on the Duo, in the header elsewhere.
     func testTournamentLobbyLeave() {
         lobbyLeave("tournament-lobby", label: "Leave Tournament")
-        lobbyLeave("tournament-rounds", label: "More", item: "Leave Tournament…")
+        lobbyLeave("tournament-rounds", labels: ["Leave Tournament", "End Tournament"])
     }
 
     /// Regular width (the iPad, the open Duo): the lobby chat is the right-hand
@@ -235,17 +243,17 @@ final class LobbyControlsTests: XCTestCase {
         app.terminate()
     }
 
-    private func lobbyLeave(_ fixture: String, label: String = "Leave", item: String? = nil) {
+    private func lobbyLeave(_ fixture: String, label: String = "Leave") {
+        lobbyLeave(fixture, labels: [label])
+    }
+
+    private func lobbyLeave(_ fixture: String, labels: [String]) {
         let app = Fixture.launch(fixture)
         XCTAssertTrue(Fixture.readyElement(app, fixture).waitForExistence(timeout: 20))
         sleep(1)
         let column = verticalBarColumn(app)
-        let control = assertControl(app, "label CONTAINS %@", label, column: column)
-        assertContentClear(app, column: column, barLabels: [label])
-        if let item, let control {
-            control.tap()
-            XCTAssertTrue(app.buttons[item].firstMatch.waitForExistence(timeout: 3), "\(label) holds \(item)")
-        }
+        for label in labels { assertControl(app, "label CONTAINS %@", label, column: column) }
+        assertContentClear(app, column: column, barLabels: labels)
         app.terminate()
     }
 }

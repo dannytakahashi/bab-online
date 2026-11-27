@@ -35,7 +35,7 @@ final class LeaveAlertPresenterTests: XCTestCase {
     func testAnyWordsThenAMessageInPlaceThenADiscard() throws {
         let p = LeaveAlertPresenter()
         var answers: [LeaveAlertPresenter.Answer] = []
-        let words = LeaveAlertPresenter.Words(title: "Cancel tournament?", message: "first", confirm: "Cancel Tournament",
+        let words = LeaveAlertPresenter.Words(title: "End tournament?", message: "first", confirm: "End Tournament",
                                               keep: "Keep Tournament", confirmIdentifier: "tournament.confirm",
                                               keepIdentifier: "tournament.keep")
         guard p.present(words, answered: { answers.append($0) }) else {
@@ -45,9 +45,9 @@ final class LeaveAlertPresenterTests: XCTestCase {
         XCTAssertTrue(p.isUp)
         let a = try presented(p)
         XCTAssertEqual(a.preferredStyle, .alert, "a centred alert, never a popover")
-        XCTAssertEqual(a.title, "Cancel tournament?")
+        XCTAssertEqual(a.title, "End tournament?")
         XCTAssertEqual(a.message, "first")
-        XCTAssertEqual(a.actions.map(\.title), ["Cancel Tournament", "Keep Tournament"])
+        XCTAssertEqual(a.actions.map(\.title), ["End Tournament", "Keep Tournament"])
         XCTAssertEqual(a.actions.map(\.style), [.destructive, .cancel])
         XCTAssertEqual(a.actions.map(\.accessibilityIdentifier), ["tournament.confirm", "tournament.keep"])
         // a second present while one is up does nothing
@@ -55,7 +55,7 @@ final class LeaveAlertPresenterTests: XCTestCase {
 
         XCTAssertTrue(p.isPresented)
         XCTAssertEqual(p.confirmEnabled, true)
-        // the destructive button waits in place (the lobby's Cancel during a reconnect)
+        // the destructive button waits in place (the lobby's End Tournament during a reconnect)
         p.setConfirmEnabled(false)
         XCTAssertEqual(a.actions.map(\.isEnabled), [false, true], "the keep button stays")
         XCTAssertTrue(try presented(p) === a)

@@ -268,7 +268,7 @@ final class CutForABuckUITests: XCTestCase {
         XCTAssertTrue(any(app, "results.player.kim").label.contains("Won the cut"))
         XCTAssertTrue(any(app, "results.player.ivy").label.contains("Winner"))
         XCTAssertTrue(app.staticTexts["This lobby stays open for about 10 minutes"].exists)
-        XCTAssertFalse(app.buttons["Cancel Tournament"].exists)
+        XCTAssertFalse(app.buttons["End Tournament"].exists)
         keep("complete")
         app.buttons["results.return"].tap()
         XCTAssertTrue(any(app, "screen.mainRoom").waitForExistence(timeout: 5))
@@ -282,7 +282,7 @@ final class CutForABuckUITests: XCTestCase {
         deck.tap()
         sleep(1)
         XCTAssertFalse(Fixture.probe(app, "fixture.sent").contains("cutForABuckDraw"))
-        XCTAssertFalse(app.buttons["Cancel Tournament"].exists)
+        XCTAssertFalse(app.buttons["End Tournament"].exists)
         keep("spectator")
     }
 

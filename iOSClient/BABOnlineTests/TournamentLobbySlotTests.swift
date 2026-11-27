@@ -1,7 +1,7 @@
 import XCTest
 @testable import BAB_Online
 
-/// The tournament lobby's one action slot and its Leave / Cancel Tournament / Stop Watching
+/// The tournament lobby's one action slot and its Leave / End Tournament / Stop Watching
 /// (owner 2026-11-26): every phase x host / member / spectator x ready x canBegin; the entry point
 /// each role gets and the confirmation's words.
 final class TournamentLobbySlotTests: XCTestCase {
@@ -155,11 +155,11 @@ final class TournamentLobbySlotTests: XCTestCase {
     func testTheMenusItems() {
         typealias M = TournamentLobbyMenu
         for phase in ["lobby", "between_rounds", "round_active"] {
-            XCTAssertEqual(M.items(phase: phase, isCreator: true, isSpectator: false), [.leave, .cancel], phase)
+            XCTAssertEqual(M.items(phase: phase, isCreator: true, isSpectator: false), [.leave, .end], phase)
             XCTAssertEqual(M.items(phase: phase, isCreator: false, isSpectator: false), [.leave], phase)
             XCTAssertEqual(M.items(phase: phase, isCreator: false, isSpectator: true), [.stopWatching], phase)
         }
-        // the cut: no Cancel (as before: it would end the cut early)
+        // the cut: no End (as before: it would end the cut early)
         XCTAssertEqual(M.items(phase: CutForABuck.phase, isCreator: true, isSpectator: false), [.leave])
         // the results: no controls at all (the back control reads Main Room)
         XCTAssertEqual(M.items(phase: "complete", isCreator: true, isSpectator: false), [])
@@ -171,24 +171,24 @@ final class TournamentLobbySlotTests: XCTestCase {
         func msg(_ item: M.Item, _ phase: String, host: Bool = false, others: Int = 2) -> String {
             M.confirmMessage(item, phase: phase, isCreator: host, othersConnected: others, othersPresent: others)
         }
-        XCTAssertEqual(M.confirmButton(.cancel), "Cancel Tournament")
+        XCTAssertEqual(M.confirmButton(.end), "End Tournament")
         XCTAssertEqual(M.confirmButton(.leave), "Leave Tournament")
         XCTAssertEqual(M.confirmButton(.stopWatching), "Stop Watching")
-        XCTAssertEqual(M.confirmTitle(.cancel), "Cancel tournament?")
+        XCTAssertEqual(M.confirmTitle(.end), "End tournament?")
         XCTAssertEqual(M.confirmTitle(.leave), "Leave tournament?")
         XCTAssertEqual(M.confirmTitle(.stopWatching), "Stop watching?")
-        // the keep choice is a button of its own, never a bare "Cancel" beside "Cancel Tournament"
-        XCTAssertEqual(M.keepButton(.cancel), "Keep Tournament")
+        // the keep choice is a button of its own, never a bare "Cancel" beside "End Tournament"
+        XCTAssertEqual(M.keepButton(.end), "Keep Tournament", "never a bare Cancel")
         XCTAssertEqual(M.keepButton(.leave), "Stay")
         XCTAssertEqual(M.keepButton(.stopWatching), "Keep Watching")
         XCTAssertEqual(msg(.stopWatching, "round_active"), "You go back to the main room.")
-        XCTAssertTrue(msg(.cancel, "lobby", host: true).contains("everyone"))
-        XCTAssertTrue(msg(.cancel, "round_active", host: true).contains("games still in play"))
+        XCTAssertTrue(msg(.end, "lobby", host: true).contains("everyone"))
+        XCTAssertTrue(msg(.end, "round_active", host: true).contains("games still in play"))
         XCTAssertEqual(msg(.leave, "lobby"), "You can join again while it's waiting to start.")
         XCTAssertEqual(msg(.leave, "lobby", host: true),
                        "You can join again while it's waiting to start. Another player becomes the host.")
         XCTAssertFalse(msg(.leave, "lobby").contains("host"))
-        for item in [M.Item.cancel, .leave, .stopWatching] {
+        for item in [M.Item.end, .leave, .stopWatching] {
             for words in [M.title(item), msg(item, "lobby", host: true)] {
                 XCTAssertFalse(words.contains("Team"), words)
             }
@@ -270,18 +270,18 @@ final class TournamentLobbySlotTests: XCTestCase {
     /// does nothing once the menu no longer offers that choice.
     func testAConfirmForAChoiceNoLongerOfferedIsDropped() {
         typealias M = TournamentLobbyMenu
-        XCTAssertTrue(M.stillOffers(.cancel, phase: "lobby", isCreator: true, isSpectator: false))
-        XCTAssertFalse(M.stillOffers(.cancel, phase: "lobby", isCreator: false, isSpectator: false), "the host role passed on")
-        XCTAssertFalse(M.stillOffers(.cancel, phase: CutForABuck.phase, isCreator: true, isSpectator: false), "the cut began")
+        XCTAssertTrue(M.stillOffers(.end, phase: "lobby", isCreator: true, isSpectator: false))
+        XCTAssertFalse(M.stillOffers(.end, phase: "lobby", isCreator: false, isSpectator: false), "the host role passed on")
+        XCTAssertFalse(M.stillOffers(.end, phase: CutForABuck.phase, isCreator: true, isSpectator: false), "the cut began")
         XCTAssertFalse(M.stillOffers(.leave, phase: "complete", isCreator: false, isSpectator: false), "the results")
         XCTAssertFalse(M.stillOffers(.stopWatching, phase: "between_rounds", isCreator: false, isSpectator: false))
         XCTAssertTrue(M.stillOffers(.leave, phase: "round_active", isCreator: false, isSpectator: false))
     }
 
-    /// One verb for the tournament going away (Cancel's "ends"), in every message.
+    /// One verb for the tournament going away (End's "ends"), in every message.
     func testTheMessagesSayEndsNeverCloses() {
         typealias M = TournamentLobbyMenu
-        for item in [M.Item.cancel, .leave, .stopWatching] {
+        for item in [M.Item.end, .leave, .stopWatching] {
             for phase in ["lobby", "between_rounds", "round_active", CutForABuck.phase] {
                 for host in [false, true] {
                     for (c, p) in [(0, 0), (0, 2), (2, 2)] {
@@ -293,44 +293,99 @@ final class TournamentLobbySlotTests: XCTestCase {
         }
     }
 
-    /// One choice is its own button, two a "…" menu of one level (owner 2026-11-26: "it shouldn't be
-    /// a menu within a menu within a menu").
-    func testEachRoleGetsOneLevel() {
+    /// One action = one button (owner 2026-11-26: "it shouldn't be a menu within a menu within a
+    /// menu", then "tournament host should get two separate icons"): the host outside the cut gets
+    /// Leave and End Tournament, a button each; everyone else one.
+    func testEachRoleGetsOneButtonPerAction() {
         typealias M = TournamentLobbyMenu
         for phase in ["lobby", "between_rounds", "round_active"] {
-            XCTAssertEqual(M.entry(phase: phase, isCreator: true, isSpectator: false), .menu([.leave, .cancel]), phase)
+            XCTAssertEqual(M.entry(phase: phase, isCreator: true, isSpectator: false), .buttons([.leave, .end]), phase)
             XCTAssertEqual(M.entry(phase: phase, isCreator: false, isSpectator: false), .button(.leave), phase)
             XCTAssertEqual(M.entry(phase: phase, isCreator: false, isSpectator: true), .button(.stopWatching), phase)
         }
-        // the host during the cut: Leave alone, so a button
+        // the host during the cut: Leave alone, one button as today
         XCTAssertEqual(M.entry(phase: CutForABuck.phase, isCreator: true, isSpectator: false), .button(.leave))
+        XCTAssertEqual(M.entry(phase: CutForABuck.phase, isCreator: false, isSpectator: false), .button(.leave))
         XCTAssertEqual(M.entry(phase: "complete", isCreator: true, isSpectator: false), .none)
         XCTAssertEqual(M.entry(phase: "complete", isCreator: false, isSpectator: true), .none)
     }
 
-    func testTheEntryPointsWordsAndIdentifiers() {
+    /// Leave keeps a member's Leave's place: first (the top) in the Duo's bar, last (the trailing
+    /// corner) in a header row, with End Tournament before it.
+    func testTheHostsButtonsKeepLeaveWhereAMembersIs() {
         typealias M = TournamentLobbyMenu
-        XCTAssertEqual(M.identifier(.menu([.leave, .cancel])), "tournament.more")
-        XCTAssertEqual(M.identifier(.button(.leave)), "tournament.leave")
-        XCTAssertEqual(M.identifier(.button(.stopWatching)), "tournament.stopWatching")
-        XCTAssertNil(M.identifier(.none))
-        XCTAssertEqual(M.menuIdentifier(.cancel), "tournament.menu.cancel")
+        let host = M.entry(phase: "lobby", isCreator: true, isSpectator: false)
+        XCTAssertEqual(M.displayOrder(host, inBar: true), [.leave, .end])
+        XCTAssertEqual(M.displayOrder(host, inBar: false), [.end, .leave])
+        XCTAssertEqual(M.displayOrder(.button(.leave), inBar: false), [.leave])
+        XCTAssertEqual(M.displayOrder(.button(.stopWatching), inBar: true), [.stopWatching])
+        XCTAssertEqual(M.displayOrder(.none, inBar: true), [])
+    }
+
+    func testTheButtonsWordsAndIdentifiers() {
+        typealias M = TournamentLobbyMenu
+        XCTAssertEqual(M.identifier(.leave), "tournament.leave")
+        XCTAssertEqual(M.identifier(.end), "tournament.end")
+        XCTAssertEqual(M.identifier(.stopWatching), "tournament.stopWatching")
+        // the fallback "…" menu (a header row with no room for two icons) and its rows
+        XCTAssertEqual(M.fallbackIdentifier, "tournament.more")
+        XCTAssertEqual(M.menuIdentifier(.end), "tournament.menu.end")
         XCTAssertEqual(M.menuIdentifier(.leave), "tournament.menu.leave")
+        XCTAssertEqual(M.fallbackLabel, "More")
+        XCTAssertEqual(M.fallbackHint, "Leave or end the tournament")
         XCTAssertEqual(M.confirmIdentifier, "tournament.confirm")
         XCTAssertEqual(M.keepIdentifier, "tournament.keep")
         // the menu's rows open a confirmation: a trailing ellipsis
         XCTAssertEqual(M.menuTitle(.leave), "Leave Tournament…")
-        XCTAssertEqual(M.menuTitle(.cancel), "Cancel Tournament…")
-        // the button: short words (the full title is its VoiceOver label) and the item's icon
+        XCTAssertEqual(M.menuTitle(.end), "End Tournament…")
+        // VoiceOver: the full titles and what each asks
+        XCTAssertEqual(M.title(.leave), "Leave Tournament")
+        XCTAssertEqual(M.title(.end), "End Tournament")
+        XCTAssertEqual(M.title(.stopWatching), "Stop Watching")
+        XCTAssertEqual(M.hint(.leave), "Asks before you leave the tournament")
+        XCTAssertEqual(M.hint(.end), "Asks before ending the tournament for everyone")
+        XCTAssertEqual(M.hint(.stopWatching), "Asks before you stop watching the tournament")
+        // the visible words (the AX controls row, the bar, the Large Content Viewer) and the icons
         XCTAssertEqual(M.buttonTitle(.leave), "Leave")
+        XCTAssertEqual(M.buttonTitle(.end), "End Tournament")
         XCTAssertEqual(M.buttonTitle(.stopWatching), "Stop Watching")
         XCTAssertEqual(M.icon(.leave), "rectangle.portrait.and.arrow.right")
         XCTAssertEqual(M.icon(.stopWatching), "eye.slash")
-        XCTAssertEqual(M.icon(.cancel), "xmark.circle")
-        XCTAssertEqual(M.hint(.menu([.leave, .cancel])), "Leave or cancel the tournament")
-        XCTAssertEqual(M.hint(.button(.leave)), "Asks before you leave the tournament")
-        XCTAssertEqual(M.hint(.button(.stopWatching)), "Asks before you stop watching the tournament")
-        XCTAssertNil(M.hint(.none))
+        XCTAssertEqual(M.icon(.end), "stop.circle")
+        XCTAssertFalse(M.icon(.end).contains("xmark"), "End is a stop, never a close")
+        // "End" everywhere the user reads it; the wire event stays cancelTournament
+        for item in [M.Item.end, .leave, .stopWatching] {
+            for words in [M.title(item), M.menuTitle(item), M.buttonTitle(item), M.hint(item), M.confirmTitle(item),
+                          M.confirmButton(item), M.keepButton(item), M.fallbackHint,
+                          M.confirmMessage(item, phase: "lobby", isCreator: true, othersConnected: 2, othersPresent: 2)] {
+                XCTAssertFalse(words.lowercased().contains("cancel"), words)
+            }
+        }
+        XCTAssertEqual(SocketEvents.Client.cancelTournament, "cancelTournament")
+    }
+
+    /// End Tournament waits for the session and the re-entry; Leave and Stop Watching never do.
+    func testOnlyEndWaitsForTheSession() {
+        typealias M = TournamentLobbyMenu
+        XCTAssertFalse(M.isEnabled(.end, canSend: false))
+        XCTAssertTrue(M.isEnabled(.end, canSend: true))
+        for item in [M.Item.leave, .stopWatching] {
+            XCTAssertTrue(M.isEnabled(item, canSend: false))
+        }
+    }
+
+    /// The host's words at the accessibility sizes (review of PR #438): the controls row tries
+    /// smaller and smaller caps before the icons alone, each below the accessibility sizes' first
+    /// but the first; only End Tournament, which ends it for everyone, is drawn as destructive.
+    func testTheHostsWordsShrinkBeforeTheyGoAndOnlyEndIsDestructive() {
+        typealias M = TournamentLobbyMenu
+        XCTAssertEqual(M.wordCaps.count, 3, "the view's ViewThatFits reads three caps")
+        XCTAssertEqual(M.wordCaps, M.wordCaps.sorted().reversed(), "largest first: the largest that fits wins")
+        XCTAssertEqual(M.wordCaps.first, .accessibility1)
+        XCTAssertTrue(M.wordCaps.dropFirst().allSatisfy { !$0.isAccessibilitySize }, "then below the AX sizes")
+        XCTAssertTrue(M.isDestructiveForEveryone(.end))
+        XCTAssertFalse(M.isDestructiveForEveryone(.leave))
+        XCTAssertFalse(M.isDestructiveForEveryone(.stopWatching))
     }
 
     /// The open alert while the lobby changes: its choice gone -> dropped; only the consequence
@@ -344,18 +399,18 @@ final class TournamentLobbySlotTests: XCTestCase {
         }
         let hostLeave = M.confirmMessage(.leave, phase: "lobby", isCreator: true, othersConnected: 3, othersPresent: 3)
         let memberLeave = M.confirmMessage(.leave, phase: "lobby", isCreator: false, othersConnected: 3, othersPresent: 3)
-        let cancel = M.confirmMessage(.cancel, phase: "lobby", isCreator: true, othersConnected: 3, othersPresent: 3)
-        XCTAssertEqual(M.change(open: .cancel, showing: cancel, in: ctx(host: true)), .none)
-        // a host hand-off: Cancel's alert goes, Leave's says the new consequence
-        XCTAssertEqual(M.change(open: .cancel, showing: cancel, in: ctx(host: false)), .discard)
+        let end = M.confirmMessage(.end, phase: "lobby", isCreator: true, othersConnected: 3, othersPresent: 3)
+        XCTAssertEqual(M.change(open: .end, showing: end, in: ctx(host: true)), .none)
+        // a host hand-off: End's alert goes, Leave's says the new consequence
+        XCTAssertEqual(M.change(open: .end, showing: end, in: ctx(host: false)), .discard)
         XCTAssertEqual(M.change(open: .leave, showing: hostLeave, in: ctx(host: false)), .message(memberLeave))
         // I become the host
         XCTAssertEqual(M.change(open: .leave, showing: memberLeave, in: ctx(host: true)), .message(hostLeave))
         // the others leave: alone in the lobby
         XCTAssertEqual(M.change(open: .leave, showing: hostLeave, in: ctx(host: true, connected: 0, present: 0)),
                        .message("The tournament ends, since nobody else has joined."))
-        // the cut starts: Cancel goes, Leave stays with the cut's words
-        XCTAssertEqual(M.change(open: .cancel, showing: cancel, in: ctx(CutForABuck.phase, host: true)), .discard)
+        // the cut starts: End goes, Leave stays with the cut's words
+        XCTAssertEqual(M.change(open: .end, showing: end, in: ctx(CutForABuck.phase, host: true)), .discard)
         XCTAssertEqual(M.change(open: .leave, showing: hostLeave, in: ctx(CutForABuck.phase, host: true)),
                        .message("You'll be out of cut for a buck. Another player becomes the host."))
         // the results, or the tournament gone: every alert goes
@@ -393,19 +448,19 @@ final class TournamentLobbySlotTests: XCTestCase {
                        "never \"The tournament ends, since nobody else has joined.\" in place")
     }
 
-    /// Cancel's confirm waits for the session and the re-entry, as its menu item does; Leave and
-    /// Stop Watching never wait (review of PR #437). The consequence does not depend on it.
-    func testOnlyCancelsConfirmWaitsForTheSession() {
+    /// End's confirm waits for the session and the re-entry, as its button does; Leave and Stop
+    /// Watching never wait (review of PR #437). The consequence does not depend on it.
+    func testOnlyEndsConfirmWaitsForTheSession() {
         typealias M = TournamentLobbyMenu
-        XCTAssertFalse(M.confirmEnabled(.cancel, canSend: false))
-        XCTAssertTrue(M.confirmEnabled(.cancel, canSend: true))
+        XCTAssertFalse(M.confirmEnabled(.end, canSend: false))
+        XCTAssertTrue(M.confirmEnabled(.end, canSend: true))
         for item in [M.Item.leave, .stopWatching] {
             XCTAssertTrue(M.confirmEnabled(item, canSend: false))
             XCTAssertTrue(M.confirmEnabled(item, canSend: true))
         }
-        let cancel = M.confirmMessage(.cancel, phase: "lobby", isCreator: true, othersConnected: 3, othersPresent: 3)
+        let end = M.confirmMessage(.end, phase: "lobby", isCreator: true, othersConnected: 3, othersPresent: 3)
         let offline = M.Context(hasTournament: true, phase: "lobby", isCreator: true, isSpectator: false,
                                 othersConnected: 3, othersPresent: 3, canSend: false)
-        XCTAssertEqual(M.change(open: .cancel, showing: cancel, in: offline), .none, "the alert stays, its confirm waits")
+        XCTAssertEqual(M.change(open: .end, showing: end, in: offline), .none, "the alert stays, its confirm waits")
     }
 }

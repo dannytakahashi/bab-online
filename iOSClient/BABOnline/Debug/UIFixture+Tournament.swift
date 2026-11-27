@@ -14,16 +14,16 @@ import SwiftUI
 ///   tournamentVoiceStatus {admitted: false, cap}); `-uiVoiceAdmit <seconds>`: then
 ///   `{admitted: true}` that long after launch.
 /// - Any tournament lobby fixture: `-uiHost <name>`, `-uiMeReady YES|NO`, `-uiAllReady YES`
-///   (`seedTournamentRoles`); Ready / Unready / Begin / Cancel / Leave show in "fixture.sent" by
-///   their event names, and Ready / Unready update my row as the server's answer would.
-/// - Any tournament lobby fixture: `-uiHandOffOnAlert <name>`: 3 s after Leave / Cancel
+///   (`seedTournamentRoles`); Ready / Unready / Begin / End (cancelTournament) / Leave show in
+///   "fixture.sent" by their event names, and Ready / Unready update my row as the server's answer would.
+/// - Any tournament lobby fixture: `-uiHandOffOnAlert <name>`: 3 s after Leave / End
 ///   Tournament / Stop Watching's confirmation alert opens, the host role passes to that member (as
-///   tournamentPlayerLeft's `newCreator` would), once: Cancel's alert goes, Leave's says the new
+///   tournamentPlayerLeft's `newCreator` would), once: End's alert goes, Leave's says the new
 ///   consequence in place.
 /// - `-uiResetOnAlert YES`: 3 s after that alert opens the tournament state is reset (the
 ///   tournament gone) with no screen change: the alert goes with no answer.
 /// - `-uiRejoinOnAlert YES`: 3 s after that alert opens a re-entry starts
-///   (`rejoiningTournamentId`), and ends 3 s later: Cancel's confirm is disabled, then enabled.
+///   (`rejoiningTournamentId`), and ends 3 s later: End's confirm is disabled, then enabled.
 extension UIFixture {
     static weak var fixtureTournament: TournamentState?
 
