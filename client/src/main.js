@@ -2783,7 +2783,7 @@ function initializeApp() {
     onTournamentCancelled: () => {
       gameState.tournamentId = null;
       clearCut();
-      showInfo('Tournament has been cancelled by the host');
+      showInfo('The host ended the tournament');
       // The server aborted every live table first (abortGame already sent
       // this player out, its returnToTournament lands in the main room):
       // one route request at a time, so no second joinMainRoom here
