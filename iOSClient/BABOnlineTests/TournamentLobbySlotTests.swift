@@ -322,6 +322,44 @@ final class TournamentLobbySlotTests: XCTestCase {
         XCTAssertEqual(M.displayOrder(.none, inBar: true), [])
     }
 
+    /// The vertical bar as the game's (owner 2026-11-27, "The standard game icons"): Leave (or Stop
+    /// Watching) alone in the top pill, a leading item as the game's Exit; End Tournament a trailing
+    /// item, in its own pill under it; Leave above End.
+    func testTheBarsPillsAreTheGames() {
+        typealias M = TournamentLobbyMenu
+        XCTAssertEqual(M.barPill(.leave), .leading)
+        XCTAssertEqual(M.barPill(.stopWatching), .leading)
+        XCTAssertEqual(M.barPill(.end), .trailing)
+        // every role: one leading item at most (alone in its pill), End never in Leave's pill
+        for phase in ["lobby", "between_rounds", "round_active", CutForABuck.phase] {
+            for (host, spectator) in [(true, false), (false, false), (false, true)] {
+                let order = M.displayOrder(M.entry(phase: phase, isCreator: host, isSpectator: spectator), inBar: true)
+                let leading = order.filter { M.barPill($0) == .leading }
+                XCTAssertEqual(leading.count, 1, "\(phase) host \(host) spectator \(spectator): \(order)")
+                // the bar lays out its leading pill above its trailing one: the order agrees
+                XCTAssertEqual(order, order.filter { M.barPill($0) == .leading } + order.filter { M.barPill($0) == .trailing })
+            }
+        }
+        XCTAssertEqual(M.displayOrder(M.entry(phase: "lobby", isCreator: true, isSpectator: false), inBar: true).map(M.barPill),
+                       [.leading, .trailing])
+    }
+
+    /// Leave and a spectator's Stop Watching are the game's Exit glyph exactly: the same symbol,
+    /// mirrored (its arrow points left, out), as the game gives a seated player and a spectator one
+    /// Exit; End is drawn as it is.
+    func testLeaveIsTheGamesExitGlyph() {
+        typealias M = TournamentLobbyMenu
+        XCTAssertEqual(M.icon(.leave), ExitIcon.symbolName)
+        XCTAssertEqual(M.icon(.stopWatching), ExitIcon.symbolName)
+        XCTAssertTrue(M.isMirrored(.leave))
+        XCTAssertTrue(M.isMirrored(.stopWatching))
+        XCTAssertFalse(M.isMirrored(.end))
+        // the label VoiceOver reads stays the choice, never the symbol's name
+        XCTAssertEqual(M.title(.leave), "Leave Tournament")
+        XCTAssertEqual(M.title(.stopWatching), "Stop Watching")
+        XCTAssertEqual(M.identifier(.stopWatching), "tournament.stopWatching")
+    }
+
     func testTheButtonsWordsAndIdentifiers() {
         typealias M = TournamentLobbyMenu
         XCTAssertEqual(M.identifier(.leave), "tournament.leave")
@@ -350,7 +388,7 @@ final class TournamentLobbySlotTests: XCTestCase {
         XCTAssertEqual(M.buttonTitle(.end), "End Tournament")
         XCTAssertEqual(M.buttonTitle(.stopWatching), "Stop Watching")
         XCTAssertEqual(M.icon(.leave), "rectangle.portrait.and.arrow.right")
-        XCTAssertEqual(M.icon(.stopWatching), "eye.slash")
+        XCTAssertEqual(M.icon(.stopWatching), "rectangle.portrait.and.arrow.right")
         XCTAssertEqual(M.icon(.end), "stop.circle")
         XCTAssertFalse(M.icon(.end).contains("xmark"), "End is a stop, never a close")
         // "End" everywhere the user reads it; the wire event stays cancelTournament
