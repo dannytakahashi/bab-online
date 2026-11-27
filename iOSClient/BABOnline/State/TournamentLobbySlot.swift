@@ -163,10 +163,11 @@ enum TournamentLobbyMenu {
 
     static func barPill(_ item: Item) -> BarPill { item == .end ? .trailing : .leading }
 
-    /// Leave is the game's Exit glyph exactly: `icon(.leave)` mirrored, its arrow pointing left,
-    /// out (in the header a mirrored symbol; in the vertical bar, which ignores SwiftUI
-    /// transforms, the game's `ExitIcon.barImage`).
-    static func isMirrored(_ item: Item) -> Bool { item == .leave }
+    /// Leave and Stop Watching are the game's Exit glyph exactly: the Exit symbol mirrored, its
+    /// arrow pointing left, out (in the header a mirrored symbol; in the vertical bar, which
+    /// ignores SwiftUI transforms, the game's `ExitIcon.barImage`). A spectator gets the same Exit
+    /// door as a member, as in the game, where a seated player and a pure spectator share one Exit.
+    static func isMirrored(_ item: Item) -> Bool { item != .end }
 
     /// A button's accessibility identifier: `tournament.leave`, `tournament.end`,
     /// `tournament.stopWatching`.
@@ -209,8 +210,9 @@ enum TournamentLobbyMenu {
         }
     }
 
-    /// End Tournament is a stop, never an xmark (it reads as close / dismiss). Leave is the game's
-    /// Exit symbol (`ExitIcon.symbolName`), drawn mirrored (`isMirrored`). End's stop.circle is the
+    /// End Tournament is a stop, never an xmark (it reads as close / dismiss). Leave and Stop
+    /// Watching are the game's Exit symbol (`ExitIcon.symbolName`), drawn mirrored (`isMirrored`);
+    /// the label and the alert say which (a spectator's was `eye.slash` before 2026-11-27). End's stop.circle is the
     /// bar's own symbol at the bar's size: measured on the open Duo (iOS 27.2) its ink is within
     /// 0.7 pt of the game's chat glyph's height at the default size, AX3 and Bold Text, so it is not
     /// redrawn into a bitmap as Leave is.
@@ -218,7 +220,7 @@ enum TournamentLobbyMenu {
         switch item {
         case .end: return "stop.circle"
         case .leave: return "rectangle.portrait.and.arrow.right"
-        case .stopWatching: return "eye.slash"
+        case .stopWatching: return "rectangle.portrait.and.arrow.right"
         }
     }
 

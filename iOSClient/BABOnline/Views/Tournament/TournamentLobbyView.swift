@@ -650,10 +650,11 @@ private struct TournamentLobbyScreen: View {
         .accessibilityIdentifier(TournamentLobbyMenu.identifier(item))
     }
 
-    /// Leave's icon, the game's Exit exactly (its arrow points left, out): in the vertical bar the
+    /// Leave's and Stop Watching's icon, the game's Exit exactly (its arrow points left, out): in the vertical bar the
     /// game's bar image (the bar draws a toolbar item's symbol itself and drops SwiftUI transforms,
     /// so the mirror is in the bitmap, ExitIcon.barImage), in a header the symbol mirrored as the
-    /// game's corner Exit is. Hidden: the button reads "Leave Tournament", not the symbol's name.
+    /// game's corner Exit is. Hidden: the button reads "Leave Tournament" / "Stop Watching", not the
+    /// symbol's name.
     @ViewBuilder
     private func mirroredIcon(_ item: TournamentLobbyMenu.Item, inBar: Bool) -> some View {
         #if os(iOS)
