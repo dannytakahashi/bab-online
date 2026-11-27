@@ -48,6 +48,21 @@
  * tournamentVoiceStatus is told so (private tournamentVoiceStatus
  * {admitted: false, cap}: "Voice is full (N people)"), and told again
  * ({admitted: true, cap}) when it is admitted.
+ *
+ * SFU rooms (VOICE_SFU=tournament, owner 2026-11-26; server/voice/sfu/,
+ * docs/claude/voice.md "SFU voice (server)"): a room whose first member
+ * enters while the flag is on and the Cloudflare app is configured is an
+ * SFU room for as long as it has anyone in it (`t.voiceRoom.mode`; decided
+ * again only when it is empty, so no live room ever switches transport). In
+ * an SFU room the membership above is unchanged (enter / leave / relist /
+ * close and every caller), but nothing of the mesh is sent: no
+ * voicePeerList / voicePeerJoined / voicePeerLeft and no
+ * tournamentVoiceStatus, ever. `change` hands the new membership to
+ * sfu/sfuRoom.js, which admits the members with the cap `sfuVoice` (up to
+ * its own safety ceiling, VOICE_SFU_ROOM_MAX, default 100) and keeps their
+ * Cloudflare sessions; a member without the cap gets no voice there. The
+ * mesh's own cap with the flag on is 8 ("keep 8 as the direct limit":
+ * `meshMax`); with the flag off it is TOURNAMENT_VOICE_MAX as before.
  */
 
 'use strict';
@@ -80,6 +95,30 @@ function maxRoom(env = process.env) {
 }
 
 const lazyGameVoice = () => require('./gameVoice');
+const sfuConfig = require('./sfu/config');
+const sfuRoom = require('./sfu/sfuRoom');
+
+/**
+ * The most members admitted to a peer-to-peer tournament room: maxRoom(),
+ * and with VOICE_SFU on at most 8 (owner 2026-11-26: "keep 8 as the direct
+ * limit"; with the flag on a tournament room is an SFU room unless the app
+ * is not configured, so this bounds that fallback). Flag off: unchanged.
+ */
+function meshMax(env = process.env) {
+    const cap = maxRoom(env);
+    return sfuConfig.flagOn(env) ? Math.min(cap, sfuConfig.MESH_MAX_WITH_SFU) : cap;
+}
+
+/** Is `t`'s voice room an SFU room (decided at its first entry)? */
+const isSfu = (t) => t?.voiceRoom?.mode === 'sfu';
+
+/** An empty room takes the transport the flag says now (VOICE_SFU read at call time). */
+function settleMode(t) {
+    const room = record(t);
+    const empty = room.members.size === 0 && !(room.sfu && room.sfu.entries.size > 0);
+    if (!room.mode || empty) room.mode = sfuConfig.sfuEnabled() ? 'sfu' : 'mesh';
+    return room.mode;
+}
 
 /**
  * May `sid` be announced at a tournament table? The cap tournamentVoice
@@ -183,8 +222,8 @@ function registered(t) {
     return !!t && !t.retired && gameManager.tournaments.get(t.tournamentId) === t;
 }
 
-/** The admitted members, in entry order: [{socketId, username}] (at most maxRoom()). */
-function admitted(t, cap = maxRoom()) {
+/** The admitted mesh members, in entry order: [{socketId, username}] (at most meshMax()). */
+function admitted(t, cap = meshMax()) {
     if (!t?.voiceRoom) return [];
     return [...t.voiceRoom.members.entries()]
         .sort((a, b) => a[1].order - b[1].order)
@@ -212,8 +251,14 @@ function sendStatus(io, sid, admittedNow, cap) {
  * in entry order, voicePeerList of the admitted ones before it, and each of
  * those voicePeerJoined.
  */
-function change(io, t, mutate) {
-    const cap = maxRoom();
+function change(io, t, mutate, opts = {}) {
+    if (isSfu(t)) {
+        // An SFU room: the roster is sfuRoom's, and no mesh event is ever sent
+        mutate(record(t).members);
+        sfuRoom.sync(io, t, opts);
+        return;
+    }
+    const cap = meshMax();
     const before = admitted(t, cap);
     const waitingBefore = waitingIds(t, before);
     mutate(record(t).members);
@@ -284,12 +329,16 @@ function enter(io, t, sid) {
     const room = record(t);
     if (room.members.has(sid)) {
         relist(io, t, sid);
+        if (isSfu(t)) return true;
         // its lobby screen was drawn again: say where it stands again (a
         // client keeps the note across a redraw, so an admitted one clears it)
-        const cap = maxRoom();
+        const cap = meshMax();
         sendStatus(io, sid, admitted(t, cap).some((p) => p.socketId === sid), cap);
         return true;
     }
+    settleMode(t);
+    // sfuVoice: the client can join an SFU room (only such members get voice there)
+    const sfu = clientInfo.socketHasCap(io, sid, sfuRoom.CAP);
     change(io, t, (members) => {
         // A newer socket of the same user keeps that entry's place in line
         let order = null;
@@ -298,19 +347,24 @@ function enter(io, t, sid) {
             order = order === null ? e.order : Math.min(order, e.order);
             members.delete(other);
         }
-        members.set(sid, { username, order: order ?? ++room.order });
+        members.set(sid, { username, order: order ?? ++room.order, sfu });
     });
+    if (isSfu(t)) {
+        socketLogger.info('Voice: tournament room entered', { tournamentId: t.tournamentId, socketId: sid, sfu: true, sfuVoice: sfu, members: room.members.size });
+        return true;
+    }
     const inVoice = admitted(t).some((p) => p.socketId === sid);
     // Admitted at once: say so, so a note carried over from an earlier
     // socket (a reconnect, a deploy handoff rebuilding the room in a new
     // order) clears; a newcomer past the cap already got {admitted: false}
-    if (inVoice) sendStatus(io, sid, true, maxRoom());
+    if (inVoice) sendStatus(io, sid, true, meshMax());
     socketLogger.info('Voice: tournament room entered', { tournamentId: t.tournamentId, socketId: sid, admitted: inVoice, members: room.members.size });
     return true;
 }
 
 /** `sid` (already admitted) is listed again: voicePeerList of every other admitted member, voicePeerJoined to each. */
 function relist(io, t, sid) {
+    if (isSfu(t)) return sfuRoom.relist(io, t, sid);
     const all = admitted(t);
     const me = all.find((p) => p.socketId === sid);
     if (!me) return;
@@ -358,8 +412,10 @@ function leaveSocket(io, sid, { except = null } = {}) {
 
 /** Everyone leaves (cancel, the results window's end). */
 function closeRoom(io, t) {
-    if (!t?.voiceRoom || t.voiceRoom.members.size === 0) return;
-    change(io, t, (members) => members.clear());
+    if (!t?.voiceRoom) return;
+    const sfuLeft = isSfu(t) && t.voiceRoom.sfu && t.voiceRoom.sfu.entries.size > 0;
+    if (t.voiceRoom.members.size === 0 && !sfuLeft) return;
+    change(io, t, (members) => members.clear(), { closing: true });
 }
 
 /**
@@ -374,6 +430,9 @@ function roomOf(sid) {
     const t = gameManager.tournaments.get(tid);
     if (!registered(t) || !t.voiceRoom?.members.has(sid)) return null;
     if (gameManager.playerGames.has(sid) || gameManager.playerLobbies.has(sid) || gameManager.spectatorGames.has(sid)) return null;
+    // An SFU room is its own kind: voiceHandlers.authorize relays no mesh
+    // signal there ('sfu_room'), TURN is still handed out
+    if (isSfu(t)) return sfuRoom.isMember(t, sid) ? `sfu:${tid}` : null;
     return admitted(t).some((p) => p.socketId === sid) ? `tournament:${tid}` : null;
 }
 
@@ -384,6 +443,8 @@ module.exports = {
     MAX_ROOM_MIN,
     MAX_ROOM_MAX,
     maxRoom,
+    meshMax,
+    isSfu,
     tableCapable,
     announceTable,
     holdSeating,

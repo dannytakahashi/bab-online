@@ -1754,6 +1754,220 @@
     "clientCapCutForABuck": {
       "const": "cutForABuck"
     },
+    "clientCapSfuVoice": {
+      "const": "sfuVoice"
+    },
+    "sfuSessionId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "sfuTrackName": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+    },
+    "sfuMid": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,32}$"
+    },
+    "sfuOffer": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "offer"
+        },
+        "sdp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "sdp"
+      ],
+      "additionalProperties": false
+    },
+    "sfuAnswer": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "answer"
+        },
+        "sdp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "sdp"
+      ],
+      "additionalProperties": false
+    },
+    "sfuMemberEntry": {
+      "type": "object",
+      "properties": {
+        "username": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trackName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "enum": [
+            "live",
+            "reconnecting"
+          ]
+        }
+      },
+      "required": [
+        "username",
+        "sessionId",
+        "trackName",
+        "state"
+      ],
+      "additionalProperties": false
+    },
+    "sfuTrackResult": {
+      "type": "object",
+      "properties": {
+        "mid": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trackName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "errorCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "errorDescription": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "mid",
+        "trackName",
+        "errorCode",
+        "errorDescription"
+      ],
+      "additionalProperties": false
+    },
+    "sfuPulledTrack": {
+      "type": "object",
+      "properties": {
+        "username": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "trackName": {
+          "type": "string"
+        },
+        "mid": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "errorCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "errorDescription": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "username",
+        "sessionId",
+        "trackName",
+        "mid",
+        "errorCode",
+        "errorDescription"
+      ],
+      "additionalProperties": false
+    },
+    "sfuError": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid",
+            "rate_limited",
+            "not_in_room",
+            "not_your_session",
+            "already_published",
+            "no_local_track",
+            "bad_token",
+            "busy",
+            "superseded",
+            "session_gone",
+            "timeout",
+            "cloudflare_unreachable",
+            "cloudflare_error",
+            "unavailable",
+            "server_error"
+          ]
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "retryAfterMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "status": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cfCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "retryable",
+        "retryAfterMs",
+        "status",
+        "cfCode"
+      ],
+      "additionalProperties": false
+    },
     "cutDraw": {
       "type": "object",
       "properties": {
@@ -5374,6 +5588,667 @@
         }
       ],
       "notes": "Answered by voiceIceServers to this socket only (requestId echoed). Web asks before its first peer connection of a voice session and again before the credentials expire. TURN credentials (Cloudflare Realtime, minted server-side, cached per user) only for a signed-in socket that is a voice peer now (in a lobby, or an entrant / seat owner of a game); everyone else, and every failure (env unset, Cloudflare timeout or error), gets the public STUN servers. iOS 1.1.0 does not send it (it hard-codes STUN); iOS 1.2.0 asks on every voice start and before its restart (Voice/IceServerStore.swift; V1_REMOVALS \"iOS TURN\")."
+    },
+    "sfuSession": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "requestId"
+        ],
+        "additionalProperties": true
+      },
+      "status": "unsent",
+      "joi": null,
+      "joiInHandler": "sfuSession",
+      "rateLimit": null,
+      "sentBy": {
+        "web": false,
+        "ios": false
+      },
+      "examples": [
+        {
+          "requestId": "sfu-1"
+        }
+      ],
+      "invalid": [
+        {},
+        {
+          "requestId": ""
+        },
+        {
+          "requestId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ],
+      "notes": "Cloudflare SFU voice (2026-11-26, server PR 1; no client sends it yet: web PR 2, iOS PR 3). Only from an admitted member of a tournament's SFU room (VOICE_SFU=tournament; the clientHello cap sfuVoice, on the tournament lobby screen, inside the room's ceiling), on its own current session. Each is answered by exactly one sfuReply with the same requestId (a payload without a usable requestId is dropped silently); a refusal is sfuReply ok false {error: {code, retryable, retryAfterMs}}, never serverError. Per-socket limit rateLimiter.sfuCall (300 / 10 s, every op but sfuSession together), checked in the handler like the Joi schema (joiInHandler). Every Cloudflare call of a session runs on its serial queue. docs/claude/voice.md \"SFU voice (server)\". A new Cloudflare session for this member (replaces any it had: the old one's queued work answers superseded, and the room hears sfuMember session). Answered sfuReply op session {sessionId, sessionToken}; keep the token for sfuResume. Make one only when there is something to pull or to push (a muted listener in a room where nobody publishes needs none). Limit rateLimiter.sfuSession (6 / min)."
+    },
+    "sfuPush": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "sessionId": {
+            "$ref": "#/$defs/sfuSessionId"
+          },
+          "offer": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "offer"
+              },
+              "sdp": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 262144
+              }
+            },
+            "required": [
+              "type",
+              "sdp"
+            ],
+            "additionalProperties": true
+          },
+          "mid": {
+            "$ref": "#/$defs/sfuMid"
+          },
+          "trackName": {
+            "$ref": "#/$defs/sfuTrackName"
+          }
+        },
+        "required": [
+          "requestId",
+          "sessionId",
+          "offer",
+          "mid",
+          "trackName"
+        ],
+        "additionalProperties": true
+      },
+      "status": "unsent",
+      "joi": null,
+      "joiInHandler": "sfuPush",
+      "rateLimit": null,
+      "sentBy": {
+        "web": false,
+        "ios": false
+      },
+      "examples": [
+        {
+          "requestId": "sfu-2",
+          "sessionId": "abc123",
+          "offer": {
+            "type": "offer",
+            "sdp": "v=0"
+          },
+          "mid": "0",
+          "trackName": "mic"
+        }
+      ],
+      "invalid": [
+        {
+          "requestId": "sfu-2",
+          "sessionId": "abc123",
+          "offer": {
+            "type": "answer",
+            "sdp": "v=0"
+          },
+          "mid": "0",
+          "trackName": "mic"
+        },
+        {
+          "requestId": "sfu-2",
+          "sessionId": "a b",
+          "offer": {
+            "type": "offer",
+            "sdp": "v=0"
+          },
+          "mid": "0",
+          "trackName": "mic"
+        },
+        {
+          "requestId": "sfu-2",
+          "sessionId": "abc123",
+          "offer": {
+            "type": "offer",
+            "sdp": "v=0"
+          },
+          "mid": "0"
+        }
+      ],
+      "notes": "Cloudflare SFU voice (2026-11-26, server PR 1; no client sends it yet: web PR 2, iOS PR 3). Only from an admitted member of a tournament's SFU room (VOICE_SFU=tournament; the clientHello cap sfuVoice, on the tournament lobby screen, inside the room's ceiling), on its own current session. Each is answered by exactly one sfuReply with the same requestId (a payload without a usable requestId is dropped silently); a refusal is sfuReply ok false {error: {code, retryable, retryAfterMs}}, never serverError. Per-socket limit rateLimiter.sfuCall (300 / 10 s, every op but sfuSession together), checked in the handler like the Joi schema (joiInHandler). Every Cloudflare call of a session runs on its serial queue. docs/claude/voice.md \"SFU voice (server)\". Publish my one audio track (on my first unmute; a muted-at-start member pushes nothing): my offer with the sendonly transceiver's mid and a trackName (\"mic\"). Answered sfuReply op push {answer, tracks}; when my track has no errorCode the room hears sfuMember published. Another trackName / mid while one is published: already_published."
+    },
+    "sfuPull": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "sessionId": {
+            "$ref": "#/$defs/sfuSessionId"
+          },
+          "tracks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sessionId": {
+                  "$ref": "#/$defs/sfuSessionId"
+                },
+                "trackName": {
+                  "$ref": "#/$defs/sfuTrackName"
+                }
+              },
+              "required": [
+                "sessionId",
+                "trackName"
+              ],
+              "additionalProperties": true
+            },
+            "minItems": 1,
+            "maxItems": 64
+          }
+        },
+        "required": [
+          "requestId",
+          "sessionId",
+          "tracks"
+        ],
+        "additionalProperties": true
+      },
+      "status": "unsent",
+      "joi": null,
+      "joiInHandler": "sfuPull",
+      "rateLimit": null,
+      "sentBy": {
+        "web": false,
+        "ios": false
+      },
+      "examples": [
+        {
+          "requestId": "sfu-3",
+          "sessionId": "abc123",
+          "tracks": [
+            {
+              "sessionId": "def456",
+              "trackName": "mic"
+            }
+          ]
+        }
+      ],
+      "invalid": [
+        {
+          "requestId": "sfu-3",
+          "sessionId": "abc123",
+          "tracks": []
+        },
+        {
+          "requestId": "sfu-3",
+          "sessionId": "abc123",
+          "tracks": [
+            {
+              "sessionId": "def456",
+              "trackName": "a b"
+            }
+          ]
+        },
+        {
+          "requestId": "sfu-3",
+          "sessionId": "abc123",
+          "tracks": [
+            {
+              "sessionId": "def456"
+            }
+          ]
+        }
+      ],
+      "notes": "Cloudflare SFU voice (2026-11-26, server PR 1; no client sends it yet: web PR 2, iOS PR 3). Only from an admitted member of a tournament's SFU room (VOICE_SFU=tournament; the clientHello cap sfuVoice, on the tournament lobby screen, inside the room's ceiling), on its own current session. Each is answered by exactly one sfuReply with the same requestId (a payload without a usable requestId is dropped silently); a refusal is sfuReply ok false {error: {code, retryable, retryAfterMs}}, never serverError. Per-socket limit rateLimiter.sfuCall (300 / 10 s, every op but sfuSession together), checked in the handler like the Joi schema (joiInHandler). Every Cloudflare call of a session runs on its serial queue. docs/claude/voice.md \"SFU voice (server)\". Pull other members' published tracks (their roster sessionId + trackName), at most 64 per ask (Cloudflare's per-request limit). Only another member's CURRENT published track in my room is pulled, never one of a blocked pair, never one this session already pulls or is asking for (duplicate: close the mid you hold first); each track of the answer (sfuReply op pull) carries its mid or an errorCode, and a pull with failed tracks may still carry the SFU's offer, which must be answered (sfuRenegotiate)."
+    },
+    "sfuRenegotiate": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "sessionId": {
+            "$ref": "#/$defs/sfuSessionId"
+          },
+          "answer": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "answer"
+              },
+              "sdp": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 262144
+              }
+            },
+            "required": [
+              "type",
+              "sdp"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "requestId",
+          "sessionId",
+          "answer"
+        ],
+        "additionalProperties": true
+      },
+      "status": "unsent",
+      "joi": null,
+      "joiInHandler": "sfuRenegotiate",
+      "rateLimit": null,
+      "sentBy": {
+        "web": false,
+        "ios": false
+      },
+      "examples": [
+        {
+          "requestId": "sfu-4",
+          "sessionId": "abc123",
+          "answer": {
+            "type": "answer",
+            "sdp": "v=0"
+          }
+        }
+      ],
+      "invalid": [
+        {
+          "requestId": "sfu-4",
+          "sessionId": "abc123",
+          "answer": {
+            "type": "offer",
+            "sdp": "v=0"
+          }
+        },
+        {
+          "requestId": "sfu-4",
+          "sessionId": "abc123",
+          "answer": {
+            "type": "answer",
+            "sdp": ""
+          }
+        },
+        {
+          "requestId": "sfu-4",
+          "sessionId": "abc123"
+        }
+      ],
+      "notes": "Cloudflare SFU voice (2026-11-26, server PR 1; no client sends it yet: web PR 2, iOS PR 3). Only from an admitted member of a tournament's SFU room (VOICE_SFU=tournament; the clientHello cap sfuVoice, on the tournament lobby screen, inside the room's ceiling), on its own current session. Each is answered by exactly one sfuReply with the same requestId (a payload without a usable requestId is dropped silently); a refusal is sfuReply ok false {error: {code, retryable, retryAfterMs}}, never serverError. Per-socket limit rateLimiter.sfuCall (300 / 10 s, every op but sfuSession together), checked in the handler like the Joi schema (joiInHandler). Every Cloudflare call of a session runs on its serial queue. docs/claude/voice.md \"SFU voice (server)\". My answer to the SFU's offer (from a pull, or a close that renegotiates). Answered sfuReply op renegotiate."
+    },
+    "sfuClose": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "sessionId": {
+            "$ref": "#/$defs/sfuSessionId"
+          },
+          "mids": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/sfuMid"
+            },
+            "minItems": 1,
+            "maxItems": 64
+          },
+          "force": {
+            "type": "boolean"
+          },
+          "offer": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "offer"
+              },
+              "sdp": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 262144
+              }
+            },
+            "required": [
+              "type",
+              "sdp"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "requestId",
+          "sessionId",
+          "mids"
+        ],
+        "additionalProperties": true
+      },
+      "status": "unsent",
+      "joi": null,
+      "joiInHandler": "sfuClose",
+      "rateLimit": null,
+      "sentBy": {
+        "web": false,
+        "ios": false
+      },
+      "examples": [
+        {
+          "requestId": "sfu-5",
+          "sessionId": "abc123",
+          "mids": [
+            "1"
+          ],
+          "offer": {
+            "type": "offer",
+            "sdp": "v=0"
+          }
+        },
+        {
+          "requestId": "sfu-5",
+          "sessionId": "abc123",
+          "mids": [
+            "1",
+            "2"
+          ],
+          "force": true
+        }
+      ],
+      "invalid": [
+        {
+          "requestId": "sfu-5",
+          "sessionId": "abc123",
+          "mids": [],
+          "force": true
+        },
+        {
+          "requestId": "sfu-5",
+          "sessionId": "abc123",
+          "mids": [
+            "a b"
+          ],
+          "force": true
+        },
+        {
+          "requestId": "sfu-5",
+          "sessionId": "abc123",
+          "mids": [
+            "1"
+          ],
+          "force": "yes"
+        }
+      ],
+      "notes": "Cloudflare SFU voice (2026-11-26, server PR 1; no client sends it yet: web PR 2, iOS PR 3). Only from an admitted member of a tournament's SFU room (VOICE_SFU=tournament; the clientHello cap sfuVoice, on the tournament lobby screen, inside the room's ceiling), on its own current session. Each is answered by exactly one sfuReply with the same requestId (a payload without a usable requestId is dropped silently); a refusal is sfuReply ok false {error: {code, retryable, retryAfterMs}}, never serverError. Per-socket limit rateLimiter.sfuCall (300 / 10 s, every op but sfuSession together), checked in the handler like the Joi schema (joiInHandler). Every Cloudflare call of a session runs on its serial queue. docs/claude/voice.md \"SFU voice (server)\". Close tracks on my session by mid: negotiated (stop the transceivers, my offer; the answer comes back in sfuReply op close) or force: true (no SDP). Joi also requires the offer unless force is true. Closing my own published track unpublishes it (the room hears sfuMember unpublished)."
+    },
+    "sfuIceRestart": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "sessionId": {
+            "$ref": "#/$defs/sfuSessionId"
+          },
+          "offer": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "offer"
+              },
+              "sdp": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 262144
+              }
+            },
+            "required": [
+              "type",
+              "sdp"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "requestId",
+          "sessionId",
+          "offer"
+        ],
+        "additionalProperties": true
+      },
+      "status": "unsent",
+      "joi": null,
+      "joiInHandler": "sfuIceRestart",
+      "rateLimit": null,
+      "sentBy": {
+        "web": false,
+        "ios": false
+      },
+      "examples": [
+        {
+          "requestId": "sfu-6",
+          "sessionId": "abc123",
+          "offer": {
+            "type": "offer",
+            "sdp": "v=0"
+          }
+        }
+      ],
+      "invalid": [
+        {
+          "requestId": "sfu-6",
+          "sessionId": "abc123"
+        },
+        {
+          "requestId": "sfu-6",
+          "sessionId": "abc123",
+          "offer": {
+            "type": "answer",
+            "sdp": "v=0"
+          }
+        }
+      ],
+      "notes": "Cloudflare SFU voice (2026-11-26, server PR 1; no client sends it yet: web PR 2, iOS PR 3). Only from an admitted member of a tournament's SFU room (VOICE_SFU=tournament; the clientHello cap sfuVoice, on the tournament lobby screen, inside the room's ceiling), on its own current session. Each is answered by exactly one sfuReply with the same requestId (a payload without a usable requestId is dropped silently); a refusal is sfuReply ok false {error: {code, retryable, retryAfterMs}}, never serverError. Per-socket limit rateLimiter.sfuCall (300 / 10 s, every op but sfuSession together), checked in the handler like the Joi schema (joiInHandler). Every Cloudflare call of a session runs on its serial queue. docs/claude/voice.md \"SFU voice (server)\". An ICE restart on the same session (createOffer({iceRestart: true})): the server sends it through tracks/new re-declaring my published track (the undocumented form the 2026-11-26 spike found; PUT renegotiate with an offer answers 406). Answered sfuReply op iceRestart {answer}. A session that published nothing has no track to re-declare: no_local_track, make a new session instead."
+    },
+    "sfuResume": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "sessionId": {
+            "$ref": "#/$defs/sfuSessionId"
+          },
+          "sessionToken": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "trackName": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/sfuTrackName"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mid": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/sfuMid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pulls": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "mid": {
+                  "$ref": "#/$defs/sfuMid"
+                },
+                "sessionId": {
+                  "$ref": "#/$defs/sfuSessionId"
+                },
+                "trackName": {
+                  "$ref": "#/$defs/sfuTrackName"
+                }
+              },
+              "required": [
+                "mid",
+                "sessionId",
+                "trackName"
+              ],
+              "additionalProperties": true
+            },
+            "maxItems": 512
+          }
+        },
+        "required": [
+          "requestId",
+          "sessionId",
+          "sessionToken",
+          "trackName",
+          "mid"
+        ],
+        "additionalProperties": true
+      },
+      "status": "unsent",
+      "joi": null,
+      "joiInHandler": "sfuResume",
+      "rateLimit": null,
+      "sentBy": {
+        "web": false,
+        "ios": false
+      },
+      "examples": [
+        {
+          "requestId": "sfu-7",
+          "sessionId": "abc123",
+          "sessionToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "trackName": "mic",
+          "mid": "0",
+          "pulls": [
+            {
+              "mid": "1",
+              "sessionId": "def456",
+              "trackName": "mic"
+            }
+          ]
+        },
+        {
+          "requestId": "sfu-7",
+          "sessionId": "abc123",
+          "sessionToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "trackName": null,
+          "mid": null
+        }
+      ],
+      "invalid": [
+        {
+          "requestId": "sfu-7",
+          "sessionId": "abc123",
+          "sessionToken": "short",
+          "trackName": null,
+          "mid": null
+        },
+        {
+          "requestId": "sfu-7",
+          "sessionId": "abc123",
+          "trackName": null,
+          "mid": null
+        },
+        {
+          "requestId": "sfu-7",
+          "sessionId": "abc123",
+          "sessionToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mid": null
+        }
+      ],
+      "notes": "Cloudflare SFU voice (2026-11-26, server PR 1; no client sends it yet: web PR 2, iOS PR 3). Only from an admitted member of a tournament's SFU room (VOICE_SFU=tournament; the clientHello cap sfuVoice, on the tournament lobby screen, inside the room's ceiling), on its own current session. Each is answered by exactly one sfuReply with the same requestId (a payload without a usable requestId is dropped silently); a refusal is sfuReply ok false {error: {code, retryable, retryAfterMs}}, never serverError. Per-socket limit rateLimiter.sfuCall (300 / 10 s, every op but sfuSession together), checked in the handler like the Joi schema (joiInHandler). Every Cloudflare call of a session runs on its serial queue. docs/claude/voice.md \"SFU voice (server)\". Re-register a session I still hold (its PeerConnection alive) after my socket reconnected or the server restarted (a new bootId): the sessionToken sfuSession gave, my published track (both null when none; one null alone is invalid) and what I pull (so the server can enforce a later block). A token that does not prove the session is mine: bad_token. A session this server ended (I left the room, replaced it, sent sfuLeave, or my reconnect grace ran out; its pulls were closed at Cloudflare): session_gone, make a new one. Answered sfuReply op resume; the room hears sfuMember resumed (same session and track) or session."
+    },
+    "sfuLeave": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "sessionId": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/sfuSessionId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "requestId"
+        ],
+        "additionalProperties": true
+      },
+      "status": "unsent",
+      "joi": null,
+      "joiInHandler": "sfuLeave",
+      "rateLimit": null,
+      "sentBy": {
+        "web": false,
+        "ios": false
+      },
+      "examples": [
+        {
+          "requestId": "sfu-8",
+          "sessionId": "abc123"
+        },
+        {
+          "requestId": "sfu-8"
+        }
+      ],
+      "invalid": [
+        {
+          "requestId": "sfu-8",
+          "sessionId": "a b"
+        },
+        {
+          "sessionId": "abc123"
+        }
+      ],
+      "notes": "Cloudflare SFU voice (2026-11-26, server PR 1; no client sends it yet: web PR 2, iOS PR 3). Only from an admitted member of a tournament's SFU room (VOICE_SFU=tournament; the clientHello cap sfuVoice, on the tournament lobby screen, inside the room's ceiling), on its own current session. Each is answered by exactly one sfuReply with the same requestId (a payload without a usable requestId is dropped silently); a refusal is sfuReply ok false {error: {code, retryable, retryAfterMs}}, never serverError. Per-socket limit rateLimiter.sfuCall (300 / 10 s, every op but sfuSession together), checked in the handler like the Joi schema (joiInHandler). Every Cloudflare call of a session runs on its serial queue. docs/claude/voice.md \"SFU voice (server)\". I am done with my session (voice stops on this screen: no company, a page hide): the room hears sfuMember session (null) at once, instead of waiting for the reconnect grace, and the server closes what the session pulls at Cloudflare. Idempotent (a session that is not mine is ignored). Answered sfuReply op leave. Then close the PeerConnection; Cloudflare drops the session."
     },
     "adminRequest": {
       "payload": {
@@ -12879,6 +13754,470 @@
         "server/socket/voiceHandlers.js:getVoiceIceServers"
       ],
       "notes": "The reply to getVoiceIceServers. iceServers is an RTCPeerConnection iceServers list: turn true = Cloudflare TURN (username / credential on the turn: / turns: entry, valid expiresInSec more seconds; port-53 URLs dropped), false = the public STUN servers both clients used before (expiresInSec null). requestId echoes the request's. Never the API token."
+    },
+    "sfuReply": {
+      "payload": {
+        "anyOf": [
+          {
+            "variant": "session",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "op": {
+                "const": "session"
+              },
+              "ok": {
+                "const": true
+              },
+              "sessionId": {
+                "$ref": "#/$defs/sfuSessionId"
+              },
+              "sessionToken": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{43}$"
+              }
+            },
+            "required": [
+              "requestId",
+              "op",
+              "ok",
+              "sessionId",
+              "sessionToken"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "push",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "op": {
+                "const": "push"
+              },
+              "ok": {
+                "const": true
+              },
+              "sessionId": {
+                "type": "string"
+              },
+              "answer": {
+                "$ref": "#/$defs/sfuAnswer"
+              },
+              "tracks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/sfuTrackResult"
+                }
+              }
+            },
+            "required": [
+              "requestId",
+              "op",
+              "ok",
+              "sessionId",
+              "answer",
+              "tracks"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "pull",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "op": {
+                "const": "pull"
+              },
+              "ok": {
+                "const": true
+              },
+              "sessionId": {
+                "type": "string"
+              },
+              "requiresImmediateRenegotiation": {
+                "type": "boolean"
+              },
+              "offer": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/sfuOffer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "tracks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/sfuPulledTrack"
+                }
+              }
+            },
+            "required": [
+              "requestId",
+              "op",
+              "ok",
+              "sessionId",
+              "requiresImmediateRenegotiation",
+              "offer",
+              "tracks"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "renegotiate",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "op": {
+                "const": "renegotiate"
+              },
+              "ok": {
+                "const": true
+              },
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "requestId",
+              "op",
+              "ok",
+              "sessionId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "close",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "op": {
+                "const": "close"
+              },
+              "ok": {
+                "const": true
+              },
+              "sessionId": {
+                "type": "string"
+              },
+              "answer": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/sfuAnswer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "tracks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/sfuTrackResult"
+                }
+              }
+            },
+            "required": [
+              "requestId",
+              "op",
+              "ok",
+              "sessionId",
+              "answer",
+              "tracks"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "iceRestart",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "op": {
+                "const": "iceRestart"
+              },
+              "ok": {
+                "const": true
+              },
+              "sessionId": {
+                "type": "string"
+              },
+              "answer": {
+                "$ref": "#/$defs/sfuAnswer"
+              },
+              "tracks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/sfuTrackResult"
+                }
+              }
+            },
+            "required": [
+              "requestId",
+              "op",
+              "ok",
+              "sessionId",
+              "answer",
+              "tracks"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "resume",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "op": {
+                "const": "resume"
+              },
+              "ok": {
+                "const": true
+              },
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "requestId",
+              "op",
+              "ok",
+              "sessionId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "leave",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "op": {
+                "const": "leave"
+              },
+              "ok": {
+                "const": true
+              }
+            },
+            "required": [
+              "requestId",
+              "op",
+              "ok"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "error",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "op": {
+                "enum": [
+                  "session",
+                  "push",
+                  "pull",
+                  "renegotiate",
+                  "close",
+                  "iceRestart",
+                  "resume",
+                  "leave"
+                ]
+              },
+              "ok": {
+                "const": false
+              },
+              "sessionId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "error": {
+                "$ref": "#/$defs/sfuError"
+              }
+            },
+            "required": [
+              "requestId",
+              "op",
+              "ok",
+              "sessionId",
+              "error"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "status": "active",
+      "to": "self",
+      "clientReads": {
+        "web": [],
+        "ios": []
+      },
+      "emittedFrom": [
+        "server/socket/sfuHandlers.js:handle"
+      ],
+      "notes": "New (2026-11-26; private, unsequenced): the one answer to each c2s sfu* request, matched by requestId (op names the request). ok true carries the op's result; ok false the error: code (invalid, rate_limited, not_in_room, not_your_session, already_published, no_local_track, bad_token, busy, superseded, session_gone, timeout, cloudflare_unreachable, cloudflare_error, unavailable, server_error), retryable and retryAfterMs (when to try again), and for cloudflare_error the HTTP status and Cloudflare's errorCode. session_gone (Cloudflare 410: the session is dead, about 35 s after its peer lost connectivity): never retry on it, make a new session (sfuSession). superseded: the session was replaced or ended while the request waited. busy: the session's queue is full, or the request did not start within 3 s behind earlier calls (it was never sent to Cloudflare): retry after retryAfterMs, so every reply comes within about 11 s (3 s plus one 8 s Cloudflare call). A pull answer is ok true even when tracks failed: read every tracks[i].errorCode (Cloudflare's empty_track_error / not_found_track_error: retry that track every 1 s up to 10 times; the server's not_in_room / own_track / blocked / duplicate (this session pulls that track already, or a pull of it is in flight) / too_many_pulls / no_result: do not retry until the roster changes), and answer its offer whenever there is one. sessionToken (op session) proves the session is this member's in this tournament across a server restart (sfuResume); never log it."
+    },
+    "sfuRoster": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "tournamentId": {
+            "type": "string"
+          },
+          "bootId": {
+            "type": "string",
+            "description": "the server process; a new one means it restarted: re-register with sfuResume and hold every pull for 10 s"
+          },
+          "rev": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "status": {
+            "enum": [
+              "admitted",
+              "waiting",
+              "out"
+            ]
+          },
+          "cap": {
+            "type": "integer",
+            "minimum": 2,
+            "description": "the SFU room's safety ceiling (VOICE_SFU_ROOM_MAX)"
+          },
+          "graceMs": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "how long a dropped member stays listed as reconnecting"
+          },
+          "self": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "sessionId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "trackName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "enum": [
+                  "live",
+                  "reconnecting"
+                ]
+              }
+            },
+            "required": [
+              "sessionId",
+              "trackName",
+              "state"
+            ],
+            "additionalProperties": false
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/sfuMemberEntry"
+            }
+          }
+        },
+        "required": [
+          "tournamentId",
+          "bootId",
+          "rev",
+          "status",
+          "cap",
+          "graceMs",
+          "self",
+          "members"
+        ],
+        "additionalProperties": false
+      },
+      "status": "active",
+      "to": "socket",
+      "clientReads": {
+        "web": [],
+        "ios": []
+      },
+      "emittedFrom": [
+        "server/voice/sfu/sfuRoom.js:sendRoster"
+      ],
+      "notes": "New (2026-11-26; private, unsequenced): a tournament's SFU room as one member sees it, to a socket with the cap sfuVoice: when it enters (tournamentCreated / tournamentJoined), comes back on a new socket, draws its lobby screen again, is let in from the line, or leaves. status admitted: self is my record as the server knows it (sessionId null after a server restart until I resume; state reconnecting: resume my session with sfuResume or make a new one), members every other member (a blocked pair is never listed); waiting: the room is at its ceiling (cap), I am in line with no voice (\"Voice is full (N people)\"); out: I am not in an SFU room now: end my session. An SFU room never sends voicePeerList / voicePeerJoined / voicePeerLeft or tournamentVoiceStatus."
+    },
+    "sfuMember": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "tournamentId": {
+            "type": "string"
+          },
+          "bootId": {
+            "type": "string"
+          },
+          "rev": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "event": {
+            "enum": [
+              "joined",
+              "session",
+              "published",
+              "unpublished",
+              "reconnecting",
+              "resumed",
+              "left"
+            ]
+          },
+          "member": {
+            "$ref": "#/$defs/sfuMemberEntry"
+          }
+        },
+        "required": [
+          "tournamentId",
+          "bootId",
+          "rev",
+          "event",
+          "member"
+        ],
+        "additionalProperties": false
+      },
+      "status": "active",
+      "to": "socket",
+      "clientReads": {
+        "web": [],
+        "ios": []
+      },
+      "emittedFrom": [
+        "server/voice/sfu/sfuRoom.js:announce",
+        "server/voice/sfu/sfuRoom.js:blockedPairFound"
+      ],
+      "notes": "New (2026-11-26; private, unsequenced): one member's new record to every other admitted member of the SFU room (a blocked pair never hears of each other; a block mid-call sends each a left for the other and the server force-closes any pull still open between them 5 s later). member is the whole record, so applying it is an upsert (left: remove), and a record for a member I do not know is a join. What to do: a new (sessionId, trackName) pair: pull it (after closing a pull of the same member's older track); trackName null or a new sessionId: close my pull of the old one; reconnecting: keep its pull (it may come back on the same session within graceMs); left: close its pull. rev grows per room; within one socket the events arrive in order after its sfuRoster."
     },
     "serverShutdown": {
       "payload": {

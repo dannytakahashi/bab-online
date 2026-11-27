@@ -554,6 +554,18 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   2026-11-25 ("Voice is full (N people)" in the tournament lobby); iOS from
   1.2.7, which lists the event for Swift (`contract/layout.json` excludes
   it until then).
+- `sfuVoice` (`$defs.clientCapSfuVoice`, its own const for the same
+  reason; 2026-11-26, Cloudflare SFU voice, server PR 1): the client speaks
+  the SFU protocol (c2s `sfuSession` / `sfuPush` / `sfuPull` /
+  `sfuRenegotiate` / `sfuClose` / `sfuIceRestart` / `sfuResume` /
+  `sfuLeave`, each answered by one private `sfuReply`; s2c `sfuRoster` and
+  `sfuMember`). Only in a tournament's SFU room (`VOICE_SFU=tournament`):
+  there only such a member gets voice, and no member is ever sent the mesh
+  events (voicePeerList / voicePeerJoined / voicePeerLeft,
+  tournamentVoiceStatus). New events only, no changed field; the c2s are
+  `unsent` and listed for no platform until the web (PR 2) and iOS (PR 3)
+  send them (`contract/layout.json` excludes them). docs/claude/voice.md
+  "SFU voice (server)" is the client protocol.
 - `getYourBid` (`$defs.clientCapGetYourBid`, its own const for the same
   reason; 2026-11-24, Get Your Bid: `server/game/gameMode.js`,
   `server/CLAUDE.md` "Get Your Bid"): the client can show a Get Your Bid

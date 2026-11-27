@@ -109,6 +109,9 @@ function authorize(socket, io, event, targetSocketId) {
     if (!from || !to) return refuse('not_signed_in');
 
     const room = gameVoice.voiceRoomOf(socket.id);
+    // A tournament's SFU room: audio goes through Cloudflare, never peer to
+    // peer, so no mesh signal is relayed there (server/voice/sfu/)
+    if (typeof room === 'string' && room.startsWith('sfu:')) return refuse('sfu_room');
     if (room === null || room !== gameVoice.voiceRoomOf(targetSocketId)) return refuse('not_peers');
 
     // Both lists are consulted (no short circuit), so a missing one starts loading either way
@@ -227,6 +230,14 @@ function setSpectatorsCanTalk(socket, io, data) {
 function rememberBlockList(socket, blockedUsers) {
     if (!socket || !socket.data) return;
     socket.data.blockedUsers = new Set(Array.isArray(blockedUsers) ? blockedUsers : []);
+    // A tournament's SFU room keeps each member's list per username (a member
+    // away in its reconnect grace has no socket): it takes the new one, and a
+    // new block between two of its members is enforced there
+    try {
+        require('../voice/sfu/sfuRoom').blockListChanged(socket, socket.data.blockedUsers);
+    } catch (error) {
+        socketLogger.error('Voice SFU: block list update failed', { error: error?.message });
+    }
 }
 
 module.exports = {

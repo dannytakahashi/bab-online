@@ -103,8 +103,15 @@ const { socketLogger } = require('../utils/logger');
  *                     badgesAwarded after a game that earned one
  *                     (server/socket/badgeAwards.js); a socket without it
  *                     gets neither (the web and iOS 1.2.7 (41))
+ *   sfuVoice          the client speaks the Cloudflare SFU voice protocol
+ *                     (2026-11-26; docs/claude/voice.md "SFU voice
+ *                     (server)"): in a tournament's SFU room
+ *                     (VOICE_SFU=tournament) only such a member gets voice
+ *                     (sfuRoster / sfuMember, the sfu* requests); without
+ *                     it a member there gets no voice and never a mesh peer
+ *                     (server/voice/sfu/sfuRoom.js). No client sends it yet
  */
-const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings', 'tournamentVoiceStatus', 'badges', 'cutForABuck'];
+const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings', 'tournamentVoiceStatus', 'badges', 'cutForABuck', 'sfuVoice'];
 
 /** clientHello (Joi-validated by syncHandler('clientHello')). */
 function handle(socket, io, data) {

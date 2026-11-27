@@ -27,6 +27,26 @@ const sessionDescription = Joi.object({
     sdp: Joi.string().allow('').max(MAX_SDP_LENGTH).required()
 }).unknown(true);
 
+// Cloudflare SFU voice (server/socket/sfuHandlers.js; checked in the
+// handler: a bad one is answered sfuReply {error: invalid} when it carries a
+// requestId, else dropped). An SFU session description grows with the
+// tracks on the session (one m-section per pulled track: ~660 bytes of offer and ~570 of answer each,
+// measured 2026-11-26: docs/claude/voice.md "SFU voice (server)"), so it may
+// be far longer than a mesh call's: 256 KB holds well over the room's
+// ceiling of tracks (100 tracks: ~66 KB). Ids are what Cloudflare hands out (session ids 64 hex
+// chars, mids decimal) with room to spare.
+const MAX_SFU_SDP_LENGTH = 256 * 1024;
+const MAX_SFU_TRACKS = 64; // Cloudflare: at most 64 tracks per tracks/new request
+const sfuRequestId = Joi.string().min(1).max(64).required();
+const sfuSessionId = Joi.string().pattern(/^[A-Za-z0-9_-]{1,128}$/);
+const sfuMid = Joi.string().pattern(/^[A-Za-z0-9_-]{1,32}$/);
+const sfuTrackName = Joi.string().pattern(/^[A-Za-z0-9_.:-]{1,64}$/);
+const sfuSdp = (type) => Joi.object({
+    type: Joi.string().valid(type).required(),
+    sdp: Joi.string().min(1).max(MAX_SFU_SDP_LENGTH).required()
+}).unknown(true);
+const sfuTrackRef = Joi.object({ sessionId: sfuSessionId.required(), trackName: sfuTrackName.required() });
+
 // Validation schemas for each socket event
 const schemas = {
     // Authentication
@@ -125,6 +145,51 @@ const schemas = {
 
     // Voice relays: checked inside voiceHandlers (a bad one is dropped
     // silently, never answered with error), not by the socket wrapper
+    sfuSession: Joi.object({ requestId: sfuRequestId }).required(),
+    sfuPush: Joi.object({
+        requestId: sfuRequestId,
+        sessionId: sfuSessionId.required(),
+        offer: sfuSdp('offer').required(),
+        mid: sfuMid.required(),
+        trackName: sfuTrackName.required()
+    }).required(),
+    sfuPull: Joi.object({
+        requestId: sfuRequestId,
+        sessionId: sfuSessionId.required(),
+        tracks: Joi.array().items(sfuTrackRef).min(1).max(MAX_SFU_TRACKS).required()
+    }).required(),
+    sfuRenegotiate: Joi.object({
+        requestId: sfuRequestId,
+        sessionId: sfuSessionId.required(),
+        answer: sfuSdp('answer').required()
+    }).required(),
+    sfuClose: Joi.object({
+        requestId: sfuRequestId,
+        sessionId: sfuSessionId.required(),
+        mids: Joi.array().items(sfuMid).min(1).max(MAX_SFU_TRACKS).unique().required(),
+        force: Joi.boolean().optional(),
+        // negotiated (force false or absent): our offer is required
+        offer: Joi.when('force', { is: true, then: Joi.any().strip(), otherwise: sfuSdp('offer').required() })
+    }).required(),
+    sfuIceRestart: Joi.object({
+        requestId: sfuRequestId,
+        sessionId: sfuSessionId.required(),
+        offer: sfuSdp('offer').required()
+    }).required(),
+    sfuResume: Joi.object({
+        requestId: sfuRequestId,
+        sessionId: sfuSessionId.required(),
+        sessionToken: Joi.string().pattern(/^[A-Za-z0-9_-]{43}$/).required(),
+        // the published track: both or neither (null, null); checked in the handler
+        trackName: sfuTrackName.allow(null).required(),
+        mid: sfuMid.allow(null).required(),
+        pulls: Joi.array().items(Joi.object({ mid: sfuMid.required(), sessionId: sfuSessionId.required(), trackName: sfuTrackName.required() })).max(512).optional()
+    }).required(),
+    sfuLeave: Joi.object({
+        requestId: sfuRequestId,
+        sessionId: sfuSessionId.allow(null).optional()
+    }).required(),
+
     voiceOffer: Joi.object({
         targetSocketId: voiceTarget.required(),
         offer: sessionDescription.required(),

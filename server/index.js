@@ -110,6 +110,12 @@ function start() {
         logger.info('Instance listening', { ...bootLog, at: new Date().toISOString() });
         logger.info('Server running on port 3000');
         logger.info(`Environment: ${config.env}`);
+        // Tournament voice transport (server/voice/sfu/config.js): the flag and
+        // whether the Cloudflare app is configured, never its id or secret
+        {
+            const sfu = require('./voice/sfu/config');
+            logger.info('Voice SFU', { flag: sfu.mode(), appConfigured: !!sfu.appConfig(), roomMax: sfu.roomMax(), graceMs: sfu.graceMs() });
+        }
         console.log('Server started successfully on port 3000');
         // The deploy healthcheck probes PORT (the service sets PORT=3000,
         // .railway/railway.ts); if they ever differ, every deploy fails it

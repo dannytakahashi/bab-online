@@ -194,11 +194,20 @@ describe('(a) client -> server events', () => {
         // joiInHandler only where the handler drops a bad payload silently (voice, client error
         // reports), and only with no wrapper schema
         const inHandler = contract.c2sNames().filter((n) => contract.schema.c2s[n].joiInHandler);
-        expect(inHandler.sort()).toEqual(['clientError', 'voiceAnswer', 'voiceIceCandidate', 'voiceOffer']);
+        const SFU = ['sfuClose', 'sfuIceRestart', 'sfuLeave', 'sfuPull', 'sfuPush', 'sfuRenegotiate', 'sfuResume', 'sfuSession'];
+        expect(inHandler.sort()).toEqual(['clientError', ...SFU, 'voiceAnswer', 'voiceIceCandidate', 'voiceOffer'].sort());
+        const sfuHandlers = require('../sfuHandlers');
         for (const n of inHandler) {
             expect({ n, joi: contract.schema.c2s[n].joi }).toEqual({ n, joi: null });
             if (n === 'clientError') {
                 expect({ n, src: /validate\('clientError', data\)/.test(clientErrorSrc) }).toEqual({ n, src: true });
+                continue;
+            }
+            // The SFU requests: one table of ops, each validated by its own event's schema
+            // (sfuHandlers.handle: validate(spec.event, raw)), answered sfuReply invalid
+            if (SFU.includes(n)) {
+                expect({ n, op: sfuHandlers.OPS[n]?.event, joi: contract.schema.c2s[n].joiInHandler }).toEqual({ n, op: n, joi: n });
+                expect(/validate\(spec\.event, raw\)/.test(fs.readFileSync(path.join(__dirname, '..', 'sfuHandlers.js'), 'utf8'))).toBe(true);
                 continue;
             }
             expect({ n, src: new RegExp(`checked\\(socket, '${n}', data\\)`).test(voiceSrc) }).toEqual({ n, src: true });
@@ -829,6 +838,66 @@ describe('(d2) Cut for a buck', () => {
 });
 
 // ==================== (e) non-game handlers ====================
+
+describe('(d3) Cloudflare SFU voice in a tournament room', () => {
+    // A fake Cloudflare (server/testUtils/fakeCloudflare.js); every sfuReply
+    // variant, sfuRoster and sfuMember through the real handlers
+    const sfuHandlers = require('../sfuHandlers');
+    const cf = require('../../voice/sfu/cloudflareClient');
+    const { createFakeCloudflare } = require('../../testUtils/fakeCloudflare');
+    const KEYS = ['VOICE_SFU', 'CF_SFU_APP_ID', 'CF_SFU_APP_SECRET', 'CF_SFU_API_BASE'];
+
+    test('session, push, pull, renegotiate, close, ICE restart, resume, leave and a refusal', async () => {
+        const saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
+        const fake = createFakeCloudflare();
+        cf._setFetchForTests(fake.fetch);
+        Object.assign(process.env, fake.env());
+        try {
+            const { io, log } = newIo();
+            const caps = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'sfuVoice'];
+            const [a, b] = ['d3_a', 'd3_b'].map((name) => {
+                const x = newUser(io, log, name);
+                x.data.client = { client: 'web', version: '1', build: null, caps };
+                voiceHandlers.rememberBlockList(x, []);
+                return x;
+            });
+            tournamentHandlers.createTournament(a, io);
+            const t = gameManager.getPlayerTournament(a.id);
+            await tournamentHandlers.joinTournament(b, io, { tournamentId: t.tournamentId });
+            let n = 0;
+            const ask = async (s, ev, data = {}) => {
+                const requestId = `d3-${++n}`;
+                await sfuHandlers[ev](s, io, { requestId, ...data });
+                return log.filter((l) => l.event === 'sfuReply' && l.data.requestId === requestId).at(-1).data;
+            };
+            const offer = { type: 'offer', sdp: 'v=0 offer' };
+            const sa = await ask(a, 'sfuSession');
+            await ask(a, 'sfuPush', { sessionId: sa.sessionId, offer, mid: '0', trackName: 'mic' });
+            const sb = await ask(b, 'sfuSession');
+            const pull = await ask(b, 'sfuPull', { sessionId: sb.sessionId, tracks: [{ sessionId: sa.sessionId, trackName: 'mic' }] });
+            expect(pull.tracks[0].mid).toBe('0');
+            await ask(b, 'sfuRenegotiate', { sessionId: sb.sessionId, answer: { type: 'answer', sdp: 'v=0 answer' } });
+            await ask(b, 'sfuClose', { sessionId: sb.sessionId, mids: ['0'], offer });
+            await ask(a, 'sfuIceRestart', { sessionId: sa.sessionId, offer });
+            await ask(a, 'sfuResume', { sessionId: sa.sessionId, sessionToken: sa.sessionToken, trackName: 'mic', mid: '0' });
+            await ask(b, 'sfuLeave', { sessionId: sb.sessionId });
+            const refused = await ask(b, 'sfuPush', { sessionId: sb.sessionId, offer, mid: '0', trackName: 'mic' });
+            expect(refused).toMatchObject({ ok: false, error: { code: 'not_your_session' } });
+            expect(log.filter((l) => l.event === 'sfuReply').map((l) => (l.data.ok ? l.data.op : 'error'))).toEqual(
+                ['session', 'push', 'session', 'pull', 'renegotiate', 'close', 'iceRestart', 'resume', 'leave', 'error']);
+            expect(events(log, 'sfuRoster').length).toBeGreaterThan(1);
+            expect(events(log, 'sfuMember').map((l) => l.data.event)).toEqual(expect.arrayContaining(['joined', 'session', 'published', 'session']));
+            await tournamentHandlers.cancelTournament(a, io);
+            expect(errorLogs).toEqual([]);
+        } finally {
+            cf._setFetchForTests(null);
+            for (const [k, v] of Object.entries(saved)) {
+                if (v === undefined) delete process.env[k];
+                else process.env[k] = v;
+            }
+        }
+    });
+});
 
 describe('(e) non-game handlers', () => {
     test('auth, profile, safety, main room, lobby, queue, voice, errors', async () => {
