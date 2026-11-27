@@ -344,16 +344,20 @@ final class TournamentLobbySlotTests: XCTestCase {
                        [.leading, .trailing])
     }
 
-    /// Leave is the game's Exit glyph exactly: the same symbol, mirrored (its arrow points left, out);
-    /// End and Stop Watching are drawn as they are.
+    /// Leave and a spectator's Stop Watching are the game's Exit glyph exactly: the same symbol,
+    /// mirrored (its arrow points left, out), as the game gives a seated player and a spectator one
+    /// Exit; End is drawn as it is.
     func testLeaveIsTheGamesExitGlyph() {
         typealias M = TournamentLobbyMenu
         XCTAssertEqual(M.icon(.leave), ExitIcon.symbolName)
+        XCTAssertEqual(M.icon(.stopWatching), ExitIcon.symbolName)
         XCTAssertTrue(M.isMirrored(.leave))
+        XCTAssertTrue(M.isMirrored(.stopWatching))
         XCTAssertFalse(M.isMirrored(.end))
-        XCTAssertFalse(M.isMirrored(.stopWatching))
         // the label VoiceOver reads stays the choice, never the symbol's name
         XCTAssertEqual(M.title(.leave), "Leave Tournament")
+        XCTAssertEqual(M.title(.stopWatching), "Stop Watching")
+        XCTAssertEqual(M.identifier(.stopWatching), "tournament.stopWatching")
     }
 
     func testTheButtonsWordsAndIdentifiers() {
@@ -384,7 +388,7 @@ final class TournamentLobbySlotTests: XCTestCase {
         XCTAssertEqual(M.buttonTitle(.end), "End Tournament")
         XCTAssertEqual(M.buttonTitle(.stopWatching), "Stop Watching")
         XCTAssertEqual(M.icon(.leave), "rectangle.portrait.and.arrow.right")
-        XCTAssertEqual(M.icon(.stopWatching), "eye.slash")
+        XCTAssertEqual(M.icon(.stopWatching), "rectangle.portrait.and.arrow.right")
         XCTAssertEqual(M.icon(.end), "stop.circle")
         XCTAssertFalse(M.icon(.end).contains("xmark"), "End is a stop, never a close")
         // "End" everywhere the user reads it; the wire event stays cancelTournament
