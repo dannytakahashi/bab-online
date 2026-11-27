@@ -58,6 +58,22 @@ enum MainRoomControls {
 
     static let items: [Item] = Item.allCases
 
+    /// Which of the vertical bar's two pills an item sits in (owner 2026-11-27): New Game alone
+    /// on top (the one thing that starts play, as the game's Exit and the lobby's Leave sit
+    /// alone), and the trophy first in the bottom pill with Players, Admin and the settings (the
+    /// things you look at or manage; it opens the leaderboard and records, it no longer starts
+    /// a tournament). The header row (phone, iPad, the closed Duo) is one row and keeps `items`.
+    enum BarPill: Equatable { case play, browse }
+
+    static func barPill(_ item: Item) -> BarPill {
+        switch item {
+        case .newGame: return .play
+        case .leaderboard: return .browse
+        }
+    }
+
+    static func barItems(_ pill: BarPill) -> [Item] { items.filter { barPill($0) == pill } }
+
     /// A control's colour: New Game the brand's, the trophy gold (Theme.warning), as it always was
     /// (owner 2026-11-27: "It was gold before which was nice"; #438's review had made it the plain
     /// text colour, since the tournaments' section and rows below are the same gold).
