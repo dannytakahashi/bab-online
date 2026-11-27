@@ -374,6 +374,20 @@ final class TournamentLobbySlotTests: XCTestCase {
         }
     }
 
+    /// The host's words at the accessibility sizes (review of PR #438): the controls row tries
+    /// smaller and smaller caps before the icons alone, each below the accessibility sizes' first
+    /// but the first; only End Tournament, which ends it for everyone, is drawn as destructive.
+    func testTheHostsWordsShrinkBeforeTheyGoAndOnlyEndIsDestructive() {
+        typealias M = TournamentLobbyMenu
+        XCTAssertEqual(M.wordCaps.count, 3, "the view's ViewThatFits reads three caps")
+        XCTAssertEqual(M.wordCaps, M.wordCaps.sorted().reversed(), "largest first: the largest that fits wins")
+        XCTAssertEqual(M.wordCaps.first, .accessibility1)
+        XCTAssertTrue(M.wordCaps.dropFirst().allSatisfy { !$0.isAccessibilitySize }, "then below the AX sizes")
+        XCTAssertTrue(M.isDestructiveForEveryone(.end))
+        XCTAssertFalse(M.isDestructiveForEveryone(.leave))
+        XCTAssertFalse(M.isDestructiveForEveryone(.stopWatching))
+    }
+
     /// The open alert while the lobby changes: its choice gone -> dropped; only the consequence
     /// changed -> the new words in place; otherwise nothing.
     func testAnOpenConfirmationFollowsTheLobby() {

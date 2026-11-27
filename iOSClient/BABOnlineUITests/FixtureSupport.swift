@@ -45,7 +45,9 @@ enum Fixture {
     static func createTournament(_ app: XCUIApplication, timeout: TimeInterval = 5) {
         app.buttons["New Game"].firstMatch.tap()
         let choice = newGameChoice(app, "tournament")
-        if choice.waitForExistence(timeout: timeout) { choice.tap() }
+        // fail here, at the step that broke, not at a later wait for the tournament lobby
+        XCTAssertTrue(choice.waitForExistence(timeout: timeout), "New Game's Tournament choice")
+        choice.tap()
     }
 
     static func launch(_ fixture: String, extra: [String] = [], env: [String: String] = [:]) -> XCUIApplication {

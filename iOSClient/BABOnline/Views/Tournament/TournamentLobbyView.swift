@@ -132,6 +132,7 @@ private struct TournamentLobbyScreen: View {
                         // owner: "I think the sidebar is correct for the duo")
                         ForEach(TournamentLobbyMenu.displayOrder(menuEntry, inBar: true), id: \.self) { item in
                             entryButton(item)
+                                .tint(TournamentLobbyMenu.isDestructiveForEveryone(item) ? Theme.error : nil)
                         }
                     }
                 }
@@ -543,10 +544,14 @@ private struct TournamentLobbyScreen: View {
     /// In the content header (the vertical bar has them as toolbar items). `withText`: the
     /// accessibility sizes' controls row shows the words beside the icons; the one-row header the
     /// icons alone (the words would crowd the title). The host's two buttons go down a ViewThatFits:
-    /// words (the controls row only), icons, then, only where a row cannot fit two icons, the "…"
-    /// menu of both (no device reaches it in the UI tests: the title gives way first). The entry
-    /// lays out before the title (`layoutPriority`), so it is offered all the room the title can
-    /// give up, and the menu is never picked while the title could still shrink.
+    /// in the controls row the words at the reader's size, then the words at smaller sizes
+    /// (`TournamentLobbyMenu.wordCaps`: the largest that fits, as the member's one word shrinks to
+    /// fit; review of PR #438: at every AX size the words went straight to two bare icons), then
+    /// the icons, then, only where a row cannot fit two icons, the "…" menu of both (no device
+    /// reaches it in the UI tests: the title gives way first). The entry lays out before the title
+    /// (`layoutPriority`), so it is offered all the room the title can give up, and the menu is
+    /// never picked while the title could still shrink. A gap from the mic keeps the pair a group
+    /// of its own (a stop beside a mic could read as a media control).
     @ViewBuilder
     private func headerEntry(withText: Bool) -> some View {
         if !bar.usesVerticalBar {
@@ -564,35 +569,51 @@ private struct TournamentLobbyScreen: View {
                 }
             case .buttons(let items):
                 ViewThatFits(in: .horizontal) {
-                    if withText { headerButtons(withText: true) }
+                    if withText {
+                        headerButtons(withText: true)
+                        headerButtons(withText: true).dynamicTypeSize(...TournamentLobbyMenu.wordCaps[0])
+                        headerButtons(withText: true).dynamicTypeSize(...TournamentLobbyMenu.wordCaps[1])
+                        headerButtons(withText: true).dynamicTypeSize(...TournamentLobbyMenu.wordCaps[2])
+                    }
                     headerButtons(withText: false)
                     fallbackMenu(items)
                 }
                 .layoutPriority(1)
+                .padding(.leading, showsMic ? Theme.Space.s2 : 0)
             }
         }
     }
 
     /// The host's two buttons in a header row, End Tournament then Leave (Leave in the trailing
-    /// corner, as a member's).
+    /// corner, as a member's). Icons alone at the accessibility sizes get a gap: their glyphs fill
+    /// the hit target there and would touch.
     private func headerButtons(withText: Bool) -> some View {
-        HStack(spacing: withText ? Theme.Space.s3 : 0) {
+        HStack(spacing: withText || typeSize.isAccessibilitySize ? Theme.Space.s3 : 0) {
             ForEach(TournamentLobbyMenu.displayOrder(menuEntry, inBar: false), id: \.self) { item in
                 headerButton(item, withText: withText)
             }
         }
     }
 
-    /// One header button: the icon alone, or with its words (one line) in the controls row.
+    /// One header button: the icon alone, or with its words (one line) in the controls row. End
+    /// Tournament in the danger colour (it ends the tournament for everyone; review of PR #438: in
+    /// grey beside the mic a stop glyph read as a media control). A long press at the
+    /// accessibility sizes shows the words in the Large Content Viewer.
     private func headerButton(_ item: TournamentLobbyMenu.Item, withText: Bool) -> some View {
         entryButton(item)
             .labelStyle(EntryLabelStyle(withText: withText))
             .lineLimit(1)
             .font(.title3)
-            .foregroundColor(Theme.textSecondary)
+            .foregroundColor(Self.color(item))
             .opacity(TournamentLobbyMenu.isEnabled(item, canSend: canSendTournamentActions) ? 1 : 0.4)
             .frame(minWidth: Theme.hitTarget, minHeight: Theme.hitTarget)
             .contentShape(Rectangle())
+            .accessibilityShowsLargeContentViewer()
+    }
+
+    /// A button's colour: End Tournament the danger text colour, the others the header's grey.
+    private static func color(_ item: TournamentLobbyMenu.Item) -> Color {
+        TournamentLobbyMenu.isDestructiveForEveryone(item) ? Theme.error : Theme.textSecondary
     }
 
     /// Leave / End Tournament / Stop Watching, one action per button (owner 2026-11-26: "it
@@ -636,6 +657,7 @@ private struct TournamentLobbyScreen: View {
                 .foregroundColor(Theme.textSecondary)
                 .frame(minWidth: Theme.hitTarget, minHeight: Theme.hitTarget)
                 .contentShape(Rectangle())
+                .accessibilityShowsLargeContentViewer()
         }
         .id(items)
         .accessibilityLabel(TournamentLobbyMenu.fallbackLabel)

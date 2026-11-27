@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// The tournament lobby's one action slot at the bottom (owner 2026-11-26: "one primary action"):
 /// Ready, then Unready; for the host, once Begin is allowed (`TournamentBegin.canBegin`, the
@@ -213,6 +214,14 @@ enum TournamentLobbyMenu {
     /// The fallback menu's VoiceOver label and hint.
     static let fallbackLabel = "More"
     static let fallbackHint = "Leave or end the tournament"
+
+    /// The accessibility sizes' controls row tries the host's two buttons' words at the reader's
+    /// size, then capped at these sizes in turn (the largest that fits the row), before the icons
+    /// alone: "End Tournament" and "Leave" at AX1 to AX5 do not fit a phone's row beside the mic.
+    static let wordCaps: [DynamicTypeSize] = [.accessibility1, .xxxLarge, .xLarge]
+
+    /// End Tournament ends the tournament for everyone: it alone is drawn in the danger colour.
+    static func isDestructiveForEveryone(_ item: Item) -> Bool { item == .end }
 
     /// End Tournament waits for the session and the re-entry (the lobby's
     /// canSendTournamentActions); Leave and Stop Watching never wait.

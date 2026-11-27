@@ -508,6 +508,57 @@ final class LobbyMenuLayoutUITests: XCTestCase {
         }
     }
 
+    /// The accessibility sizes' controls row (review of PR #438: at every AX size the host's words
+    /// went straight to two bare icons, while a member's Leave kept its word): in a header row the
+    /// host's Leave and End Tournament show their words (capped to fit the row,
+    /// TournamentLobbyMenu.wordCaps), with the mic on and off, the pair apart from the mic. In the
+    /// Duo's vertical bar (a column) they are the bar's items.
+    func testTheHostsWordsAtAccessibilitySizes() {
+        let sizes = [("ax1", "UICTContentSizeCategoryAccessibilityM"), ("ax3", "UICTContentSizeCategoryAccessibilityXL"),
+                     ("ax5", "UICTContentSizeCategoryAccessibilityXXXL")]
+        for (tag, category) in sizes {
+            for voice in [false, true] {
+                let what = "\(tag)\(voice ? " voice" : "")"
+                let app = lobby("tournament-between", ["-uiHost", "ivy", "-UIPreferredContentSizeCategoryName", category]
+                                + (voice ? ["-uiVoice", "YES"] : []))
+                let (leave, end) = hostButtons(app)
+                let l = leave.frame, e = end.frame
+                print("\(what): leave \(l) end \(e)")
+                if abs(l.midY - e.midY) < 2 {
+                    XCTAssertGreaterThan(e.width, e.height * 2.5, "\(what): End Tournament shows its words, \(e)")
+                    XCTAssertGreaterThan(l.width, l.height * 1.6, "\(what): Leave shows its word, \(l)")
+                    let window = app.windows.firstMatch.frame
+                    XCTAssertTrue(window.contains(e) && window.contains(l), "\(what): both whole on screen")
+                    XCTAssertLessThan(l.height, 100, "\(what): one line")
+                    if voice {
+                        let mic = element(app, "tournament.mic")
+                        XCTAssertTrue(mic.exists, "\(what): the mic")
+                        print("\(what): mic \(mic.frame)")
+                        XCTAssertLessThan(mic.frame.maxX, e.minX, "\(what): the mic, then the pair")
+                        XCTAssertLessThan(abs(mic.frame.midY - e.midY), 8, "\(what): one row")
+                    }
+                }
+                shot("\(tag)\(voice ? "-voice" : "")-host-words")
+                app.terminate()
+            }
+        }
+    }
+
+    /// The default one-row header with the mic (review of PR #438: a stop beside a mic): the mic,
+    /// a gap, then End Tournament and Leave.
+    func testTheHostsIconsBesideTheMic() {
+        let app = lobby("tournament-between", ["-uiHost", "ivy", "-uiVoice", "YES"])
+        let (leave, end) = hostButtons(app)
+        let mic = element(app, "tournament.mic")
+        if abs(leave.frame.midY - end.frame.midY) < 2 {
+            XCTAssertTrue(mic.exists, "the mic")
+            XCTAssertLessThan(mic.frame.maxX, end.frame.minX, "the mic, then the pair")
+            print("mic \(mic.frame) end \(end.frame) leave \(leave.frame)")
+        }
+        shot("default-voice-host-icons")
+        app.terminate()
+    }
+
     // MARK: - New Game and the trophy
 
     private func mainRoom(_ extra: [String] = []) -> XCUIApplication {
@@ -576,7 +627,7 @@ final class LobbyMenuLayoutUITests: XCTestCase {
         print("ax5 header: New Game \(newGame.frame) trophy \(button.frame)")
         shot("mainroom-header-ax5")
         button.tap()
-        XCTAssertTrue(app.navigationBars["Stats"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Leaderboard"].waitForExistence(timeout: 5))
         app.terminate()
     }
 
@@ -597,7 +648,8 @@ final class LobbyMenuLayoutUITests: XCTestCase {
                        "a tournament is New Game's choice")
         shot("mainroom-header")
         button.tap()
-        XCTAssertTrue(app.navigationBars["Stats"].waitForExistence(timeout: 5), "the leaderboard's sheet")
+        XCTAssertTrue(app.navigationBars["Leaderboard"].waitForExistence(timeout: 5), "the leaderboard's sheet, titled as its button")
+        XCTAssertFalse(app.navigationBars["Stats"].exists)
         XCTAssertTrue(app.segmentedControls.buttons["Leaderboard"].exists, "the Leaderboard tab")
         XCTAssertTrue(app.segmentedControls.buttons["Records"].exists, "Records is there too")
         RunLoop.current.run(until: Date().addingTimeInterval(1))

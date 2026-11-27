@@ -22,7 +22,11 @@ final class StatsUITests: XCTestCase {
         let stats = Self.trophy(app)
         XCTAssertTrue(stats.waitForExistence(timeout: 5))
         stats.tap()
-        XCTAssertTrue(app.navigationBars["Stats"].waitForExistence(timeout: 5), "the trophy opens the Stats sheet")
+        // titled by the tab on screen, Leaderboard at first (review of PR #438: not "Stats")
+        XCTAssertTrue(app.segmentedControls["stats.tabs"].waitForExistence(timeout: 5), "the trophy opens the Stats sheet")
+        let tab = app.segmentedControls["stats.tabs"].buttons.allElementsBoundByIndex.first { $0.isSelected }?.label ?? "-"
+        XCTAssertTrue(app.navigationBars[tab].exists, "the sheet is titled by its tab, \(tab)")
+        XCTAssertFalse(app.navigationBars["Stats"].exists, "never \"Stats\" under the Leaderboard button")
         return app
     }
 
@@ -111,6 +115,7 @@ final class StatsUITests: XCTestCase {
     func testLeaderboardRowsColumnsAndSort() {
         let app = openStats()
         XCTAssertTrue(app.segmentedControls["stats.tabs"].buttons["Leaderboard"].isSelected, "Leaderboard is the first tab")
+        XCTAssertTrue(app.navigationBars["Leaderboard"].exists, "the trophy's word is the sheet's title")
         XCTAssertTrue(element(app, "leaderboard.row.kim").waitForExistence(timeout: 5), "rows from the reply")
         keepScreenshot(app, "stats-leaderboard")
         if UIDevice.current.userInterfaceIdiom == .pad {
@@ -162,6 +167,8 @@ final class StatsUITests: XCTestCase {
         let app = openStats()
         app.segmentedControls["stats.tabs"].buttons["Records"].tap()
         XCTAssertTrue(waitForRecords(app))
+        XCTAssertTrue(app.navigationBars["Records"].waitForExistence(timeout: 2), "the title follows the tab")
+        XCTAssertFalse(app.navigationBars["Leaderboard"].exists)
         XCTAssertTrue(waitForAllTimeCount(app, "1,234 games played"), "All Time's count")
         let picker = app.segmentedControls["records.periods"]
         if UIDevice.current.userInterfaceIdiom == .pad {
@@ -221,7 +228,7 @@ final class StatsUITests: XCTestCase {
         if picker.exists { keepScreenshot(app, "stats-records-this-month") }
         // the tab (and the period) is kept for the session
         app.buttons["stats.close"].tap()
-        XCTAssertTrue(app.navigationBars["Stats"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.segmentedControls["stats.tabs"].waitForNonExistence(timeout: 5))
         Self.trophy(app).tap()
         XCTAssertTrue(waitForRecords(app), "reopens on Records")
         if picker.exists {

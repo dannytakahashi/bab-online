@@ -165,22 +165,12 @@ private struct MainRoomScreen: View {
     enum HeaderWords { case words, newGameWord, icons }
 
     private func lobbyHeader(_ words: HeaderWords) -> some View {
-        let othersIconsOnly = words != .words
-        return HStack(spacing: othersIconsOnly ? 4 : 8) {
-            Menu {
-                newGameChoices
-            } label: {
-                headerLabel(MainRoomControls.title(.newGame), icon: MainRoomControls.icon(.newGame),
-                            color: Theme.primary, iconsOnly: words == .icons)
+        return HStack(spacing: words != .words ? 4 : 8) {
+            // New Game and the trophy (MainRoomControls.items: the leaderboard and records, owner
+            // 2026-11-26; the Stats icon is gone)
+            ForEach(MainRoomControls.items, id: \.self) { item in
+                headerControl(item, iconsOnly: words == .icons || (words == .newGameWord && item != .newGame))
             }
-            .menuIndicator(.hidden)
-            .accessibilityHint(MainRoomControls.hint(.newGame))
-            .disabled(!socketService.canSendMainRoomActions)
-            // the trophy: the leaderboard and records (owner 2026-11-26; the Stats icon is gone)
-            headerButton(MainRoomControls.title(.leaderboard), icon: MainRoomControls.icon(.leaderboard),
-                         color: Theme.warning, iconsOnly: othersIconsOnly) { showLeaderboard = true }
-                .accessibilityHint(MainRoomControls.hint(.leaderboard))
-                .accessibilityIdentifier(MainRoomControls.identifier(.leaderboard) ?? "")
 
             Spacer(minLength: 8)
 
@@ -216,6 +206,30 @@ private struct MainRoomScreen: View {
         }
     }
 
+    /// One of the header's actions (MainRoomControls): its look, words, hint, identifier and
+    /// whether it waits for the session all come from there.
+    @ViewBuilder
+    private func headerControl(_ item: MainRoomControls.Item, iconsOnly: Bool) -> some View {
+        let label = headerLabel(MainRoomControls.title(item), icon: MainRoomControls.icon(item),
+                                color: color(item), iconsOnly: iconsOnly)
+        switch item {
+        case .newGame:
+            Menu { newGameChoices } label: { label }
+                .menuIndicator(.hidden)
+                .controlTraits(item)
+        case .leaderboard:
+            Button { showLeaderboard = true } label: { label }
+                .controlTraits(item)
+        }
+    }
+
+    private func color(_ item: MainRoomControls.Item) -> Color {
+        switch MainRoomControls.tint(item) {
+        case .primary: return Theme.primary
+        case .plain: return Theme.textPrimary
+        }
+    }
+
     // MARK: - Vertical bar (iOS 27.1)
 
     /// The header's controls as toolbar items: the actions on top, the online
@@ -223,18 +237,9 @@ private struct MainRoomScreen: View {
     @ToolbarContentBuilder
     private var barControls: some ToolbarContent {
         ToolbarItemGroup(placement: .barLeading) {
-            Menu {
-                newGameChoices
-            } label: {
-                Label(MainRoomControls.title(.newGame), systemImage: MainRoomControls.icon(.newGame))
+            ForEach(MainRoomControls.items, id: \.self) { item in
+                barControl(item)
             }
-            .tint(Theme.primary)
-            .accessibilityHint(MainRoomControls.hint(.newGame))
-            .disabled(!socketService.canSendMainRoomActions)
-            barButton(MainRoomControls.title(.leaderboard), icon: MainRoomControls.icon(.leaderboard),
-                      color: Theme.warning) { showLeaderboard = true }
-                .accessibilityHint(MainRoomControls.hint(.leaderboard))
-                .accessibilityIdentifier(MainRoomControls.identifier(.leaderboard) ?? "")
         }
         ToolbarItemGroup(placement: .barTrailing) {
             // The vertical bar lays out symbols only (a text or custom label lands outside
@@ -254,17 +259,19 @@ private struct MainRoomScreen: View {
         }
     }
 
-    private func barButton(_ title: String, icon: String, color: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: icon)
-        }
-        .tint(color)
-    }
-
-    private func headerButton(_ title: String, icon: String, color: Color, iconsOnly: Bool,
-                              action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            headerLabel(title, icon: icon, color: color, iconsOnly: iconsOnly)
+    /// One of the bar's actions (the vertical bar lays out symbols only).
+    @ViewBuilder
+    private func barControl(_ item: MainRoomControls.Item) -> some View {
+        let label = Label(MainRoomControls.title(item), systemImage: MainRoomControls.icon(item))
+        switch item {
+        case .newGame:
+            Menu { newGameChoices } label: { label }
+                .tint(color(item))
+                .controlTraits(item)
+        case .leaderboard:
+            Button { showLeaderboard = true } label: { label }
+                .tint(color(item))
+                .controlTraits(item)
         }
     }
 
@@ -295,6 +302,12 @@ private struct HeaderLabelStyle: LabelStyle {
 }
 
 private extension View {
+    /// A main room control's hint, identifier and session gate (MainRoomControls): New Game sends,
+    /// so it waits for the session; the trophy opens a sheet and never waits.
+    func controlTraits(_ item: MainRoomControls.Item) -> some View {
+        modifier(MainRoomControlTraits(item: item))
+    }
+
     /// The Stats sheet as a page sheet on the iPad (iOS 18+): wide enough for the
     /// leaderboard's eight-column table; a phone's sheet is unchanged.
     @ViewBuilder
@@ -303,6 +316,23 @@ private extension View {
             presentationSizing(.page)
         } else {
             self
+        }
+    }
+}
+
+private struct MainRoomControlTraits: ViewModifier {
+    let item: MainRoomControls.Item
+    @ObservedObject private var socketService = SocketService.shared
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        let gated = content
+            .accessibilityHint(MainRoomControls.hint(item))
+            .disabled(MainRoomControls.waitsForSession(item) && !socketService.canSendMainRoomActions)
+        if let id = MainRoomControls.identifier(item) {
+            gated.accessibilityIdentifier(id)
+        } else {
+            gated
         }
     }
 }

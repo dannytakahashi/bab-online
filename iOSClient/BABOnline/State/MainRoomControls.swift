@@ -51,11 +51,23 @@ enum NewGameChoice: String, CaseIterable, Identifiable {
 /// The main room's actions, in the header row and, on the open Duo, the vertical bar (owner
 /// 2026-11-26): New Game (the spade menu: Back Alley Bridge, Get Your Bid, Tournament) and the
 /// trophy, which opens the leaderboard and records (the Stats sheet; the bar-chart Stats icon is
-/// gone, and the trophy no longer creates a tournament). One action = one icon.
+/// gone, and the trophy no longer creates a tournament). One action = one icon. MainRoomView builds
+/// the header row and the bar from `items`, with `tint`, `identifier` and `waitsForSession`.
 enum MainRoomControls {
-    enum Item: CaseIterable { case newGame, leaderboard }
+    enum Item: CaseIterable, Hashable { case newGame, leaderboard }
 
     static let items: [Item] = Item.allCases
+
+    /// A control's colour: New Game the brand's, the trophy the plain text colour (review of PR
+    /// #438: orange is the tournaments' colour, their section and rows' trophies, right under it).
+    enum Tint: Equatable { case primary, plain }
+
+    static func tint(_ item: Item) -> Tint {
+        switch item {
+        case .newGame: return .primary
+        case .leaderboard: return .plain
+        }
+    }
 
     static func title(_ item: Item) -> String {
         switch item {

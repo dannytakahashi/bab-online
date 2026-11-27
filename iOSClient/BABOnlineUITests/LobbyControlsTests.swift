@@ -74,7 +74,7 @@ final class LobbyControlsTests: XCTestCase {
         XCTAssertTrue(buttons(app, "label == %@", "Tournament").isEmpty, "no Tournament button")
 
         buttons(app, "label == %@", "Leaderboard").first?.tap()
-        XCTAssertTrue(app.navigationBars["Stats"].waitForExistence(timeout: 5), "the trophy opens the Stats sheet")
+        XCTAssertTrue(app.navigationBars["Leaderboard"].waitForExistence(timeout: 5), "the trophy opens the leaderboard")
         app.terminate()
     }
 
