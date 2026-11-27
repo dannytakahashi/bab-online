@@ -16,7 +16,8 @@ final class FakeSfuServer {
         case error(String, retryable: Bool = false, retryAfterMs: Int? = nil)
         /// Never answered (the client's 12 s wait).
         case noReply
-        /// Per-track error codes for a pull, by publisher session id (the rest pulled).
+        /// Per-track error codes for a pull, by publisher session id (the rest pulled);
+        /// "code:description" sets the errorDescription too.
         case trackErrors([String: String])
     }
 
@@ -35,6 +36,8 @@ final class FakeSfuServer {
     private(set) var pulled: [String: [String: String]] = [:]
     /// How many requests were being worked on at once (the client's queue keeps it at 1).
     private(set) var busy = 0, maxBusy = 0
+    /// Mids closed by force (no SDP).
+    private(set) var forceClosed = Set<String>()
     /// Every reply is delivered on a later main-queue turn (as a socket would).
     var replyDelay: TimeInterval = 0
 
@@ -131,8 +134,10 @@ final class FakeSfuServer {
                 let pub = t["sessionId"] as? String ?? ""
                 let name = t["trackName"] as? String ?? ""
                 let user = publishers[pub] ?? "?"
-                if let code = trackErrors[pub] {
-                    results.append(["username": user, "sessionId": pub, "trackName": name, "mid": NSNull(), "errorCode": code, "errorDescription": NSNull()])
+                if let spec = trackErrors[pub] {
+                    let parts = spec.split(separator: ":", maxSplits: 1).map(String.init)
+                    results.append(["username": user, "sessionId": pub, "trackName": name, "mid": NSNull(), "errorCode": parts[0],
+                                    "errorDescription": parts.count > 1 ? parts[1] : NSNull()])
                     continue
                 }
                 let txInit = RTCRtpTransceiverInit()
@@ -172,8 +177,20 @@ final class FakeSfuServer {
             for (pub, mid) in pulled[sid] ?? [:] where mids.contains(mid) { pulled[sid]?[pub] = nil }
             let tracks = mids.map { ["mid": $0, "trackName": NSNull(), "errorCode": NSNull(), "errorDescription": NSNull()] as [String: Any] }
             if payload["force"] as? Bool == true {
-                // Cloudflare closes them: its next offer has those m-sections stopped
-                for tx in pc.transceivers where mids.contains(tx.mid) && !tx.isStopped { tx.stopInternal() }
+                // Cloudflare closes them: its next offer has those m-sections stopped, except the
+                // BUNDLE tag (the first m-section), which it keeps idle and never reuses (live
+                // 2026-11-26: a force close of mid 0 left the session working, the next pull on mid 3)
+                let tag = pc.transceivers.first { !$0.isStopped && !$0.mid.isEmpty }?.mid
+                for tx in pc.transceivers where mids.contains(tx.mid) && !tx.isStopped {
+                    if tx.mid == tag {
+                        tx.sender.track = nil
+                        var error: NSError?
+                        tx.setDirection(.inactive, error: &error)
+                    } else {
+                        tx.stopInternal()
+                    }
+                }
+                forceClosed.formUnion(mids)
                 reply(["requestId": requestId, "op": op, "ok": true, "sessionId": sid, "answer": NSNull(), "tracks": tracks])
                 return
             }

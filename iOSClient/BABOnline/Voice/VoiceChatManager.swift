@@ -289,6 +289,12 @@ final class VoiceChatManager: ObservableObject {
         // (step 9) and sfuLeave when the app is terminated (step 13); never in the unit tests
         if audioDevice == nil, ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
             startPathMonitor()
+            // the socket's state (step 8: no sfu* request sent into a dropped socket; one sent
+            // before a drop answers at once and is redone after the room's roster)
+            socketObserver = SocketService.shared.$isConnected
+                .removeDuplicates()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] up in MainActor.assumeIsolated { self?.sfu.socketChanged(connected: up) } }
             #if os(iOS)
             terminateObserver = NotificationCenter.default.addObserver(forName: AppPresence.willTerminateNotification, object: nil,
                                                                        queue: .main) { [weak self] _ in
@@ -314,6 +320,7 @@ final class VoiceChatManager: ObservableObject {
     @Published private(set) var sfuWaitingCap: Int?
     private var pathMonitor: NWPathMonitor?
     private var terminateObserver: NSObjectProtocol?
+    private var socketObserver: AnyCancellable?
     /// For the live probe: each pulled track's packets / bytes and my own bytes sent.
     private(set) var sfuInbound: [String: (packets: Int, bytes: Int)] = [:]
     private(set) var sfuBytesSent = 0
@@ -1439,6 +1446,7 @@ private class PeerConnectionDelegate: NSObject, RTCPeerConnectionDelegate {
 
 extension VoiceChatManager: SfuVoiceOwner {
     var sfuVoiceRunning: Bool { isActive }
+    var sfuVoiceStarting: Bool { startPending }
     var sfuWantsToPublish: Bool { isActive && !isSelfMuted && micGranted }
     var sfuLocalTrack: RTCAudioTrack? { localAudioTrack }
 

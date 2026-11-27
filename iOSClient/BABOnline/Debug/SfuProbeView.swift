@@ -52,6 +52,9 @@ struct SfuProbeView: View {
             let speaking = m.speakingPeers.contains(id) ? "talk" : "quiet"
             return "\(u):\(rx?.packets ?? 0):\(rx?.bytes ?? 0):\(vol):\(on):\(speaking)"
         }.joined(separator: ",")
+        // whose pull sits on the BUNDLE-tag m-section (step 6: closed by force, never rejected)
+        let tag = s.pc.flatMap { SfuVoice.bundleTag($0) }
+        let tagUser = tag.flatMap { t in s.pulls.first { $0.value.mid == t }?.key } ?? "-"
         let status: String
         switch s.status {
         case .none: status = "none"
@@ -65,7 +68,7 @@ struct SfuProbeView: View {
                 "sessions=\(s.counts["session"] ?? 0)", "resumes=\(s.counts["resume"] ?? 0)",
                 "restarts=\(s.counts["iceRestart"] ?? 0)", "ice=\(s.lastIceRestartMs.map(String.init) ?? "-")",
                 "rec=\(s.recoveries.last?.replacingOccurrences(of: " ", with: "_") ?? "-")",
-                "poll=\(m.speakingPollPeriod)", "audio=\(m.ownsAudioSession)"].joined(separator: " ")
+                "poll=\(m.speakingPollPeriod)", "audio=\(m.ownsAudioSession)", "tag=\(tagUser)", "paused=\(s.paused)"].joined(separator: " ")
     }
 }
 #endif

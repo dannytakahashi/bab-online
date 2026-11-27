@@ -921,6 +921,291 @@ final class SfuVoiceTests: XCTestCase {
         XCTAssertNil(state.voiceFullCap, "only on the tournament lobby screen")
     }
 
+    // MARK: - Review of #435: the socket, a kept session, the stall detector, the BUNDLE tag
+
+    private func reconnectingMe(_ sid: String) -> [String: Any] {
+        ["sessionId": sid, "trackName": "mic", "state": "reconnecting"]
+    }
+
+    private func index(_ event: String) -> Int? { server.requests.firstIndex { $0.event == event } }
+
+    /// A pull in flight when the socket went: its reply went to the old socket. The new socket's
+    /// roster resumes at once (ahead of that pull's wait) and its 12 s timeout replaces nothing.
+    func testARequestLostWithTheOldSocketDoesNotReplaceTheSession() async throws {
+        try await connectedSession()
+        let sid = try XCTUnwrap(sfu.sessionId)
+        server.publishers["pub-bo"] = "bo"
+        server.script["sfuPull"] = [.noReply]
+        manager.applySfuMember(memberEvent("published", Self.member("bo", session: "pub-bo")))
+        await waitFor("bo's pull sent") { server.count("sfuPull") == 2 }
+        manager.changeRoom(keepSfuFor: "T1")
+        manager.applySfuRoster(roster(publishers(["ann", "bo"]), me: reconnectingMe(sid)))
+        try await manager.initialize()
+        await waitFor("the resume and bo pulled") { server.count("sfuResume") == 1 && sfu.pulls["bo"] != nil && server.busy == 0 }
+        XCTAssertEqual(server.count("sfuSession"), 1)
+        clock.advance(12.1)
+        await settle()
+        await waitFor("idle") { server.busy == 0 }
+        XCTAssertEqual(server.count("sfuResume"), 1, "the new socket's resume went out")
+        XCTAssertEqual(server.count("sfuSession"), 1, "a signaling-only outage never makes a new session (step 11)")
+        XCTAssertEqual(sfu.sessionId, sid)
+        XCTAssertNotNil(sfu.pulls["ann"])
+    }
+
+    /// The same with the socket's own drop (SocketService): the waiting request answers at once,
+    /// nothing is sent while the socket is down or before the room's roster, the resume goes
+    /// first, then what was planned meanwhile.
+    func testASocketDropAnswersTheWaitingRequestAndHoldsTheRestUntilTheResume() async throws {
+        try await connectedSession()
+        let sid = try XCTUnwrap(sfu.sessionId)
+        server.publishers["pub-bo"] = "bo"
+        server.script["sfuPull"] = [.noReply]
+        manager.applySfuMember(memberEvent("published", Self.member("bo", session: "pub-bo")))
+        await waitFor("bo's pull sent") { server.count("sfuPull") == 2 && sfu.inFlight == 1 }
+        sfu.socketChanged(connected: false)
+        XCTAssertEqual(sfu.inFlight, 0, "answered at once: its reply can never come")
+        server.publishers["pub-cy"] = "cy"
+        manager.applySfuMember(memberEvent("published", Self.member("cy", session: "pub-cy")))
+        await settle()
+        let sent = server.requests.count
+        sfu.socketChanged(connected: true)
+        await settle()
+        XCTAssertEqual(server.requests.count, sent, "nothing into a dropped socket, nor before the room's roster")
+        XCTAssertTrue(sfu.paused)
+        clock.advance(12.1)
+        await settle()
+        XCTAssertEqual(server.count("sfuSession"), 1, "no client timeout for a request lost with the socket")
+        manager.changeRoom(keepSfuFor: "T1")
+        manager.applySfuRoster(roster(publishers(["ann", "bo", "cy"]), me: reconnectingMe(sid)))
+        try await manager.initialize()
+        await waitFor("everyone pulled") { sfu.pulls.count == 3 && server.busy == 0 }
+        XCTAssertEqual(server.requests[sent].event, "sfuResume", "the resume first, at once")
+        XCTAssertEqual(sfu.sessionId, sid)
+        XCTAssertEqual(server.count("sfuSession"), 1)
+        XCTAssertFalse(sfu.paused)
+    }
+
+    /// A recovery that comes due while the socket is down (or whose ICE restart went with it)
+    /// sends its sfuIceRestart once the room has me back, on the same session.
+    func testARecoveryDuringASocketDropRestartsIceAfterTheResume() async throws {
+        try await connectedSession()
+        let sid = try XCTUnwrap(sfu.sessionId)
+        server.script["sfuIceRestart"] = [.noReply]
+        sfu.simulateConnection(.disconnected)
+        clock.advance(2.1)
+        await waitFor("the restart sent") { server.count("sfuIceRestart") == 1 }
+        sfu.socketChanged(connected: false)  // the same blip took the socket: its reply is lost
+        await settle()
+        XCTAssertEqual(server.count("sfuIceRestart"), 1, "not again into a dropped socket")
+        sfu.socketChanged(connected: true)
+        manager.changeRoom(keepSfuFor: "T1")
+        manager.applySfuRoster(roster(publishers(["ann"]), me: reconnectingMe(sid)))
+        await waitFor("the restart again") { server.count("sfuIceRestart") == 2 }
+        XCTAssertLessThan(try XCTUnwrap(index("sfuResume")), server.requests.lastIndex { $0.event == "sfuIceRestart" }!,
+                          "the resume first")
+        sfu.simulateConnection(.connected)
+        await waitFor("recovered") { !sfu.recovering && server.busy == 0 }
+        XCTAssertEqual(sfu.sessionId, sid)
+        XCTAssertEqual(server.count("sfuSession"), 1)
+        XCTAssertEqual(sfu.recoveries.last?.hasPrefix("iceRestart ok"), true)
+    }
+
+    /// The server holds a pull of mine whose reply was lost: its `duplicate` names the mid,
+    /// which is closed by force, and the track pulled again.
+    func testADuplicateOnAMidIDoNotUseIsClosedByForceAndPulledAgain() async throws {
+        server.script["sfuPull"] = [.trackErrors(["pub-ann": "duplicate:already pulled as mid 7"])]
+        try await startIn(publishers(["ann"]))
+        await waitFor("pulled again") { sfu.pulls["ann"] != nil && server.busy == 0 }
+        let close = try XCTUnwrap(server.last("sfuClose"))
+        XCTAssertEqual(close["mids"] as? [String], ["7"])
+        XCTAssertEqual(close["force"] as? Bool, true)
+        XCTAssertEqual(server.count("sfuPull"), 2)
+        XCTAssertEqual(server.count("sfuSession"), 1)
+        // a duplicate without a mid, or the second one, waits for the roster as before
+        server.publishers["pub-bo"] = "bo"
+        server.script["sfuPull"] = [.trackErrors(["pub-bo": "duplicate"])]
+        manager.applySfuMember(memberEvent("published", Self.member("bo", session: "pub-bo")))
+        await waitFor("bo refused") { server.count("sfuPull") == 3 && server.busy == 0 }
+        await settle()
+        XCTAssertNil(sfu.pulls["bo"])
+        XCTAssertEqual(server.count("sfuClose"), 1)
+    }
+
+    /// A tournamentJoined keeps the session; the roster that follows lists nobody else (they
+    /// left meanwhile): voice never starts again (no company), so the kept session ends after
+    /// the grace with sfuLeave, and the audio session goes.
+    func testAKeptSessionAloneAfterTheRoomChangeEnds() async throws {
+        try await connectedSession()
+        let sid = try XCTUnwrap(sfu.sessionId)
+        manager.ensureStarted()
+        manager.setCompany(true, from: .tournament)
+        manager.changeRoom(keepSfuFor: "T1")
+        manager.applySfuRoster(roster([], me: reconnectingMe(sid)))
+        manager.setCompany(manager.tournamentCompany(me: "me"), from: .tournament)
+        await waitFor("the resume") { server.count("sfuResume") == 1 && server.busy == 0 }
+        clock.advance(VoiceCompany.grace - 0.5)
+        await settle()
+        XCTAssertNotNil(sfu.pc, "kept through the grace (someone may come back)")
+        clock.advance(1)
+        await settle()
+        XCTAssertFalse(manager.isActive)
+        XCTAssertNil(sfu.pc, "alone with voice not running: the kept PeerConnection ends")
+        XCTAssertEqual(server.last("sfuLeave")?["sessionId"] as? String, sid, "step 13")
+        await waitFor("the audio session released") { !manager.ownsAudioSession }
+    }
+
+    func testAKeptSessionIsKeptWhenVoiceStartsAgainWithinTheGrace() async throws {
+        try await connectedSession()
+        let sid = try XCTUnwrap(sfu.sessionId)
+        manager.changeRoom(keepSfuFor: "T1")
+        manager.applySfuRoster(roster([], me: reconnectingMe(sid)))
+        await waitFor("the resume") { server.count("sfuResume") == 1 && server.busy == 0 }
+        clock.advance(10)
+        manager.applySfuMember(memberEvent("published", Self.member("ann", session: "pub-ann")))  // she is back
+        try await manager.initialize()
+        clock.advance(60)
+        await settle()
+        XCTAssertEqual(sfu.sessionId, sid)
+        XCTAssertEqual(server.count("sfuLeave"), 0)
+    }
+
+    /// The only other member's phone is away (reconnecting): her silence is not my downlink
+    /// stalling, so no ICE restart, however long it lasts.
+    func testASilentPublisherIsNotADownlinkStall() async throws {
+        try await connectedSession()
+        sfu.noteInbound("ann", packets: 100)
+        manager.applySfuMember(memberEvent("reconnecting", Self.member("ann", session: "pub-ann", state: "reconnecting")))
+        await waitFor("idle") { server.busy == 0 }
+        for _ in 0..<6 {
+            clock.advance(10.5)
+            sfu.noteInbound("ann", packets: 100)
+            sfu.checkStall()
+            await waitFor("idle") { server.busy == 0 && !sfu.recovering }
+        }
+        XCTAssertEqual(server.count("sfuIceRestart"), 0, "a reconnecting publisher's silence is expected")
+        XCTAssertEqual(server.count("sfuSession"), 1)
+    }
+
+    /// A forced restart after which nothing comes back (ICE says connected; the publishers are
+    /// silent) is not repeated every 10 s: 10, 20, 40 s apart, and 10 s again once packets came.
+    func testTheStallDetectorBacksOffWhenARestartBringsNothingBack() {
+        var d = SfuStallDetector()
+        let t0 = Date(timeIntervalSince1970: 0)
+        func at(_ s: TimeInterval) -> Date { t0.addingTimeInterval(s) }
+        d.sample("ann", packets: 10, now: t0)
+        var fires: [TimeInterval] = []
+        for s in stride(from: 0.5, through: 120, by: 0.5) {
+            d.sample("ann", packets: 10, now: at(s))
+            if d.check(connected: true, pulls: ["ann"], now: at(s)) { fires.append(s) }
+        }
+        XCTAssertEqual(fires, [2, 12, 32, 72, 112], "10, then 20, then 40 s apart")
+        d.sample("ann", packets: 50, now: at(121))  // packets again
+        var later: [TimeInterval] = []
+        for s in stride(from: 121.5, through: 160, by: 0.5) {
+            d.sample("ann", packets: 50, now: at(s))
+            if d.check(connected: true, pulls: ["ann"], now: at(s)) { later.append(s) }
+        }
+        XCTAssertEqual(later.first, 152, "silent again, fired once the last wait (40 s) was over")
+        XCTAssertEqual(d.cooldown, SfuPolicy.stallCooldown, "a restart that helped: 10 s again")
+    }
+
+    /// A pull that never received a packet neither stalls nor keeps the others from stalling.
+    func testAPullThatNeverReceivedIsLeftOutOfTheStallCheck() {
+        var d = SfuStallDetector()
+        let t0 = Date(timeIntervalSince1970: 0)
+        d.sample("ann", packets: 10, now: t0)
+        d.sample("bo", packets: 0, now: t0)
+        XCTAssertTrue(d.check(connected: true, pulls: ["ann", "bo"], now: t0.addingTimeInterval(2.1)))
+        var e = SfuStallDetector()
+        e.sample("bo", packets: 0, now: t0)
+        XCTAssertFalse(e.check(connected: true, pulls: ["bo"], now: t0.addingTimeInterval(30)), "nothing to judge")
+    }
+
+    /// Step 6: the pull on the BUNDLE-tag m-section (a muted listener's first pull is mid 0) is
+    /// closed by force with its transceiver kept, the session kept, and later pulls work.
+    func testTheBundleTagsPullIsClosedByForceAndTheSessionKept() async throws {
+        try await startIn(publishers(["ann", "bo"]))
+        await pulledAll(["ann", "bo"])
+        let sid = sfu.sessionId
+        let annMid = try XCTUnwrap(sfu.pulls["ann"]?.mid)
+        let pc = try XCTUnwrap(sfu.pc)
+        XCTAssertEqual(SfuVoice.bundleTag(pc), annMid, "the first pull is the bundle's tag")
+        manager.applySfuMember(memberEvent("left", Self.member("ann", session: nil)))
+        await waitFor("ann closed") { server.count("sfuClose") == 1 && server.busy == 0 && sfu.pulls["ann"] == nil }
+        let close = try XCTUnwrap(server.last("sfuClose"))
+        XCTAssertEqual(close["mids"] as? [String], [annMid])
+        XCTAssertEqual(close["force"] as? Bool, true, "never a negotiated rejection of the BUNDLE tag")
+        XCTAssertNil(close["offer"])
+        let tx = try XCTUnwrap(pc.transceivers.first { $0.mid == annMid })
+        XCTAssertFalse(tx.isStopped, "its m-section stays, idle")
+        XCTAssertEqual(SfuVoice.bundleTag(pc), annMid)
+        XCTAssertEqual(sfu.sessionId, sid)
+        XCTAssertNotNil(sfu.pulls["bo"])
+        XCTAssertNil(manager.peerInfos["sfu:ann"])
+        // a newcomer is pulled on the same session, on another mid; bo leaving closes negotiated
+        server.publishers["pub-cy"] = "cy"
+        manager.applySfuMember(memberEvent("published", Self.member("cy", session: "pub-cy")))
+        await waitFor("cy") { sfu.pulls["cy"] != nil && server.busy == 0 }
+        XCTAssertNotEqual(sfu.pulls["cy"]?.mid, annMid)
+        manager.applySfuMember(memberEvent("left", Self.member("bo", session: nil)))
+        await waitFor("bo closed and its answer applied") {
+            server.count("sfuClose") == 2 && server.busy == 0 && sfu.inFlight == 0 && sfu.pulls["bo"] == nil && sfu.pc?.signalingState == .stable
+        }
+        XCTAssertNotNil(server.last("sfuClose")?["offer"], "not the tag: negotiated")
+        XCTAssertEqual(sfu.sessionId, sid)
+        XCTAssertEqual(server.count("sfuSession"), 1)
+    }
+
+    func testTheBundleTagIsTheGroupsFirstMid() {
+        XCTAssertEqual(SfuVoice.bundleTag(sdp: "v=0\r\na=group:BUNDLE 2 0 1\r\na=msid-semantic: WMS\r\n"), "2")
+        XCTAssertNil(SfuVoice.bundleTag(sdp: "v=0\r\n"))
+        XCTAssertNil(SfuVoice.bundleTag(sdp: nil))
+    }
+
+    /// A PeerConnection that was connected and reads `new` / `connecting` again (its transport
+    /// gone under it) is recovered as a disconnect would be, never left silent.
+    func testAConnectionBackToNewIsRecovered() async throws {
+        try await connectedSession()
+        sfu.simulateConnection(.new)
+        clock.advance(1.9)
+        await settle()
+        XCTAssertEqual(server.count("sfuIceRestart"), 0)
+        clock.advance(0.2)
+        await waitFor("the restart") { server.count("sfuIceRestart") == 1 }
+        sfu.simulateConnection(.connected)
+        await waitFor("recovered") { !sfu.recovering }
+    }
+
+    /// A reply wait that spans a background (the app may have been suspended with its socket)
+    /// ends as lost with the socket, never a new session; the pull is planned again.
+    func testAReplyWaitAcrossABackgroundDoesNotReplaceTheSession() async throws {
+        try await connectedSession()
+        let sid = sfu.sessionId
+        server.publishers["pub-bo"] = "bo"
+        server.script["sfuPull"] = [.noReply]
+        manager.applySfuMember(memberEvent("published", Self.member("bo", session: "pub-bo")))
+        await waitFor("bo's pull sent") { server.count("sfuPull") == 2 }
+        manager.handleBackground()
+        clock.advance(20)
+        manager.handleForeground()
+        await waitFor("bo pulled again") { sfu.pulls["bo"] != nil && server.busy == 0 }
+        XCTAssertEqual(sfu.sessionId, sid)
+        XCTAssertEqual(server.count("sfuSession"), 1)
+    }
+
+    /// A renewal keeps the audio session for the next PeerConnection; if none is wanted by the
+    /// time its sync runs (the only publisher left), the audio session goes.
+    func testARenewalWithNoSessionWantedReleasesTheAudioSession() async throws {
+        try await startIn(publishers(["ann"]))
+        await pulledAll(["ann"])
+        XCTAssertTrue(manager.ownsAudioSession)
+        sfu.renewSession(why: "test")
+        manager.applySfuMember(memberEvent("left", Self.member("ann", session: nil)))
+        await waitFor("released") { releases == 1 }
+        XCTAssertNil(sfu.pc)
+        XCTAssertFalse(manager.ownsAudioSession)
+    }
+
     // MARK: - The manager: audio session, speaking poll at 20+
 
     func testTheAudioSessionIsTheSessionsPeerConnections() async throws {

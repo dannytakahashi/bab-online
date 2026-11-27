@@ -22,7 +22,10 @@
  * pull's session), `leavePage {page}` (joinMainRoom, keeping nothing), `returnPage {page}`
  * (returnToTournament: a new session, push, pulls), `relay {mode: cut|restore|rebind}`,
  * `suspendApp` / `resumeApp` (SIGSTOP / SIGCONT of the BAB Online process on `--udid`, as iOS
- * suspends an app), `pagesState`, `stop`.
+ * suspends an app), `pagesState`, `stop`; with `--proxy-port` (a TCP proxy in front of the
+ * server for the app's socket only: the app's `-serverURL` is the proxy), `socketDrop
+ * {seconds}` (the app's connections closed and new ones refused for that long) and `blip
+ * {seconds}` (that and the relay cut at the same time: a Wi-Fi drop takes both).
  *
  * Usage (from a #!/bin/bash wrapper that loads the DEV app's id and secret into this process's
  * environment only: set -a; . ~/.bab-secrets/cf-sfu-dev.env; set +a; MONGO_URI a private test
@@ -39,6 +42,7 @@ import { createRequire } from 'node:module';
 import { randomBytes } from 'node:crypto';
 import dgram from 'node:dgram';
 import http from 'node:http';
+import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -51,7 +55,7 @@ const log = (...a) => console.log(`[sfu-ios-live ${t()}]`, ...a);
 
 function args() {
     const a = process.argv.slice(2);
-    const o = { port: 38641, db: `sfuios_${process.pid}`, pages: 2, iosUser: null, udid: null, ctl: null, relayPort: 0, relayCtl: 0 };
+    const o = { port: 38641, db: `sfuios_${process.pid}`, pages: 2, iosUser: null, udid: null, ctl: null, relayPort: 0, relayCtl: 0, proxyPort: 0 };
     for (let i = 0; i < a.length; i++) {
         const k = a[i];
         const v = a[i + 1];
@@ -63,6 +67,7 @@ function args() {
         else if (k === '--ctl') { o.ctl = v; i++; }
         else if (k === '--relay-port') { o.relayPort = Number(v); i++; }
         else if (k === '--relay-ctl') { o.relayCtl = Number(v); i++; }
+        else if (k === '--proxy-port') { o.proxyPort = Number(v); i++; }
     }
     if (!(o.port >= 38100 && o.port <= 38899)) throw new Error('--port must be in 38100-38899');
     if (!process.env.MONGO_URI || /:27017\b/.test(process.env.MONGO_URI)) throw new Error('MONGO_URI must name a private test mongod (not 27017)');
@@ -130,6 +135,35 @@ function startRelay(port, ctlPort) {
             state.mode = mode === 'cut' ? 'cut' : 'pass';
         },
         close() { front.close(); for (const m of state.maps.values()) m.out.close(); ctl.close(); },
+    };
+}
+
+// ---------------------------------------------------------------- the app's socket proxy
+// A plain TCP pipe (Socket.IO's HTTP polling and WebSocket pass through unchanged) in front of
+// the server for the app only; `drop(ms)` closes every connection and refuses new ones for that
+// long (the app's socket goes down, Socket.IO-Client-Swift reconnects once it may).
+function startProxy(port, target) {
+    const state = { refuseUntil: 0, open: new Set(), accepted: 0, refused: 0, drops: 0 };
+    const front = net.createServer((c) => {
+        if (Date.now() < state.refuseUntil) { state.refused++; c.destroy(); return; }
+        state.accepted++;
+        const up = net.connect(target, '127.0.0.1');
+        const pair = { c, up };
+        state.open.add(pair);
+        const close = () => { c.destroy(); up.destroy(); state.open.delete(pair); };
+        c.on('error', close); up.on('error', close); c.on('close', close); up.on('close', close);
+        c.pipe(up); up.pipe(c);
+    });
+    front.listen(port, '127.0.0.1');
+    return {
+        state,
+        drop(ms) {
+            state.drops++;
+            state.refuseUntil = Date.now() + ms;
+            for (const p of state.open) { p.c.destroy(); p.up.destroy(); }
+            state.open.clear();
+        },
+        close() { for (const p of state.open) { p.c.destroy(); p.up.destroy(); } front.close(); },
     };
 }
 
@@ -359,12 +393,14 @@ async function main() {
     const { chromium } = require('playwright');
     const base = `http://127.0.0.1:${o.port}`;
     const relay = o.relayPort ? startRelay(o.relayPort, o.relayCtl) : null;
+    const proxy = o.proxyPort ? startProxy(o.proxyPort, o.port) : null;
     let suspended = null;
     const server = startServer({ port: o.port, db: o.db, logFile: path.join(o.ctl, 'server.log') });
     const onSignal = () => {
         try { if (suspended) process.kill(suspended, 'SIGCONT'); } catch { /* gone */ }
         server.child.kill('SIGTERM');
         relay?.close();
+        proxy?.close();
         process.exit(1);
     };
     process.on('SIGTERM', onSignal);
@@ -446,6 +482,20 @@ async function main() {
             async returnPage({ page }) { await pages[page].page.evaluate(() => window.returnRoom()); return { back: pages[page].username }; },
             async relay({ mode }) { if (!relay) return { error: 'no relay' }; relay.set(mode); return { mode, mappings: relay.state.maps.size }; },
             async relayState() { return relay ? { mode: relay.state.mode, target: relay.state.target, mappings: relay.state.maps.size, fromApp: relay.state.fromApp, toApp: relay.state.toApp, dropped: relay.state.dropped, rebinds: relay.state.rebinds } : { error: 'no relay' }; },
+            async socketDrop({ seconds }) {
+                if (!proxy) return { error: 'no proxy' };
+                proxy.drop(seconds * 1000);
+                await sleep(seconds * 1000);
+                return { seconds, refused: proxy.state.refused, accepted: proxy.state.accepted };
+            },
+            async blip({ seconds }) {
+                if (!proxy || !relay) return { error: 'needs the proxy and the relay' };
+                relay.set('cut');
+                proxy.drop(seconds * 1000);
+                await sleep(seconds * 1000);
+                relay.set('restore');
+                return { seconds, refused: proxy.state.refused, accepted: proxy.state.accepted, dropped: relay.state.dropped };
+            },
             async suspendApp() { const pid = appPid(); if (pid) { process.kill(pid, 'SIGSTOP'); suspended = pid; } return { pid }; },
             async resumeApp() { const pid = appPid() ?? suspended; if (pid) process.kill(pid, 'SIGCONT'); suspended = null; return { pid }; },
         };
@@ -482,6 +532,7 @@ async function main() {
         if (server.child.exitCode === null) server.child.kill('SIGKILL');
         server.out.end();
         relay?.close();
+        proxy?.close();
         await dropDb(o.db).catch(() => {});
         log('done');
     }

@@ -178,6 +178,11 @@ enum SfuErrorAction: Equatable {
     case stopUntilRoster
     /// superseded: the work belonged to a replaced session.
     case drop
+    /// socket_lost / socket_replaced (local, never on the wire): the request went with a socket
+    /// that is gone, so its reply can never come. Never a new session (step 11: never one for a
+    /// signaling-only outage): sent again once the room has me back (a force close, an ICE
+    /// restart) or planned again by the sync after the resume (pulls, the push, the session).
+    case redo
     /// invalid / bad_token / already_published / no_local_track / unavailable, a cloudflare_error
     /// that is not retryable: a bug or a state change, never the same request again.
     case giveUp
@@ -186,6 +191,7 @@ enum SfuErrorAction: Equatable {
         switch error.code {
         case "session_gone", "client_timeout": return .newSession
         case "superseded": return .drop
+        case "socket_lost", "socket_replaced": return .redo
         case "not_your_session": return .resume
         case "not_in_room": return .stopUntilRoster
         case "rate_limited", "busy", "timeout", "cloudflare_unreachable": return .retry
@@ -201,6 +207,15 @@ struct SfuPulledTrack: Equatable {
     var key: SfuTrackKey?
     var mid: String?
     var errorCode: String?
+    var errorDescription: String? = nil
+
+    /// The server's `duplicate` for a track this session pulls already names its mid
+    /// ("already pulled as mid 3", server/voice/sfu/sfuRoom.js checkPulls).
+    static func duplicateMid(_ description: String?) -> String? {
+        guard let d = description, let r = d.range(of: "already pulled as mid ") else { return nil }
+        let mid = d[r.upperBound...].trimmingCharacters(in: .whitespaces)
+        return mid.isEmpty ? nil : mid
+    }
 
     static func from(_ any: Any?) -> SfuPulledTrack? {
         guard let d = any as? [String: Any] else { return nil }
@@ -209,7 +224,8 @@ struct SfuPulledTrack: Equatable {
             key = SfuTrackKey(sessionId: s, trackName: t)
         }
         return SfuPulledTrack(username: d["username"] as? String, key: key, mid: SfuMemberRecord.nonEmpty(d["mid"]),
-                              errorCode: SfuMemberRecord.nonEmpty(d["errorCode"]))
+                              errorCode: SfuMemberRecord.nonEmpty(d["errorCode"]),
+                              errorDescription: SfuMemberRecord.nonEmpty(d["errorDescription"]))
     }
 
     /// What a failed track means (step 5).
@@ -296,6 +312,11 @@ struct SfuStallDetector {
     private(set) var lastPackets: [String: Int] = [:]
     private(set) var lastRxAt: [String: Date] = [:]
     private(set) var lastFired: Date?
+    /// The wait before the next fire: `SfuPolicy.stallCooldown`, doubled (10, 20, 40 s) after a
+    /// fire that brought no packet back on any pull (a restart that ICE called a success while
+    /// the silence went on: the publishers' side, not my downlink), back to 10 s once packets come.
+    private(set) var cooldown = SfuPolicy.stallCooldown
+    static let maxCooldown: TimeInterval = 40
 
     /// A pulled track's packetsReceived at `now` (a new track starts its clock at its first sample).
     mutating func sample(_ id: String, packets: Int, now: Date) {
@@ -316,19 +337,28 @@ struct SfuStallDetector {
     mutating func reset() {
         lastPackets = [:]
         lastRxAt = [:]
+        lastFired = nil
+        cooldown = SfuPolicy.stallCooldown
     }
 
-    /// Fire (an ICE restart though ICE says connected) when connected, pulling `pulls` (at least
-    /// one) and EVERY one of them received nothing for `stallWindow`, at most once per cooldown.
-    /// A track that never received a packet does not count as stalled (the SFU may not have
-    /// started forwarding it yet; the NAT rebinding case is tracks that were flowing).
+    /// Fire (an ICE restart though ICE says connected) when connected, and EVERY one of `pulls`
+    /// that has received packets (at least one does) received nothing for `stallWindow`, at
+    /// most once per `cooldown`. A pull that never received a packet is left out (the SFU may
+    /// not have started forwarding it, or its publisher sends nothing): it neither stalls nor
+    /// keeps the others from stalling.
     mutating func check(connected: Bool, pulls: Set<String>, now: Date) -> Bool {
-        guard connected, !pulls.isEmpty else { return false }
-        for id in pulls {
-            guard let at = lastRxAt[id], (lastPackets[id] ?? 0) > 0,
-                  now.timeIntervalSince(at) >= SfuPolicy.stallWindow else { return false }
+        guard connected else { return false }
+        let counted = pulls.filter { (lastPackets[$0] ?? 0) > 0 }
+        guard !counted.isEmpty else { return false }
+        for id in counted {
+            guard let at = lastRxAt[id], now.timeIntervalSince(at) >= SfuPolicy.stallWindow else { return false }
         }
-        if let lastFired, now.timeIntervalSince(lastFired) < SfuPolicy.stallCooldown { return false }
+        if let lastFired {
+            if now.timeIntervalSince(lastFired) < cooldown { return false }
+            // nothing came back on any pull since the last fire: that restart did not help
+            let fruitless = counted.allSatisfy { (lastRxAt[$0] ?? .distantPast) <= lastFired }
+            cooldown = fruitless ? min(cooldown * 2, Self.maxCooldown) : SfuPolicy.stallCooldown
+        }
         lastFired = now
         return true
     }

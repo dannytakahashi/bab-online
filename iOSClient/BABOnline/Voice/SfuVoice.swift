@@ -10,6 +10,8 @@ import os
 protocol SfuVoiceOwner: AnyObject {
     /// Voice runs on this screen (wanted, with company): pulls and the push may happen.
     var sfuVoiceRunning: Bool { get }
+    /// A start is on its way (`initialize` has not finished): a held session is not idle.
+    var sfuVoiceStarting: Bool { get }
     /// Unmuted by hand with the microphone allowed: push (step 4: the first unmute, never before).
     var sfuWantsToPublish: Bool { get }
     /// The one local track (disabled while muted; a mute never renegotiates).
@@ -40,15 +42,24 @@ protocol SfuVoiceOwner: AnyObject {
 /// 5. Pulls batched (<= 64), each mid mapped to its member before `setRemoteDescription`, the
 ///    SFU's offer answered (`sfuRenegotiate`) even when some tracks failed; per-track errors.
 /// 6. Closes negotiated (`transceiver.stopInternal`, offer, `sfuClose`), else by force; compared
-///    with the pull I HOLD (`SfuPlan`); a reconnecting member's pull is kept.
+///    with the pull I HOLD (`SfuPlan`); a reconnecting member's pull is kept. The pull on the
+///    BUNDLE-tag m-section (the first, `bundleTag`) is never stopped: it is closed by force and
+///    its m-section stays, idle (stopping it rejects the bundle's transport: the session went
+///    deaf and mute, live 2026-11-26).
 /// 7. `sfuMember` is an upsert by username.
-/// 8. Every sfuReply error code (`SfuErrorAction`), a 12 s wait for each reply.
+/// 8. Every sfuReply error code (`SfuErrorAction`), a 12 s wait for each reply sent on a
+///    connected socket. A request is never sent while the socket is down or before the room's
+///    roster on a new socket (it waits, `parked`); one sent on a socket that went answers at
+///    once as `socket_lost` / `socket_replaced` (`.redo`: asked again or planned again after the
+///    resume, never a new session).
 /// 9. Media drops: nothing on the first `disconnected` for 2 s; then (or on `failed`, the
 ///    network coming back (`NWPathMonitor`), a stall) an ICE restart on the same session when
 ///    away under 25 s with a published track (at most 2), else a new session.
 /// 10. The downlink stall detector on the speaking poll's per-receiver stats.
-/// 11. A new socket's roster with my session reconnecting: `sfuResume` at once if the
-///     PeerConnection is alive, else a new session; my session null on the same bootId: closed.
+/// 11. A new socket's roster with my session reconnecting: `sfuResume` at once (ahead of the
+///     queue, `startResume`) if the PeerConnection is alive, else a new session; my session null
+///     on the same bootId: closed. A session kept through a room change that voice does not
+///     start again on (nobody else there) ends `VoiceCompany.grace` later (`armIdle`).
 /// 12. A new bootId: `sfuResume` with the SAME session and, for 20 s, no pull of a missing or
 ///     null-session member is closed.
 /// 13. Leaving: `sfuLeave` (best effort) then `pc.close()`; never on a socket drop.
@@ -145,9 +156,41 @@ final class SfuVoice {
     private var draining = false
     private var syncQueued = false
     private(set) var generation = 0
-    private struct Waiter { let gen: Int; let event: String; let resume: (Result<[String: Any], SfuError>) -> Void }
+    /// `sent`: emitted (else parked until the socket and the room are back); `sentAt` for the
+    /// reply wait's background check.
+    private struct Waiter {
+        let gen: Int
+        let event: String
+        var sent = false
+        var sentAt: Date?
+        let resume: (Result<[String: Any], SfuError>) -> Void
+    }
     private var waiters: [String: Waiter] = [:]
+    /// Requests made while signaling is paused (`paused`), sent in order when it is not.
+    private var parked: [(id: String, send: @MainActor () -> Void)] = []
     private var nextRequest = 0
+    /// When each event last went out (the ICE restart's timing counts from its send).
+    private var lastSentAt: [String: Date] = [:]
+
+    // MARK: Signaling (the socket)
+    /// The socket as SocketService says (`socketChanged`; the unit tests' socket is up unless a
+    /// test says otherwise).
+    private(set) var socketUp = true
+    /// The socket went down while in the room: nothing is sent until the room's roster on the
+    /// new socket (a request before it would answer not_in_room / not_your_session).
+    private(set) var needsRoster = false
+    /// The roster's sfuResume is on its way (sent ahead of the queue): the rest waits for it.
+    private(set) var resuming = false
+    private var resumeToken = 0
+    /// Nothing is sent now: parked until the socket, the room's roster and its resume are back.
+    var paused: Bool { !socketUp || needsRoster || awaitingRoster || resuming }
+
+    // MARK: A kept session voice does not run on
+    private var idleToken = 0
+    private(set) var idleArmed = false
+    /// A pull the server already holds on a mid I do not use (its reply was lost with a socket):
+    /// that mid is closed by force and the track pulled again, once per user until the roster changes.
+    private var duplicateCloses = Set<String>()
     private var connectedWaiters: [Int: (Bool) -> Void] = [:]
     private var nextConnectedWaiter = 0
 
@@ -211,6 +254,8 @@ final class SfuVoice {
     func applyRoster(_ r: SfuRoster) {
         awaitingRoster = false
         awaitToken &+= 1
+        needsRoster = false
+        defer { flushParked() }
         if let t = tournamentId, t != r.tournamentId, holdsSession {
             end(leave: false, why: "another tournament's room")
         }
@@ -219,6 +264,7 @@ final class SfuVoice {
         bootId = r.bootId
         rev = r.rev
         refused.removeAll()
+        duplicateCloses.removeAll()
         switch r.status {
         case .out:
             log("roster: out")
@@ -253,12 +299,12 @@ final class SfuVoice {
             if mine == sid {
                 if r.me?.state == .reconnecting {
                     // step 11: a new socket; my PeerConnection alive: resume at once
-                    if pcAlive && !staleAfterBackground { enqueueResume(why: "reconnected socket") } else { renewSession(why: "reconnected with a dead PeerConnection") }
+                    if pcAlive && !staleAfterBackground { startResume(why: "reconnected socket") } else { renewSession(why: "reconnected with a dead PeerConnection") }
                 }
             } else if mine == nil {
                 if newBoot {
                     // step 12: the server restarted; media never stopped: the SAME session
-                    if pcAlive && !staleAfterBackground { enqueueResume(why: "new bootId") } else { renewSession(why: "new bootId, dead PeerConnection") }
+                    if pcAlive && !staleAfterBackground { startResume(why: "new bootId") } else { renewSession(why: "new bootId, dead PeerConnection") }
                 } else {
                     // step 11: the same bootId with no session: the server dropped mine (the
                     // grace ran out) and closed its pulls: a new one when needed
@@ -267,11 +313,12 @@ final class SfuVoice {
                 }
             } else {
                 // the server holds another session of mine: mine is the one I can still use
-                if pcAlive && !staleAfterBackground { enqueueResume(why: "another session on record") } else { renewSession(why: "another session on record") }
+                if pcAlive && !staleAfterBackground { startResume(why: "another session on record") } else { renewSession(why: "another session on record") }
             }
         }
         owner?.sfuRoomChanged()
         scheduleSync()
+        armIdle()
     }
 
     func applyMember(_ e: SfuMemberEvent) {
@@ -286,10 +333,15 @@ final class SfuVoice {
         if before?.track != e.member.track || e.isLeft {
             pullRetryCount[e.member.username] = nil
         }
+        // back from reconnecting (or away again): its silence meanwhile says nothing about my
+        // downlink, so the stall detector starts its clock again at its next sample
+        if before?.state != e.member.state { stall.forget(e.member.username) }
         refused.removeAll()  // the roster changed
+        duplicateCloses.removeAll()
         log("member \(e.event): \(e.member.username) \(e.member.track == nil ? "no track" : "publishing") \(e.member.state.rawValue)")
         owner?.sfuRoomChanged()
         scheduleSync()
+        armIdle()
     }
 
     /// A tournamentJoined of the tournament whose room this session is in (step 11): keep the
@@ -323,6 +375,8 @@ final class SfuVoice {
     func forgetRoom() {
         awaitingRoster = false
         awaitToken &+= 1
+        needsRoster = false
+        flushParked()
         members = [:]
         status = .none
         tournamentId = nil
@@ -353,8 +407,34 @@ final class SfuVoice {
     /// Voice started on the screen (muted, or unmuted after an unmute by hand): the pulls held
     /// across a room change are the panel's again, and the plan runs.
     func voiceStarted() {
+        disarmIdle()
         for (u, p) in pulls { if let t = p.track { owner?.sfuTrackPulled(u, t) } }
         scheduleSync()
+    }
+
+    /// A session kept across a room change (`awaitRoster`) whose roster came while voice does not
+    /// run here (nobody else in the room: no voice alone never starts it, and VoiceGate arms no
+    /// grace for a voice that is not running): it ends `VoiceCompany.grace` later as a running
+    /// voice would, with sfuLeave (step 13), unless voice starts meanwhile (`voiceStarted`).
+    private func armIdle() {
+        guard holdsSession, !idleArmed, owner?.sfuVoiceRunning != true, owner?.sfuVoiceStarting != true else { return }
+        idleArmed = true
+        idleToken &+= 1
+        let token = idleToken
+        log("kept session with voice not running: it ends in \(Int(VoiceCompany.grace)) s unless voice starts")
+        hooks.after(VoiceCompany.grace) { [weak self] in
+            guard let self, self.idleToken == token else { return }
+            self.idleArmed = false
+            guard self.holdsSession, self.owner?.sfuVoiceRunning != true else { return }
+            if self.owner?.sfuVoiceStarting == true { self.armIdle(); return }
+            self.leave(why: "voice not running after the room change")
+        }
+    }
+
+    private func disarmIdle() {
+        guard idleArmed else { return }
+        idleArmed = false
+        idleToken &+= 1
     }
 
     /// The first unmute (or an unmuted start): push when not published yet.
@@ -365,7 +445,10 @@ final class SfuVoice {
     /// Voice stops on this screen while still in the room (no company, the app going away):
     /// sfuLeave then `pc.close()` (step 13). The roster stays (company).
     func leave(why: String) {
-        guard holdsSession else { return }
+        guard holdsSession else {
+            releaseHeldAudio()
+            return
+        }
         end(leave: true, why: why)
     }
 
@@ -373,6 +456,48 @@ final class SfuVoice {
     func localTrackReplaced(_ track: RTCAudioTrack?) {
         guard let tx = localTransceiver, !tx.isStopped else { return }
         tx.sender.track = track
+    }
+
+    // MARK: - The socket (steps 8, 11)
+
+    /// SocketService's connection (its `isConnected`: false on a `.disconnect` or any status but
+    /// connected, true at the next `.connect`). Socket.IO-Client-Swift drops an emit made while
+    /// not connected without a word (SocketIOClient.emit: "Tried emitting when not connected"),
+    /// and a reply to a request sent before a drop goes to the old socket: so at a drop every
+    /// request waiting for its reply answers at once as `socket_lost` (`.redo`), and nothing is
+    /// sent until the new socket's roster (and its resume) say the room has me again.
+    func socketChanged(connected: Bool) {
+        guard connected != socketUp else { return }
+        socketUp = connected
+        if connected {
+            log("socket up\(needsRoster ? ": requests wait for the room's roster" : "")")
+            flushParked()
+            return
+        }
+        if holdsSession || status != .none { needsRoster = true }
+        log("socket down: requests wait for the socket and the room's roster")
+        failSentWaiters(.socketLost)
+    }
+
+    /// Every request already sent answers now (its reply can never reach this socket).
+    private func failSentWaiters(_ e: SfuError) {
+        let ids = waiters.filter { $0.value.sent }.map(\.key).sorted()
+        guard !ids.isEmpty else { return }
+        log("\(ids.count) request(s) lost with the socket: \(e.code)")
+        for id in ids {
+            guard let w = waiters.removeValue(forKey: id) else { continue }
+            inFlight = max(0, inFlight - 1)
+            w.resume(.failure(e))
+        }
+    }
+
+    /// The parked requests go, in order, once nothing pauses signaling.
+    private func flushParked() {
+        guard !paused, !parked.isEmpty else { return }
+        let ready = parked
+        parked.removeAll()
+        log("sending \(ready.count) waiting request(s)")
+        for p in ready where waiters[p.id] != nil { p.send() }
     }
 
     // MARK: - Network, background (steps 9, 15)
@@ -437,13 +562,26 @@ final class SfuVoice {
         stall.sample(username, packets: packets, now: now)
     }
 
-    /// Run at each speaking poll: every pulled track silent 2 s while connected -> recover.
+    /// Run at each speaking poll: every pulled track of a LIVE member silent 2 s while connected
+    /// -> recover. A reconnecting member's silence is expected (their phone or network is away),
+    /// so it never counts; with no live member pulled there is nothing to judge. A
+    /// PeerConnection that was connected and reads `new` / `connecting` again counts as
+    /// connected here (a transport torn down under it: the detector must not go blind).
     func checkStall() {
         guard holdsSession, !recovering else { return }
-        if stall.check(connected: isConnected, pulls: Set(pulls.keys), now: now) {
-            log("downlink stall: every pulled track silent \(Int(SfuPolicy.stallWindow)) s while connected")
+        let live = Set(pulls.keys.filter { members[$0]?.state == .live })
+        guard !live.isEmpty else { return }
+        if stall.check(connected: isConnected || lostTransport, pulls: live, now: now) {
+            log("downlink stall: every live pulled track silent \(Int(SfuPolicy.stallWindow)) s (next check in \(Int(stall.cooldown)) s)")
             recover(force: true, why: "downlink stall")
         }
+    }
+
+    /// Connected once, now `new` / `connecting` (not `disconnected` / `failed`, which step 9's own
+    /// timers handle): its transport went away under it (a rejected BUNDLE tag did this).
+    private var lostTransport: Bool {
+        guard everConnected, let s = connectionState else { return false }
+        return s == .new || s == .connecting
     }
 
     // MARK: - The plan (steps 2, 5, 6)
@@ -461,9 +599,17 @@ final class SfuVoice {
 
     private func sync() async {
         syncQueued = false
-        guard owner?.sfuVoiceRunning == true, status == .admitted, !awaitingRoster else { return }
+        guard owner?.sfuVoiceRunning == true, status == .admitted, !awaitingRoster else {
+            if sessionId == nil, !sessionAsked { releaseHeldAudio() }
+            return
+        }
         if sessionId == nil {
-            guard wantsSession, !sessionAsked else { return }
+            guard wantsSession, !sessionAsked else {
+                // a renewal kept the audio session for a next PeerConnection that is no longer
+                // wanted (the only publisher went before this sync ran): release it now
+                if !sessionAsked { releaseHeldAudio() }
+                return
+            }
             await newSession(why: "needed")
             return
         }
@@ -566,6 +712,7 @@ final class SfuVoice {
     private func end(leave: Bool, why: String) {
         guard holdsSession || pc != nil || !pulls.isEmpty else {
             bumpGeneration()
+            releaseHeldAudio()  // a renewal's audio session with no PeerConnection after it
             return
         }
         dropSession(leave: leave, why: why)
@@ -580,6 +727,8 @@ final class SfuVoice {
         }
         if holdsSession { log("session \(Self.short(sessionId ?? "")) ends (\(why))") }
         bumpGeneration()
+        disarmIdle()
+        duplicateCloses.removeAll()
         for u in pulls.keys { owner?.sfuTrackDropped(u) }
         pulls.removeAll()
         midOwners.removeAll()
@@ -611,6 +760,7 @@ final class SfuVoice {
         syncQueued = false
         let old = waiters
         waiters.removeAll()
+        parked.removeAll()
         inFlight = 0
         for (_, w) in old { w.resume(.failure(.superseded)) }
         let connected = connectedWaiters
@@ -683,6 +833,19 @@ final class SfuVoice {
         }
         let results = ((d["tracks"] as? [Any]) ?? []).compactMap(SfuPulledTrack.from)
         var opened: [(username: String, key: SfuTrackKey, mid: String)] = []
+        var stale: [String] = []
+        defer {
+            if !stale.isEmpty, gen == generation {
+                enqueue("close stale mids") { [weak self] in
+                    guard let self, gen == self.generation, let sid = self.sessionId else { return }
+                    self.count("closeForce")
+                    let f = await self.call(SocketEvents.Client.sfuClose, ["sessionId": sid, "mids": stale, "force": true], gen, redo: true)
+                    guard gen == self.generation else { return }
+                    if case .failure(let e) = f { self.failed(e, op: "close (stale)") }
+                    self.scheduleSync()
+                }
+            }
+        }
         for (i, asked) in batch.enumerated() {
             let res = results.first { $0.key == asked.key } ?? (i < results.count ? results[i] : nil)
             guard let res else { continue }
@@ -695,6 +858,17 @@ final class SfuVoice {
             case .retryLater:
                 schedulePullRetry(asked.username, code: res.errorCode ?? "")
             case .refused:
+                // the server already holds a pull of this track on a mid I do not use (an
+                // earlier pull or its renegotiation whose reply was lost with a socket): close
+                // that mid by force, then pull the track again (step 5's `duplicate` rule)
+                if res.errorCode == "duplicate", let mid = SfuPulledTrack.duplicateMid(res.errorDescription),
+                   !pulls.values.contains(where: { $0.mid == mid }), !duplicateCloses.contains(asked.username) {
+                    duplicateCloses.insert(asked.username)
+                    stale.append(mid)
+                    if midOwners[mid] == asked.username { midOwners[mid] = nil }
+                    log("pull of \(asked.username): the server holds it on mid \(mid) already: closing that mid")
+                    continue
+                }
                 log("pull of \(asked.username) refused: \(res.errorCode ?? "no mid")")
                 refused[asked.username] = asked.key
             }
@@ -751,18 +925,53 @@ final class SfuVoice {
 
     private func close(_ usernames: [String], _ gen: Int) async {
         guard let pc, let sid = sessionId else { return }
-        let held = usernames.compactMap { u in pulls[u].map { (u, $0) } }
-        guard !held.isEmpty else { return }
-        let mids = held.map(\.1.mid)
-        for (u, p) in held {
-            if let tx = pc.transceivers.first(where: { $0.mid == p.mid }), !tx.isStopped { tx.stopInternal() }
+        let all = usernames.compactMap { u in pulls[u].map { (u, $0) } }
+        guard !all.isEmpty else { return }
+        // Never reject the BUNDLE-tag m-section (the first one, whose transport the bundle
+        // uses): a negotiated close of it took the whole session's transport down (live
+        // 2026-11-26: the connection went `new`, nothing sent or received, no recovery). Its
+        // pull is closed by force with its m-section kept, idle (Cloudflare never reuses that
+        // mid); the other pulls close negotiated as before.
+        let tag = Self.bundleTag(pc)
+        let onTag = all.filter { $0.1.mid == tag }
+        let held = all.filter { $0.1.mid != tag }
+        for (u, p) in all {
+            if p.mid != tag, let tx = pc.transceivers.first(where: { $0.mid == p.mid }), !tx.isStopped { tx.stopInternal() }
             pulls[u] = nil
             midOwners[p.mid] = nil
             stall.forget(u)
             owner?.sfuTrackDropped(u)
         }
         count("close")
-        log("closing \(held.map(\.0).joined(separator: ", "))")
+        log("closing \(all.map(\.0).joined(separator: ", "))\(onTag.isEmpty ? "" : " (mid \(tag ?? "?"), the BUNDLE tag: by force, kept)")")
+        if !held.isEmpty {
+            await closeMids(held.map(\.1.mid), pc: pc, sid: sid, gen)
+            guard gen == generation else { return }
+        }
+        if !onTag.isEmpty {
+            count("closeForce")
+            let f = await call(SocketEvents.Client.sfuClose, ["sessionId": sid, "mids": onTag.map(\.1.mid), "force": true], gen, redo: true)
+            if gen == generation, case .failure(let e) = f { failed(e, op: "close (force, BUNDLE tag)") }
+        }
+    }
+
+    /// The BUNDLE group's first mid in my local description (the m-section whose transport the
+    /// bundle uses), else the first live transceiver's.
+    static func bundleTag(_ pc: RTCPeerConnection) -> String? {
+        if let tag = bundleTag(sdp: pc.localDescription?.sdp) { return tag }
+        return pc.transceivers.first { !$0.isStopped && !$0.mid.isEmpty }?.mid
+    }
+
+    static func bundleTag(sdp: String?) -> String? {
+        guard let sdp else { return nil }
+        for line in sdp.split(whereSeparator: \.isNewline) where line.hasPrefix("a=group:BUNDLE") {
+            return line.split(separator: " ").dropFirst().first.map(String.init)
+        }
+        return nil
+    }
+
+    /// Negotiated (step 6); an offer that cannot be made or applied goes straight to the force close.
+    private func closeMids(_ mids: [String], pc: RTCPeerConnection, sid: String, _ gen: Int) async {
         // negotiated (step 6); an offer that cannot be made or applied (with max-bundle, a
         // session whose every m-section would be stopped) goes straight to the force close
         if let offer = await pc.sfuOffer(Self.plain), await pc.sfuSetLocal(offer) == nil, gen == generation {
@@ -780,7 +989,7 @@ final class SfuVoice {
         }
         guard gen == generation else { return }
         count("closeForce")
-        let f = await call(SocketEvents.Client.sfuClose, ["sessionId": sid, "mids": mids, "force": true], gen)
+        let f = await call(SocketEvents.Client.sfuClose, ["sessionId": sid, "mids": mids, "force": true], gen, redo: true)
         if gen == generation, case .failure(let e) = f { failed(e, op: "close (force)") }
     }
 
@@ -790,7 +999,25 @@ final class SfuVoice {
         enqueue("resume") { [weak self] in await self?.resume(why: why) }
     }
 
-    private func resume(why: String) async {
+    /// Step 11 / 12's resume AT ONCE: ahead of the queue (a job of the queue may be waiting for a
+    /// reply that went to the old socket). Every request sent before this roster answers now as
+    /// `socket_replaced` (its reply can never come here), without touching the session; whatever
+    /// the queue asks meanwhile waits (`resuming`) and goes after the resume.
+    private func startResume(why: String) {
+        failSentWaiters(.socketReplaced)
+        resumeToken &+= 1
+        let token = resumeToken
+        resuming = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.resume(why: why, ahead: true)
+            guard self.resumeToken == token else { return }
+            self.resuming = false
+            self.flushParked()
+        }
+    }
+
+    private func resume(why: String, ahead: Bool = false) async {
         guard let sid = sessionId, let token = sessionToken else { return }
         let gen = generation
         count("resume")
@@ -800,9 +1027,13 @@ final class SfuVoice {
             "sessionId": sid, "sessionToken": token,
             "trackName": publishedTrackName ?? NSNull(), "mid": (publishedTrackName == nil ? nil : localMid) ?? NSNull(),
             "pulls": pullList,
-        ], gen)
+        ], gen, ahead: ahead)
         guard gen == generation else { return }
-        if case .success = r { scheduleSync() }
+        if case .success = r {
+            scheduleSync()
+            // the media went down too while signaling was away: its recovery (again) now
+            if pc != nil, everConnected, !isConnected { recover(force: false, why: "after the resume") }
+        }
         if case .failure(let e) = r {
             switch e.code {
             case "session_gone", "bad_token", "invalid": renewSession(why: "resume refused (\(e.code))")
@@ -870,7 +1101,8 @@ final class SfuVoice {
                                               optionalConstraints: nil)
         guard let offer = await pc.sfuOffer(constraints), await pc.sfuSetLocal(offer) == nil, gen == generation else { return false }
         count("iceRestart")
-        let r = await call(SocketEvents.Client.sfuIceRestart, ["sessionId": sid, "offer": Self.wire(offer)], gen)
+        // the same offer again if its reply went with the socket (sent once the room has me back)
+        let r = await call(SocketEvents.Client.sfuIceRestart, ["sessionId": sid, "offer": Self.wire(offer)], gen, redo: true)
         guard gen == generation else { return false }
         switch r {
         case .failure(let e):
@@ -882,10 +1114,13 @@ final class SfuVoice {
         case .success(let d):
             guard let answer = Self.description(d["answer"], type: .answer), await pc.sfuSetRemote(rewrite(answer)) == nil,
                   gen == generation else { return false }
-            let answeredMs = Int(now.timeIntervalSince(t0) * 1000)
+            // from when it went out (it may have waited for the socket and the room's roster)
+            let sentAt = lastSentAt[SocketEvents.Client.sfuIceRestart].map { max($0, t0) } ?? t0
+            let answeredMs = Int(now.timeIntervalSince(sentAt) * 1000)
+            let waitedMs = Int(sentAt.timeIntervalSince(t0) * 1000)
             let up = await waitConnected(SfuPolicy.iceRestartConnectWait, gen)
             lastIceRestartMs = answeredMs
-            log("ICE restart answered in \(answeredMs) ms, \(up ? "connected" : "not connected in 6 s")")
+            log("ICE restart answered in \(answeredMs) ms\(waitedMs > 50 ? " (after \(waitedMs) ms waiting to be sent)" : ""), \(up ? "connected" : "not connected in 6 s")")
             return up
         }
     }
@@ -932,20 +1167,29 @@ final class SfuVoice {
             // anything given up on while the connection was down (a pull) is asked again
             scheduleSync()
         case .disconnected:
-            if lostAt == nil { lostAt = now }
-            disconnectToken &+= 1
-            let token = disconnectToken
-            // never act on the first disconnected: 5-12 s drops heal by themselves
-            hooks.after(SfuPolicy.disconnectWait) { [weak self] in
-                guard let self, self.disconnectToken == token, self.pc === changed,
-                      self.connectionState == .disconnected || self.connectionState == .failed else { return }
-                self.recover(force: false, why: "still disconnected after \(Int(SfuPolicy.disconnectWait)) s")
-            }
+            armDisconnectWait(changed, what: "disconnected")
+        case .new where everConnected, .connecting where everConnected:
+            // connected once and back to `new` / `connecting`: the transport went away under it
+            // (a rejected BUNDLE tag did that, silently, with no `disconnected`): treated as a
+            // disconnect, so a dead transport never sits silent
+            armDisconnectWait(changed, what: Self.name(state))
         case .failed:
             if lostAt == nil { lostAt = now }
             recover(force: false, why: "failed")
         default:
             break
+        }
+    }
+
+    /// Never act on the first disconnected: 5-12 s drops heal by themselves (step 9).
+    private func armDisconnectWait(_ changed: RTCPeerConnection, what: String) {
+        if lostAt == nil { lostAt = now }
+        disconnectToken &+= 1
+        let token = disconnectToken
+        hooks.after(SfuPolicy.disconnectWait) { [weak self] in
+            guard let self, self.disconnectToken == token, self.pc === changed, let state = self.connectionState,
+                  state == .disconnected || state == .failed || (self.everConnected && (state == .new || state == .connecting)) else { return }
+            self.recover(force: false, why: "still \(what) after \(Int(SfuPolicy.disconnectWait)) s")
         }
     }
 
@@ -964,7 +1208,7 @@ final class SfuVoice {
             end(leave: false, why: "not in the room")
             status = .none
             owner?.sfuRoomChanged()
-        case .drop, .retry, .giveUp:
+        case .drop, .redo, .retry, .giveUp:
             break
         }
     }
@@ -992,11 +1236,22 @@ final class SfuVoice {
     /// One request and its retries (step 8): rate_limited / busy / timeout /
     /// cloudflare_unreachable / a retryable cloudflare_error again after 0.5, 1, 2, 4 s (at
     /// least the server's retryAfterMs).
-    private func call(_ event: String, _ payload: [String: Any], _ gen: Int) async -> Result<[String: Any], SfuError> {
+    /// `redo`: a request safe to send again as it was (a force close, an ICE restart's offer):
+    /// one lost with the socket (`.redo`) is sent again once signaling is back (at most 3
+    /// times); the others are planned again instead. `ahead`: sent even while signaling waits
+    /// for the resume (the resume itself).
+    private func call(_ event: String, _ payload: [String: Any], _ gen: Int, redo: Bool = false,
+                      ahead: Bool = false) async -> Result<[String: Any], SfuError> {
         var attempt = 0
+        var redone = 0
         while true {
-            let r = await ask(event, payload, gen)
+            let r = await ask(event, payload, gen, ahead: ahead)
             guard gen == generation else { return .failure(.superseded) }
+            if case .failure(let e) = r, SfuErrorAction.of(e) == .redo, redo, redone < 3 {
+                redone += 1
+                log("\(event): \(e.code), sent again once the room has me back")
+                continue
+            }
             // no retry on a failed PeerConnection: its recovery (queued behind this job) comes first
             if case .failure(let e) = r, SfuErrorAction.of(e) == .retry, attempt < SfuPolicy.backoff.count,
                connectionState != .failed || event == SocketEvents.Client.sfuSession {
@@ -1013,22 +1268,47 @@ final class SfuVoice {
         }
     }
 
-    private func ask(_ event: String, _ payload: [String: Any], _ gen: Int) async -> Result<[String: Any], SfuError> {
+    /// One request and its reply. Sent at once, or parked while signaling is paused (the socket
+    /// down, the room's roster or its resume still to come: an emit then would be dropped by
+    /// Socket.IO-Client-Swift or refused by the server) and sent when it is not. The 12 s wait
+    /// starts when it is sent; a wait that spans a background (the app may have been suspended,
+    /// its socket with it) ends as `socket_lost`, not as a timeout of a working session.
+    private func ask(_ event: String, _ payload: [String: Any], _ gen: Int, ahead: Bool = false) async -> Result<[String: Any], SfuError> {
         nextRequest += 1
         let id = "sfu-ios-\(nextRequest)"
         var body = payload
         body["requestId"] = id
-        inFlight += 1
-        maxInFlight = max(maxInFlight, inFlight)
         return await withCheckedContinuation { cont in
             waiters[id] = Waiter(gen: gen, event: event, resume: { cont.resume(returning: $0) })
-            record(event, body)
-            hooks.send(event, body)
-            hooks.after(SfuPolicy.replyTimeout) { [weak self] in
-                guard let self, let w = self.waiters.removeValue(forKey: id) else { return }
-                self.inFlight = max(0, self.inFlight - 1)
-                self.log("\(event): no reply in \(Int(SfuPolicy.replyTimeout)) s")
-                w.resume(.failure(.clientTimeout))
+            let send: @MainActor () -> Void = { [weak self] in
+                guard let self, self.waiters[id] != nil else { return }
+                let sentAt = self.now
+                self.waiters[id]?.sent = true
+                self.waiters[id]?.sentAt = sentAt
+                self.inFlight += 1
+                self.maxInFlight = max(self.maxInFlight, self.inFlight)
+                self.lastSentAt[event] = sentAt
+                self.record(event, body)
+                self.hooks.send(event, body)
+                self.hooks.after(SfuPolicy.replyTimeout) { [weak self] in
+                    guard let self, let w = self.waiters[id], w.sentAt == sentAt else { return }
+                    self.waiters[id] = nil
+                    self.inFlight = max(0, self.inFlight - 1)
+                    if self.inBackground || (self.foregroundedAt.map { $0 > sentAt } ?? false) {
+                        self.log("\(event): no reply in \(Int(SfuPolicy.replyTimeout)) s across a background: lost with the socket")
+                        w.resume(.failure(.socketLost))
+                        self.scheduleSync()  // whatever it was for is planned again
+                    } else {
+                        self.log("\(event): no reply in \(Int(SfuPolicy.replyTimeout)) s")
+                        w.resume(.failure(.clientTimeout))
+                    }
+                }
+            }
+            if paused && !ahead {
+                log("\(event) waits: \(!socketUp ? "socket down" : resuming ? "the resume first" : "the room's roster")")
+                parked.append((id, send))
+            } else {
+                send()
             }
         }
     }
@@ -1085,6 +1365,11 @@ final class SfuVoice {
 extension SfuError {
     /// The work belonged to a replaced session (local: a waiting request answered at once).
     static let superseded = SfuError(code: "superseded", retryable: false, retryAfterMs: nil, status: nil, cfCode: nil)
+    /// Sent on a socket that dropped (or across a background that likely suspended the app): its
+    /// reply can never come (local, `.redo`).
+    static let socketLost = SfuError(code: "socket_lost", retryable: false, retryAfterMs: nil, status: nil, cfCode: nil)
+    /// Sent before the roster of a new socket that resumes the session (local, `.redo`).
+    static let socketReplaced = SfuError(code: "socket_replaced", retryable: false, retryAfterMs: nil, status: nil, cfCode: nil)
 }
 
 private final class SfuPeerDelegate: NSObject, RTCPeerConnectionDelegate {

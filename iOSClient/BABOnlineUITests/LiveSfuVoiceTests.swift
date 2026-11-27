@@ -14,7 +14,12 @@ import XCTest
 /// forced ICE restart on the same session, the undocumented form), `relay` (the network cut
 /// 8 s and 40 s, a NAT rebinding), `background` (5 / 30 / 60 s in the background, the app
 /// suspended as iOS does, SIGSTOP by the harness; and 30 s not suspended), `relaunch` (the app
-/// killed and launched again). Every measurement is written to `<ctl>/ios-<step>.json`.
+/// killed and launched again); opt-in, not in the default list, each run on its own after the
+/// join (they unmute first, which `core` expects to do itself): `bundle` (the page whose pull
+/// sits on the BUNDLE-tag m-section leaves: the session stays heard both ways; review of PR 3)
+/// and `blip` (the app's socket refused by the harness's `--proxy-port` proxy, which
+/// `BAB_LIVE_SERVER` must name, and the relay cut at once, 7 s and 12 s: the same session,
+/// resumed). Every measurement is written to `<ctl>/ios-<step>.json`.
 ///
 /// The app reads its own side from the DEBUG probe `voice.sfu.probe` (`-sfuProbe YES`): the
 /// PeerConnection's state, the session, each pulled track's packets / bytes / volume / mute /
@@ -173,6 +178,14 @@ final class LiveSfuVoiceTests: XCTestCase {
         if allow.waitForExistence(timeout: 3) { allow.tap() }
     }
 
+    /// Unmuted and published: a phase that checks the pages hear the iPhone needs it (muted, a
+    /// new session pushes nothing, step 4, so after one the pages have nothing to pull; `core`
+    /// ends muted).
+    private func unmuted() {
+        if probe().fields["muted"] == "true" { tapMic() }
+        until("published", timeout: 20) { $0.fields["pub"] == "mic" && $0.fields["muted"] == "false" }
+    }
+
     // MARK: - The run
 
     func testTheTournamentRoomOnTheSfu() throws {
@@ -211,6 +224,8 @@ final class LiveSfuVoiceTests: XCTestCase {
         save("1-iphone-hears", ["joinSeconds": joinTime ?? -1, "hears": muted, "probe": p1.raw])
         shot("1-joined")
 
+        if phases.contains("bundle") { bundlePhase() }
+        if phases.contains("blip"), env["BAB_LIVE_RELAY"] != nil { blipPhase() }
         if phases.contains("core") { core() }
         if phases.contains("ice") { ice() }
         if phases.contains("relay"), env["BAB_LIVE_RELAY"] != nil { relayPhase() }
@@ -279,13 +294,97 @@ final class LiveSfuVoiceTests: XCTestCase {
         save("5-leave-rejoin", ["page": pages[leaver], "closedSeconds": goneIn ?? -1, "pulledAgainSeconds": backIn ?? -1, "hears": again, "probe": probe().raw])
     }
 
+    /// Heard both ways by and from `subset` (pages by name).
+    private func hearsBothWays(_ subset: [String], min kbps: Int = 5) -> (ok: Bool, iphone: [String: Any], pages: [String: Any]) {
+        let h = iphoneHears()
+        let r = cmd("hearIos")
+        let heard = (r["heard"] as? [[String: Any]] ?? []).filter { subset.contains($0["page"] as? String ?? "") }
+        let iphoneOk = subset.allSatisfy { ((h[$0] as? [String: Any])?["kbps"] as? Int ?? 0) >= kbps }
+        let pagesOk = heard.count == subset.count && heard.allSatisfy { ($0["kbps"] as? Int ?? 0) >= kbps }
+        return (iphoneOk && pagesOk, h, r)
+    }
+
+    /// The pull on the BUNDLE-tag m-section (mid 0: the muted iPhone's first pull) closes when
+    /// its page leaves; the session must stay heard both ways (review of PR 3: a negotiated
+    /// close of it took the transport down).
+    private func bundlePhase() {
+        unmuted()
+        sleep(2)
+        let before = probe()
+        let tagUser = before.fields["tag"] ?? "-"
+        guard let leaver = pages.firstIndex(of: tagUser) else {
+            XCTFail("no page's pull on the BUNDLE tag: \(before.raw)")
+            return
+        }
+        let others = pages.filter { $0 != tagUser }
+        cmd("leavePage", ["page": leaver])
+        let goneIn = until("\(tagUser) closed", timeout: 15) { $0.pulls[tagUser] == nil }
+        var states: [String] = []
+        for _ in 0..<12 {
+            let pc = probe().pc
+            if states.last != pc { states.append(pc) }
+            usleep(500_000)
+        }
+        let after = hearsBothWays(others)
+        let p = probe()
+        XCTAssertEqual(states, ["connected"], "the PeerConnection stays connected after the BUNDLE tag's close")
+        XCTAssertTrue(after.ok, "the others still heard both ways: \(after)")
+        XCTAssertEqual(p.sid, before.sid, "the same session")
+        XCTAssertEqual(p.int("sessions"), before.int("sessions"))
+        cmd("returnPage", ["page": leaver])
+        let backIn = until("\(tagUser) pulled again", timeout: 30) { ($0.pulls[tagUser]?.bytes ?? 0) > 0 }
+        sleep(1)
+        let again = hearsBothWays(pages)
+        XCTAssertTrue(again.ok, "everyone heard both ways after the return: \(again)")
+        XCTAssertEqual(probe().sid, before.sid, "still the same session")
+        save("10-bundle-tag", ["tagPage": tagUser, "closedSeconds": goneIn ?? -1, "statesAfterClose": states, "afterClose": ["iphone": after.iphone, "pages": after.pages],
+                               "sameSession": p.sid == before.sid, "pulledAgainSeconds": backIn ?? -1, "afterReturn": ["iphone": again.iphone, "pages": again.pages],
+                               "probe": probe().raw])
+    }
+
+    /// A blip that takes the app's socket (the harness's proxy refuses it) and its SFU media
+    /// (the relay cut) at once, as a Wi-Fi drop does: the same session (step 11: never a new one
+    /// for it), resumed on the new socket, heard both ways again.
+    private func blipPhase() {
+        unmuted()
+        var out: [String: Any] = [:]
+        for seconds in [7, 12] {
+            sleep(3)
+            let before = probe()
+            let t0 = Date()
+            let r = cmd("blip", ["seconds": seconds], timeout: 60)
+            var states: [String] = []
+            var heard: TimeInterval?
+            while Date().timeIntervalSince(t0) < Double(seconds) + 40 {
+                let p = probe()
+                let s = "\(p.pc)/\(p.sid)"
+                if states.last != s { states.append(s) }
+                if p.pc == "connected", pages.allSatisfy({ p.pulls[$0] != nil }) {
+                    let a = probe(); usleep(1_500_000); let b = probe()
+                    if pages.allSatisfy({ (b.pulls[$0]?.bytes ?? 0) > (a.pulls[$0]?.bytes ?? 0) }) { heard = Date().timeIntervalSince(t0) - Double(seconds); break }
+                }
+                usleep(250_000)
+            }
+            sleep(1)
+            let both = hearsBothWays(pages)
+            let after = probe()
+            XCTAssertNotNil(heard, "blip \(seconds) s: the iPhone hears every page again")
+            XCTAssertTrue(both.ok, "blip \(seconds) s: heard both ways again: \(both)")
+            XCTAssertEqual(after.sid, before.sid, "blip \(seconds) s: the same session (never a new one for a signaling outage)")
+            XCTAssertEqual(after.int("sessions"), before.int("sessions"), "blip \(seconds) s: no new session")
+            XCTAssertGreaterThanOrEqual(after.int("resumes"), before.int("resumes") + 1, "blip \(seconds) s: resumed on the new socket")
+            out["blip\(seconds)"] = ["harness": r, "heardAgainAfterRestoreSeconds": heard ?? -1, "states": states, "sameSession": after.sid == before.sid,
+                                     "newSessions": after.int("sessions") - before.int("sessions"), "resumes": after.int("resumes") - before.int("resumes"),
+                                     "restarts": after.int("restarts") - before.int("restarts"), "rec": after.fields["rec"] ?? "-",
+                                     "iphoneHears": both.iphone, "pagesHear": both.pages, "probe": after.raw]
+            save("11-blip\(seconds)", out["blip\(seconds)"]!)
+        }
+    }
+
     /// The undocumented ICE restart form (tracks/new re-declaring my track) from iOS WebRTC.
     private func ice() {
-        if probe().fields["pub"] != "mic" {
-            tapMic()  // the restart form needs a published track
-            until("published", timeout: 20) { $0.fields["pub"] == "mic" }
-            sleep(1)
-        }
+        unmuted()  // the restart form needs a published track
+        sleep(1)
         var results: [[String: Any]] = []
         for i in 0..<3 {
             let n = probe().int("restarts")
@@ -304,7 +403,7 @@ final class LiveSfuVoiceTests: XCTestCase {
 
     /// The simulator's network to the SFU cut (the harness's relay drops both ways) and back.
     private func relayPhase() {
-        if probe().fields["pub"] != "mic" { tapMic(); until("published", timeout: 20) { $0.fields["pub"] == "mic" } }
+        unmuted()
         var out: [String: Any] = [:]
         for (name, seconds) in [("cut8", 8), ("cut40", 40)] {
             let sid = probe().sid
