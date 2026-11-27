@@ -2,10 +2,12 @@ import XCTest
 
 /// The tournament lobby's layout (owner 2026-11-26): one action slot at the bottom (Ready ->
 /// Unready; the host's Begin once allowed, with Unready under it), the host's Rounds picker in the
-/// header, Leave / Stop Watching as a button (a member, a spectator) or the host's "…" menu ("More")
-/// of Leave Tournament… / Cancel Tournament…, one level, each confirmed by a centred alert; and New
-/// Game as a native menu with each game's rules under its name. Fixture mode; run on the iPhone 18
-/// Pro, the iPad and the iPhone Duo closed and open (where the entry point is a vertical bar item).
+/// header, Leave / Stop Watching as a button (a member, a spectator), the host's Leave and End
+/// Tournament as two icons (owner 2026-11-26: one action = one icon; the "…" menu only where a header
+/// cannot fit both, which no tested device reaches), each confirmed by a centred alert; and New Game
+/// as a native menu with each choice's words under its name (Tournament among them), the trophy
+/// opening the leaderboard. Fixture mode; run on the iPhone 18 Pro, the iPad and the iPhone Duo
+/// closed and open (where the buttons are vertical bar items).
 /// `TEST_RUNNER_BAB_SHOTS=<folder>` (+ `TEST_RUNNER_BAB_DEVICE=<tag>`) saves PNGs.
 final class LobbyMenuLayoutUITests: XCTestCase {
     override func setUp() {
@@ -57,16 +59,17 @@ final class LobbyMenuLayoutUITests: XCTestCase {
     /// The confirmations' words (TournamentLobbyMenu.Copy and confirmMessage; the UI tests do not
     /// link the app).
     private enum TournamentCopy {
-        static let cancelInTheLobby = "The tournament ends for everyone before it starts."
-        static let cancelOnceBegun = "The tournament ends for everyone, and any games still in play stop now."
+        static let endInTheLobby = "The tournament ends for everyone before it starts."
+        static let endOnceBegun = "The tournament ends for everyone, and any games still in play stop now."
         static let hostLeavesTheLobby = "You can join again while it's waiting to start. Another player becomes the host."
         static let memberLeavesTheLobby = "You can join again while it's waiting to start."
         static let noWayBack = "You can't come back to this tournament, and you won't be among the winners."
         static let stopWatching = "You go back to the main room."
     }
 
+    /// The fallback "…" menu (only where a header row cannot fit the host's two icons).
     private var more: (XCUIApplication) -> XCUIElement {
-        { $0.buttons.matching(NSPredicate(format: "label == %@", "More")).firstMatch }
+        { $0.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "tournament.more", "More")).firstMatch }
     }
 
     // MARK: - The slot
@@ -79,7 +82,8 @@ final class LobbyMenuLayoutUITests: XCTestCase {
         XCTAssertTrue(slot.waitForExistence(timeout: 5))
         XCTAssertEqual(slot.label, "Ready")
         XCTAssertFalse(element(app, "tournament.begin").exists, "one action at a time")
-        XCTAssertFalse(app.buttons["Cancel Tournament"].exists, "Cancel is in the menu")
+        XCTAssertTrue(endButton(app).exists && leaveButton(app).exists, "the host's two icons")
+        XCTAssertFalse(more(app).exists, "no menu")
         assertOnScreen(app, slot, "Ready")
         shot("lobby-host")
         slot.tap()
@@ -154,15 +158,16 @@ final class LobbyMenuLayoutUITests: XCTestCase {
             app = lobby("tournament-round", ["-uiHost", host])
             XCTAssertFalse(element(app, "tournament.ready").exists, "no Ready during a round (\(host))")
             XCTAssertFalse(element(app, "tournament.begin").exists, "no Begin during a round (\(host))")
-            // the host keeps the "…" (Leave and Cancel), a member the Leave button
-            XCTAssertTrue(host == "ivy" ? more(app).exists : leaveButton(app).exists, "Leave stays (\(host))")
+            // the host keeps Leave and End Tournament, a member the Leave button alone
+            XCTAssertTrue(leaveButton(app).exists, "Leave stays (\(host))")
+            XCTAssertEqual(endButton(app).exists, host == "ivy", "End only for the host (\(host))")
             app.terminate()
         }
     }
 
-    // MARK: - The menu
+    // MARK: - Leave / End Tournament / Stop Watching
 
-    /// The member's / spectator's button (before any alert is up: the alert has a "Leave
+    /// A Leave / End / Stop Watching button (before any alert is up: the alert has a "Leave
     /// Tournament" button too), by its identifier or its VoiceOver label (the vertical bar's item).
     private func entryButton(_ app: XCUIApplication, _ id: String, _ label: String) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", id, label)).firstMatch
@@ -172,21 +177,37 @@ final class LobbyMenuLayoutUITests: XCTestCase {
         entryButton(app, "tournament.leave", "Leave Tournament")
     }
 
+    private func endButton(_ app: XCUIApplication) -> XCUIElement {
+        entryButton(app, "tournament.end", "End Tournament")
+    }
+
     /// Brings the entry point into reach (at AX5 the header can sit above a scrolled list).
     private func reach(_ app: XCUIApplication, _ e: XCUIElement) {
         XCTAssertTrue(e.waitForExistence(timeout: 5), "the entry point")
         for _ in 0..<4 where !e.isHittable { app.swipeDown(velocity: .slow) }
     }
 
-    /// The host's "…" menu: one level of plain items with a trailing ellipsis, nothing nested.
-    private func openHostMenu(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
-        let button = more(app)
-        reach(app, button)
-        XCTAssertTrue(button.isHittable, "More is reachable (the vertical bar on the Duo)", file: file, line: line)
-        button.tap()
-        XCTAssertTrue(app.buttons["Cancel Tournament…"].firstMatch.waitForExistence(timeout: 3), "Cancel in the menu", file: file, line: line)
-        XCTAssertTrue(app.buttons["Leave Tournament…"].firstMatch.exists, "Leave in the menu", file: file, line: line)
+    /// The host's two icons, Leave and End Tournament (owner 2026-11-26: "tournament host should
+    /// get two separate icons"): both reachable, side by side (a row in the header, a column in the
+    /// Duo's bar), no "…" menu (the fallback never shows on a tested device), nothing asked yet.
+    @discardableResult
+    private func hostButtons(_ app: XCUIApplication, file: StaticString = #filePath,
+                             line: UInt = #line) -> (leave: XCUIElement, end: XCUIElement) {
+        let leave = leaveButton(app), end = endButton(app)
+        reach(app, end)
+        XCTAssertTrue(leave.isHittable, "Leave is reachable", file: file, line: line)
+        XCTAssertTrue(end.isHittable, "End Tournament is reachable", file: file, line: line)
+        XCTAssertFalse(more(app).exists, "two icons, no menu", file: file, line: line)
+        XCTAssertEqual(leave.label, "Leave Tournament", "VoiceOver hears the whole choice", file: file, line: line)
+        XCTAssertEqual(end.label, "End Tournament", file: file, line: line)
+        let l = leave.frame, e = end.frame
+        XCTAssertFalse(l.intersects(e.insetBy(dx: 1, dy: 1)), "apart: \(l) \(e)", file: file, line: line)
+        let row = abs(l.midY - e.midY) < 2, column = abs(l.midX - e.midX) < 2
+        XCTAssertTrue(row || column, "side by side: \(l) \(e)", file: file, line: line)
+        if row { XCTAssertLessThan(e.maxX, l.minX + 1, "End before Leave, Leave in the corner", file: file, line: line) }
+        if column { XCTAssertLessThan(l.maxY, e.minY + 1, "Leave on top in the bar", file: file, line: line) }
         XCTAssertEqual(app.alerts.count, 0, "nothing asked yet", file: file, line: line)
+        return (leave, end)
     }
 
     /// The alert a choice opens: centred (no popover), its question and the consequence.
@@ -197,8 +218,8 @@ final class LobbyMenuLayoutUITests: XCTestCase {
         XCTAssertTrue(alert.staticTexts[message].exists, "it says what happens: \(message)", file: file, line: line)
         XCTAssertEqual(app.popovers.count, 0, "no popover", file: file, line: line)
         XCTAssertEqual(app.alerts.count, 1, "one alert", file: file, line: line)
-        // never a submenu: the menu went away when its item opened the alert
-        XCTAssertFalse(app.buttons["Cancel Tournament…"].exists, "no menu behind the alert", file: file, line: line)
+        // never a menu behind it
+        XCTAssertFalse(app.buttons["End Tournament…"].exists, "no menu behind the alert", file: file, line: line)
         // UIKit lays the alert out: at AX5 on the closed Duo it is centred in the content beside the
         // vertical bar and overhangs the leading edge by about 10 pt (its message and buttons
         // scroll inside it); it is never wider than the window and its centre is on screen
@@ -218,57 +239,76 @@ final class LobbyMenuLayoutUITests: XCTestCase {
         waitFor(what) { !alert.exists }
     }
 
-    /// Cancel Tournament: the host's "…" then Cancel Tournament…, a centred alert "Cancel
-    /// tournament?" with the consequence; Keep Tournament sends nothing; Cancel Tournament sends
-    /// cancelTournament.
-    func testCancelAsksInAnAlertAndKeepSendsNothing() {
+    /// End Tournament: the host's stop icon, a centred alert "End tournament?" with the
+    /// consequence; Keep Tournament sends nothing; End Tournament sends cancelTournament (the wire
+    /// event keeps its name).
+    func testEndAsksInAnAlertAndKeepSendsNothing() {
         let app = lobby("tournament-rounds")
-        openHostMenu(app)
-        // each row on one line at the default size (review of PR #437: with the icon "Cancel
-        // Tournament…" broke over two on the Duo, open and closed, and the iPhone 18 Pro)
-        let cancelRow = app.buttons["Cancel Tournament…"].firstMatch, leaveRow = app.buttons["Leave Tournament…"].firstMatch
-        XCTAssertEqual(cancelRow.frame.height, leaveRow.frame.height, accuracy: 2,
-                       "Cancel Tournament… \(cancelRow.frame) as tall as Leave Tournament… \(leaveRow.frame)")
-        XCTAssertLessThan(cancelRow.frame.height, 56, "one line: \(cancelRow.frame)")
-        shot("menu-host")
-        app.buttons["Cancel Tournament…"].firstMatch.tap()
-        var alert = openedAlert(app, "Cancel tournament?", TournamentCopy.cancelInTheLobby)
-        XCTAssertEqual(confirm(alert).label, "Cancel Tournament")
-        XCTAssertEqual(keep(alert).label, "Keep Tournament", "never a bare Cancel beside Cancel Tournament")
+        let buttons = hostButtons(app)
+        shot("host-icons")
+        buttons.end.tap()
+        var alert = openedAlert(app, "End tournament?", TournamentCopy.endInTheLobby)
+        XCTAssertEqual(confirm(alert).label, "End Tournament")
+        XCTAssertEqual(keep(alert).label, "Keep Tournament", "never a bare Cancel")
         XCTAssertEqual(sent(app), "-", "nothing sent before the confirmation")
-        shot("alert-host-cancel")
+        shot("alert-host-end")
         keep(alert).tap()
         waitGone(alert, "Keep Tournament closed the alert")
         RunLoop.current.run(until: Date().addingTimeInterval(1))
         XCTAssertEqual(sent(app), "-", "Keep Tournament keeps the tournament")
         XCTAssertTrue(element(app, "tournament.ready").exists, "still in the lobby")
 
-        openHostMenu(app)
-        app.buttons["Cancel Tournament…"].firstMatch.tap()
-        alert = openedAlert(app, "Cancel tournament?", TournamentCopy.cancelInTheLobby)
+        hostButtons(app).end.tap()
+        alert = openedAlert(app, "End tournament?", TournamentCopy.endInTheLobby)
         confirm(alert).tap()
         waitFor("cancelTournament sent") { sent(app) == "cancelTournament" }
         app.terminate()
     }
 
-    /// The host's Leave: "…" then Leave Tournament…, the alert says the role passes on; Stay
-    /// keeps me there, Leave Tournament sends leaveTournament.
+    /// The host's Leave: its own icon, the alert says the role passes on; Stay keeps me there,
+    /// Leave Tournament sends leaveTournament.
     func testTheHostsLeaveAsksInAnAlert() {
         let app = lobby("tournament-rounds")
-        openHostMenu(app)
-        app.buttons["Leave Tournament…"].firstMatch.tap()
+        hostButtons(app).leave.tap()
         var alert = openedAlert(app, "Leave tournament?", TournamentCopy.hostLeavesTheLobby)
+        XCTAssertEqual(confirm(alert).label, "Leave Tournament")
         XCTAssertEqual(keep(alert).label, "Stay")
         keep(alert).tap()
         waitGone(alert, "Stay closed the alert")
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         XCTAssertEqual(sent(app), "-", "Stay keeps me in the tournament")
-        openHostMenu(app)
-        app.buttons["Leave Tournament…"].firstMatch.tap()
+        hostButtons(app).leave.tap()
         alert = openedAlert(app, "Leave tournament?", TournamentCopy.hostLeavesTheLobby)
         shot("alert-host-leave")
         confirm(alert).tap()
         waitFor("leaveTournament sent") { sent(app) == "leaveTournament" }
+        app.terminate()
+    }
+
+    /// End Tournament waits for the session (`-uiSessionPending YES`): disabled, while Leave never
+    /// waits and still asks.
+    func testEndWaitsForTheSessionAndLeaveDoesNot() {
+        let app = lobby("tournament-rounds", ["-uiSessionPending", "YES"])
+        let leave = leaveButton(app), end = endButton(app)
+        reach(app, end)
+        XCTAssertFalse(end.isEnabled, "End Tournament waits for the session")
+        XCTAssertTrue(leave.isEnabled, "Leave never waits")
+        shot("host-icons-session-pending")
+        leave.tap()
+        let alert = openedAlert(app, "Leave tournament?", TournamentCopy.hostLeavesTheLobby)
+        keep(alert).tap()
+        waitGone(alert, "Stay closed the alert")
+        XCTAssertEqual(sent(app), "-")
+        app.terminate()
+    }
+
+    /// During the cut the host has only Leave: one button, no End, no menu.
+    func testTheHostDuringTheCutHasOnlyLeave() {
+        let app = lobby("tournament-cut", ["-uiCut", "8 drawing", "-uiHost", "ivy"])
+        let leave = leaveButton(app)
+        reach(app, leave)
+        XCTAssertFalse(endButton(app).exists, "no End during the cut")
+        XCTAssertFalse(more(app).exists)
         app.terminate()
     }
 
@@ -280,7 +320,7 @@ final class LobbyMenuLayoutUITests: XCTestCase {
         reach(app, button)
         XCTAssertFalse(more(app).exists, "no menu for one choice")
         XCTAssertEqual(button.label, "Leave Tournament", "VoiceOver hears the whole choice")
-        XCTAssertFalse(app.buttons["Cancel Tournament"].exists, "only the host cancels")
+        XCTAssertFalse(endButton(app).exists, "only the host ends it")
         shot("member-button")
         button.tap()
         // between rounds a member who leaves is gone for good, never "a missed round scores..."
@@ -323,19 +363,18 @@ final class LobbyMenuLayoutUITests: XCTestCase {
         app.terminate()
     }
 
-    /// A host hand-off while Cancel's alert is up (`-uiHandOffOnAlert kim`, 3 s after it opens):
-    /// Cancel is no longer mine, so its alert goes with nothing sent, and the entry point becomes
-    /// the member's Leave button.
-    func testAHostHandOffRemovesCancelsAlert() {
+    /// A host hand-off while End's alert is up (`-uiHandOffOnAlert kim`, 3 s after it opens): End
+    /// is no longer mine, so its alert goes with nothing sent, and only the member's Leave is left.
+    func testAHostHandOffRemovesEndsAlert() {
         let app = lobby("tournament-rounds", ["-uiHandOffOnAlert", "kim"])
-        openHostMenu(app)
-        app.buttons["Cancel Tournament…"].firstMatch.tap()
-        let alert = openedAlert(app, "Cancel tournament?", TournamentCopy.cancelInTheLobby)
-        waitFor("the hand-off took Cancel's alert away", timeout: 6) { !alert.exists }
+        hostButtons(app).end.tap()
+        let alert = openedAlert(app, "End tournament?", TournamentCopy.endInTheLobby)
+        waitFor("the hand-off took End's alert away", timeout: 6) { !alert.exists }
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         XCTAssertEqual(app.alerts.count, 0, "no other alert in its place")
         XCTAssertEqual(sent(app), "-", "nothing sent")
         XCTAssertTrue(leaveButton(app).waitForExistence(timeout: 3), "a member now: the Leave button")
+        waitFor("no End for a member") { !endButton(app).exists }
         XCTAssertFalse(more(app).exists)
         app.terminate()
     }
@@ -381,21 +420,20 @@ final class LobbyMenuLayoutUITests: XCTestCase {
         app.terminate()
     }
 
-    /// A re-entry under Cancel's alert (`-uiRejoinOnAlert`: 3 s after it opens, for 3 s): the
-    /// same alert stays, its Cancel Tournament disabled while the re-entry waits (as the menu
-    /// item is), then enabled again; it sends cancelTournament once tapped (review of PR #437: it
-    /// closed the alert and sent nothing).
-    func testCancelsConfirmWaitsForTheReentry() {
+    /// A re-entry under End's alert (`-uiRejoinOnAlert`: 3 s after it opens, for 3 s): the same
+    /// alert stays, its End Tournament disabled while the re-entry waits (as the icon is), then
+    /// enabled again; it sends cancelTournament once tapped (review of PR #437: it closed the alert
+    /// and sent nothing).
+    func testEndsConfirmWaitsForTheReentry() {
         let app = lobby("tournament-rounds", ["-uiRejoinOnAlert", "YES"])
-        openHostMenu(app)
-        app.buttons["Cancel Tournament…"].firstMatch.tap()
-        let alert = openedAlert(app, "Cancel tournament?", TournamentCopy.cancelInTheLobby)
+        hostButtons(app).end.tap()
+        let alert = openedAlert(app, "End tournament?", TournamentCopy.endInTheLobby)
         XCTAssertTrue(confirm(alert).isEnabled, "enabled while the session is up")
         XCTAssertTrue(keep(alert).isEnabled)
         waitFor("disabled during the re-entry", timeout: 6) { !confirm(alert).isEnabled }
         XCTAssertTrue(alert.exists, "the same alert stays")
         XCTAssertTrue(keep(alert).isEnabled, "Keep Tournament never waits")
-        shot("alert-cancel-waits")
+        shot("alert-end-waits")
         waitFor("enabled once the re-entry is answered", timeout: 6) { confirm(alert).isEnabled }
         XCTAssertEqual(sent(app), "-")
         confirm(alert).tap()
@@ -403,36 +441,30 @@ final class LobbyMenuLayoutUITests: XCTestCase {
         app.terminate()
     }
 
-    /// Screenshots of the entry point, the menu and each alert at the default size and AX5
-    /// (`TEST_RUNNER_BAB_SHOTS`): the host in the lobby (the menu, Cancel, Leave), the host between
-    /// rounds (Cancel), a member between rounds (the Leave button), a spectator. Each alert must
-    /// read whole in the picture.
+    /// Screenshots of the buttons and each alert at the default size and AX5
+    /// (`TEST_RUNNER_BAB_SHOTS`): the host in the lobby (its two icons: End, Leave), the host between
+    /// rounds (End), a member between rounds (the Leave button), a spectator. Each alert must read
+    /// whole in the picture.
     func testConfirmScreenshots() {
-        // (who, launch, fixture, the menu item or nil for the button, question, message, file tag)
-        let cases: [(String, [String], String, String?, String, String, String)] = [
-            ("host-lobby", [], "tournament-rounds", "Cancel Tournament…", "Cancel tournament?", TournamentCopy.cancelInTheLobby, "cancel"),
-            ("host-lobby", [], "tournament-rounds", "Leave Tournament…", "Leave tournament?", TournamentCopy.hostLeavesTheLobby, "leave"),
-            ("host-between", ["-uiHost", "ivy"], "tournament-between", "Cancel Tournament…", "Cancel tournament?", TournamentCopy.cancelOnceBegun, "cancel"),
-            ("member-between", [], "tournament-between", nil, "Leave tournament?", TournamentCopy.noWayBack, "leave"),
-            ("spectator", ["-uiSpectator", "YES"], "tournament-pairings", nil, "Stop watching?", TournamentCopy.stopWatching, "stop"),
+        // (who, launch, fixture, the button's identifier, question, message, file tag)
+        let cases: [(String, [String], String, String, String, String, String)] = [
+            ("host-lobby", [], "tournament-rounds", "tournament.end", "End tournament?", TournamentCopy.endInTheLobby, "end"),
+            ("host-lobby", [], "tournament-rounds", "tournament.leave", "Leave tournament?", TournamentCopy.hostLeavesTheLobby, "leave"),
+            ("host-between", ["-uiHost", "ivy"], "tournament-between", "tournament.end", "End tournament?", TournamentCopy.endOnceBegun, "end"),
+            ("member-between", [], "tournament-between", "tournament.leave", "Leave tournament?", TournamentCopy.noWayBack, "leave"),
+            ("spectator", ["-uiSpectator", "YES"], "tournament-pairings", "tournament.stopWatching", "Stop watching?", TournamentCopy.stopWatching, "stop"),
         ]
         for (size, args) in [("default", [String]()), ("ax5", Self.ax5)] {
-            var entryShot = Set<String>()
-            for (who, extra, fixture, item, question, message, tag) in cases {
+            for (who, extra, fixture, id, question, message, tag) in cases {
                 let app = lobby(fixture, extra + args)
-                if let item {
-                    openHostMenu(app)
-                    if !entryShot.contains(who) { shot("\(size)-\(who)-menu"); entryShot.insert(who) }
-                    app.buttons[item].firstMatch.tap()
-                } else {
-                    let button = who == "spectator" ? entryButton(app, "tournament.stopWatching", "Stop Watching") : leaveButton(app)
-                    reach(app, button)
-                    XCTAssertTrue(button.isHittable, "\(size) \(who): the button")
-                    // one line in the AX controls row (review of PR #437: "Stop / Watching" was 132 pt)
-                    XCTAssertLessThan(button.frame.height, 100, "\(size) \(who): one line, \(button.frame)")
-                    shot("\(size)-\(who)-button")
-                    button.tap()
-                }
+                let label = ["tournament.end": "End Tournament", "tournament.leave": "Leave Tournament"][id] ?? "Stop Watching"
+                let button = entryButton(app, id, label)
+                if who.hasPrefix("host") { hostButtons(app) } else { reach(app, button) }
+                XCTAssertTrue(button.isHittable, "\(size) \(who): the button")
+                // one line in the AX controls row (review of PR #437: "Stop / Watching" was 132 pt)
+                XCTAssertLessThan(button.frame.height, 100, "\(size) \(who): one line, \(button.frame)")
+                shot("\(size)-\(who)-\(tag)-button")
+                button.tap()
                 let alert = openedAlert(app, question, message)
                 XCTAssertTrue(confirm(alert).isHittable, "\(size) \(who): the confirm")
                 XCTAssertTrue(keep(alert).isHittable, "\(size) \(who): the keep button")
@@ -448,6 +480,7 @@ final class LobbyMenuLayoutUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Main Room"].firstMatch.waitForExistence(timeout: 5))
         XCTAssertFalse(more(app).exists)
         XCTAssertFalse(leaveButton(app).exists)
+        XCTAssertFalse(endButton(app).exists)
         XCTAssertFalse(element(app, "tournament.ready").exists)
         app.terminate()
     }
@@ -456,7 +489,7 @@ final class LobbyMenuLayoutUITests: XCTestCase {
 
     /// XXXL and AX5: the slot's button and caption are whole and on screen without scrolling
     /// (pinned: at AX5 the host's Rounds picker scrolls with the players, review of PR #430),
-    /// the menu reachable, and the picker still there under the header.
+    /// the host's two buttons reachable, and the picker still there under the header.
     func testTheSlotAtLargeTextSizes() {
         for (tag, size) in [("xxxl", Self.xxxl), ("ax5", Self.ax5)] {
             let app = lobby("tournament-rounds", size + ["-uiMeReady", "YES"])
@@ -467,34 +500,109 @@ final class LobbyMenuLayoutUITests: XCTestCase {
             XCTAssertGreaterThan(slot.frame.height, 44, "\(tag): it grows with the text")
             let caption = element(app, "tournament.slotCaption")
             assertOnScreen(app, caption, "\(tag) caption")
-            XCTAssertTrue(more(app).exists, "\(tag): the menu")
+            XCTAssertTrue(endButton(app).exists && leaveButton(app).exists, "\(tag): the host's two buttons")
+            XCTAssertFalse(more(app).exists, "\(tag): two icons fit, no menu")
             XCTAssertTrue(element(app, "tournament.rounds").exists, "\(tag): the host's Rounds picker")
             shot("lobby-host-ready-\(tag)")
             app.terminate()
         }
     }
 
-    // MARK: - New Game
+    // MARK: - New Game and the trophy
 
-    /// New Game is a native menu: each game with its rules as the subtitle (the item's label
-    /// reads both); nothing is sent until a game is picked.
-    func testNewGameIsAMenuWithSubtitles() {
-        let app = Fixture.launch("main-room")
+    private func mainRoom(_ extra: [String] = []) -> XCUIApplication {
+        let app = Fixture.launch("main-room", extra: extra)
         XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 15))
+        return app
+    }
+
+    private func subtitle(_ app: XCUIApplication, _ words: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", words)).firstMatch
+    }
+
+    /// New Game is a native menu: each choice with its words as the subtitle (the item's label
+    /// reads both), Tournament the third; nothing is sent until one is picked.
+    func testNewGameIsAMenuWithSubtitles() {
+        let app = mainRoom()
         app.buttons["New Game"].firstMatch.tap()
         let classic = Fixture.newGameChoice(app, "classic"), gyb = Fixture.newGameChoice(app, "gyb")
+        let tournament = Fixture.newGameChoice(app, "tournament")
         XCTAssertTrue(classic.waitForExistence(timeout: 5))
         XCTAssertTrue(gyb.exists)
-        let words = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "4 players in two teams")).firstMatch
-        XCTAssertTrue(words.exists, "Back Alley Bridge's subtitle")
-        let gybWords = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label CONTAINS %@", "Score only by taking exactly what you bid")).firstMatch
-        XCTAssertTrue(gybWords.exists, "Get Your Bid's subtitle")
+        XCTAssertTrue(tournament.exists, "Tournament is New Game's third choice")
+        XCTAssertLessThan(gyb.frame.minY, tournament.frame.minY, "after the two games")
+        XCTAssertTrue(subtitle(app, "4 players in two teams").exists, "Back Alley Bridge's subtitle")
+        XCTAssertTrue(subtitle(app, "Score only by taking exactly what you bid").exists, "Get Your Bid's subtitle")
+        XCTAssertTrue(subtitle(app, "Several rounds, a new partner each round. The top score wins.").exists,
+                      "Tournament's subtitle, the web's words")
         XCTAssertFalse(app.staticTexts["New Game"].exists && app.buttons["Cancel"].exists, "no dialog with a Cancel")
         XCTAssertEqual(sent(app), "-")
         shot("newgame-menu")
         gyb.tap()
         waitFor("createLobby:gyb") { sent(app) == "createLobby:gyb" }
+        app.terminate()
+    }
+
+    /// New Game's Tournament sends what creating a tournament always sent (createTournament).
+    func testNewGamesTournamentCreatesATournament() {
+        let app = mainRoom()
+        app.buttons["New Game"].firstMatch.tap()
+        let tournament = Fixture.newGameChoice(app, "tournament")
+        XCTAssertTrue(tournament.waitForExistence(timeout: 5))
+        tournament.tap()
+        waitFor("createTournament sent") { sent(app) == "createTournament" }
+        app.terminate()
+    }
+
+    /// New Game, and with it a tournament, waits for the session; the trophy (a sheet) does not.
+    func testNewGameWaitsForTheSessionAndTheTrophyDoesNot() {
+        let app = mainRoom(["-uiSessionPending", "YES"])
+        XCTAssertFalse(app.buttons["New Game"].firstMatch.isEnabled)
+        XCTAssertTrue(trophy(app).isEnabled)
+        app.terminate()
+    }
+
+    /// The main room's header at AX5: whichever ViewThatFits form fits (words, New Game's word
+    /// with the trophy's icon, or icons), New Game and the trophy are on screen and reachable.
+    func testTheMainRoomHeaderAtAX5() {
+        let app = mainRoom(Self.ax5)
+        let newGame = app.buttons["New Game"].firstMatch, button = trophy(app)
+        XCTAssertTrue(button.waitForExistence(timeout: 5))
+        XCTAssertTrue(newGame.isHittable, "New Game")
+        XCTAssertTrue(button.isHittable, "the trophy")
+        assertOnScreen(app, newGame, "New Game")
+        assertOnScreen(app, button, "the trophy")
+        XCTAssertFalse(newGame.frame.intersects(button.frame.insetBy(dx: 1, dy: 1)), "\(newGame.frame) \(button.frame)")
+        print("ax5 header: New Game \(newGame.frame) trophy \(button.frame)")
+        shot("mainroom-header-ax5")
+        button.tap()
+        XCTAssertTrue(app.navigationBars["Stats"].waitForExistence(timeout: 5))
+        app.terminate()
+    }
+
+    private func trophy(_ app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "mainRoom.leaderboard", "Leaderboard")).firstMatch
+    }
+
+    /// The trophy opens the leaderboard and records (the Stats sheet); there is no Stats icon and
+    /// no Tournament button any more (header and the Duo's bar).
+    func testTheTrophyOpensTheLeaderboardAndThereIsNoStatsIcon() {
+        let app = mainRoom()
+        let button = trophy(app)
+        XCTAssertTrue(button.waitForExistence(timeout: 5), "the trophy")
+        XCTAssertEqual(button.label, "Leaderboard")
+        XCTAssertTrue(button.isHittable)
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label == %@", "Stats")).count, 0, "no Stats icon")
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label == %@", "Tournament")).count, 0,
+                       "a tournament is New Game's choice")
+        shot("mainroom-header")
+        button.tap()
+        XCTAssertTrue(app.navigationBars["Stats"].waitForExistence(timeout: 5), "the leaderboard's sheet")
+        XCTAssertTrue(app.segmentedControls.buttons["Leaderboard"].exists, "the Leaderboard tab")
+        XCTAssertTrue(app.segmentedControls.buttons["Records"].exists, "Records is there too")
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        shot("leaderboard-from-trophy")
+        XCTAssertEqual(sent(app), "-", "the trophy sends nothing of its own (the sheet asks for the rows)")
         app.terminate()
     }
 }

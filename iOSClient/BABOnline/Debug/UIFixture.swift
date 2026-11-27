@@ -467,6 +467,9 @@ enum UIFixture {
         case SocketEvents.Client.createLobby:
             // New Game's choice (GybLobbyUITests): the game it asked for
             message = (data["mode"] as? String).map { "createLobby:\($0)" } ?? "createLobby"
+        case SocketEvents.Client.createTournament:
+            // New Game's Tournament choice (MainRoomUITests)
+            message = "createTournament"
         case SocketEvents.Client.watchHand:
             // -uiShoulder: answered as the server does (UIFixture+Shoulder)
             message = "watchHand:\((data["position"] as? Int).map(String.init) ?? "null")"

@@ -10,13 +10,19 @@ final class StatsUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// The main room's trophy, which opens this sheet.
+    static func trophy(_ app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "mainRoom.leaderboard", "Leaderboard")).firstMatch
+    }
+
     private func openStats(_ extra: [String] = []) -> XCUIApplication {
         let app = Fixture.launch("main-room", extra: extra)
         XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 20))
-        let stats = app.buttons.matching(NSPredicate(format: "label == %@", "Stats")).firstMatch
+        // the trophy (owner 2026-11-26: "the trophy could be for the leaderboard/records")
+        let stats = Self.trophy(app)
         XCTAssertTrue(stats.waitForExistence(timeout: 5))
         stats.tap()
-        XCTAssertTrue(app.navigationBars["Stats"].waitForExistence(timeout: 5), "Stats opens the Stats sheet")
+        XCTAssertTrue(app.navigationBars["Stats"].waitForExistence(timeout: 5), "the trophy opens the Stats sheet")
         return app
     }
 
@@ -216,7 +222,7 @@ final class StatsUITests: XCTestCase {
         // the tab (and the period) is kept for the session
         app.buttons["stats.close"].tap()
         XCTAssertTrue(app.navigationBars["Stats"].waitForNonExistence(timeout: 5))
-        app.buttons.matching(NSPredicate(format: "label == %@", "Stats")).firstMatch.tap()
+        Self.trophy(app).tap()
         XCTAssertTrue(waitForRecords(app), "reopens on Records")
         if picker.exists {
             XCTAssertTrue(picker.buttons["This Month"].isSelected, "and on the period last shown")
@@ -261,7 +267,7 @@ final class StatsUITests: XCTestCase {
 
         app = Fixture.launch("main-room", extra: ["-uiStatsKeepScope", "YES"])
         XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 20))
-        app.buttons.matching(NSPredicate(format: "label == %@", "Stats")).firstMatch.tap()
+        Self.trophy(app).tap()
         XCTAssertTrue(app.segmentedControls["stats.scope"].buttons["All games"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.segmentedControls["stats.scope"].buttons["All games"].isSelected, "the choice is saved")
         XCTAssertTrue(element(app, "leaderboard.row.ora").waitForExistence(timeout: 5), "All's rows: human and bot games")
@@ -472,7 +478,7 @@ final class StatsUITests: XCTestCase {
         XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 20))
         sleep(1)
         let pose = Fixture.probe(app, "ui.pose")  // read before the sheet covers the probes
-        app.buttons.matching(NSPredicate(format: "label == %@", "Stats")).firstMatch.tap()
+        Self.trophy(app).tap()
         XCTAssertTrue(element(app, "leaderboard.row.kim").waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["stats.close"].isHittable, "the close button")
         guard let edge = pose.split(separator: " ").last, edge != "-", pose.contains(" vbar "),
@@ -480,9 +486,9 @@ final class StatsUITests: XCTestCase {
         let column: ClosedRange<CGFloat> = edge == "leading" ? 0...insets.left : (size.width - insets.right)...size.width
         keepScreenshot(app, "stats-vbar")
         // the main room's own bar items stay in the column beside the sheet (LobbyControlsTests)
-        let barItems = ["New Game", "Tournament", "Stats", "online", "Account settings"]
+        let barItems = ["New Game", "online", "Account settings"]
         for e in app.buttons.allElementsBoundByIndex where e.exists && !e.frame.isEmpty && e.identifier != "stats.close"
-            && !barItems.contains(where: { e.label.contains($0) }) {
+            && e.identifier != "mainRoom.leaderboard" && !barItems.contains(where: { e.label.contains($0) }) {
             let f = e.frame
             XCTAssertFalse(f.maxX > column.lowerBound + 1 && f.minX < column.upperBound - 1,
                            "\(e.label) at \(f) reaches into the vertical bar \(column)")

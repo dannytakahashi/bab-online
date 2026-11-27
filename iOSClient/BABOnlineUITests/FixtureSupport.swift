@@ -32,12 +32,20 @@ enum Fixture {
     }
 
     /// New Game's menu item (owner 2026-11-26: a native Menu whose items carry the rules as a
-    /// subtitle, so the label may read "Back Alley Bridge, 4 players in two teams."): `classic`
-    /// or `gyb`, by identifier or by the label's start.
+    /// subtitle, so the label may read "Back Alley Bridge, 4 players in two teams."): `classic`,
+    /// `gyb` or `tournament`, by identifier or by the label's start.
     static func newGameChoice(_ app: XCUIApplication, _ mode: String) -> XCUIElement {
-        let title = mode == "gyb" ? "Get Your Bid" : "Back Alley Bridge"
+        let title = ["gyb": "Get Your Bid", "tournament": "Tournament"][mode] ?? "Back Alley Bridge"
         return app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@ OR label BEGINSWITH %@",
                                                 "newGame.\(mode)", title, title + ",")).firstMatch
+    }
+
+    /// From the main room: New Game, then its Tournament choice (owner 2026-11-26: the trophy
+    /// opens the leaderboard now; creating a tournament is New Game's third choice).
+    static func createTournament(_ app: XCUIApplication, timeout: TimeInterval = 5) {
+        app.buttons["New Game"].firstMatch.tap()
+        let choice = newGameChoice(app, "tournament")
+        if choice.waitForExistence(timeout: timeout) { choice.tap() }
     }
 
     static func launch(_ fixture: String, extra: [String] = [], env: [String: String] = [:]) -> XCUIApplication {

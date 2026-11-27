@@ -111,7 +111,7 @@ final class ProfileUITests: XCTestCase {
 
         // one choice with the Stats sheet
         app.buttons["Done"].firstMatch.tap()
-        app.buttons.matching(NSPredicate(format: "label == %@", "Stats")).firstMatch.tap()
+        StatsUITests.trophy(app).tap()
         XCTAssertTrue(app.segmentedControls["stats.scope"].buttons["All games"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.segmentedControls["stats.scope"].buttons["All games"].isSelected)
         app.terminate()

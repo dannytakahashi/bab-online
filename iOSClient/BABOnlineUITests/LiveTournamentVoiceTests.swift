@@ -46,7 +46,8 @@ final class LiveTournamentVoiceTests: XCTestCase {
         name.tap(); name.typeText(user)
         app.secureTextFields["Password"].tap(); app.secureTextFields["Password"].typeText(pass)
         app.secureTextFields["Confirm Password"].tap(); app.secureTextFields["Confirm Password"].typeText(pass)
-        let tournament = app.buttons["Tournament"]
+        // the main room is up once New Game is (a tournament is New Game's choice since 2026-11-26)
+        let tournament = app.buttons["New Game"].firstMatch
         for _ in 0..<3 where !tournament.exists {
             sleep(1)
             app.buttons.matching(NSPredicate(format: "label == %@", "Register")).firstMatch.tap()
@@ -55,7 +56,7 @@ final class LiveTournamentVoiceTests: XCTestCase {
         XCTAssertTrue(tournament.waitForExistence(timeout: 20), "not in the main room after registering")
         let enabled = expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: tournament)
         wait(for: [enabled], timeout: 15)
-        tournament.tap()
+        Fixture.createTournament(app)
         return Live(app: app, peer: peer)
     }
 

@@ -18,6 +18,35 @@ final class CutForABuckTests: XCTestCase {
         return try XCTUnwrap(json["events"] as? [[String: Any]])
     }
 
+    /// What the recording itself says happened, read from its own events (the member names come
+    /// from the recording's seed: the fixture's regeneration in 5bbd46cd renamed them T13_* -> T8_*,
+    /// and a test that hard-coded them went red without the cut changing).
+    struct RecordedCut {
+        var candidates: [String]
+        var winner: String
+        var rounds: Int
+        /// Each reveal's round, eliminated names and draws, in order.
+        var reveals: [(round: Int, eliminated: [String], draws: [String: String])]
+    }
+
+    static func recordedCut() throws -> RecordedCut {
+        let room = try fixtureEvents().filter { $0["to"] as? String == "tournament" }
+        func data(_ event: String) throws -> [String: Any] {
+            try XCTUnwrap(room.first { $0["event"] as? String == event }?["data"] as? [String: Any], event)
+        }
+        let start = try data("cutForABuckStart"), win = try data("cutForABuckWinner")
+        let reveals = try room.filter { $0["event"] as? String == "cutForABuckReveal" }.map { e in
+            let d = try XCTUnwrap(e["data"] as? [String: Any])
+            let draws = (d["draws"] as? [[String: Any]] ?? []).reduce(into: [String: String]()) { out, draw in
+                if let u = draw["username"] as? String, let rank = (draw["card"] as? [String: Any])?["rank"] as? String { out[u] = rank }
+            }
+            return (round: try XCTUnwrap(d["round"] as? Int), eliminated: d["eliminated"] as? [String] ?? [], draws: draws)
+        }
+        return RecordedCut(candidates: try XCTUnwrap(start["candidates"] as? [String]),
+                           winner: try XCTUnwrap(win["winner"] as? String),
+                           rounds: try XCTUnwrap(win["rounds"] as? Int), reveals: reveals)
+    }
+
     // MARK: - Reducer over the recorded cut
 
     func testTheRecordedCutReplaysToItsWinner() throws {
@@ -70,16 +99,38 @@ final class CutForABuckTests: XCTestCase {
             }
         }
         let end = try XCTUnwrap(s)
-        XCTAssertEqual(end.winner, "T13_u2")
-        XCTAssertEqual(end.rounds, 15)
-        XCTAssertEqual(end.alive, ["T13_u2"])
+        let cut = try Self.recordedCut()
+        // the recording's shape (its description): 4 members, 13 four-of-a-kind redraws, a
+        // reshuffle, a two-way tie for lowest (both out), then one more round to the winner
+        XCTAssertEqual(cut.candidates.count, 4)
+        XCTAssertEqual(cut.rounds, 15)
         XCTAssertEqual(redraws, 13)
         XCTAssertEqual(reshuffles, 1)
         XCTAssertEqual(reveals, 15)
-        XCTAssertEqual(Set(end.out.keys), ["T13_u1", "T13_u3", "T13_u4"])
-        XCTAssertEqual(end.out["T13_u1"]?.round, 14, "the two-way tie on 4s: both out")
-        XCTAssertEqual(end.out["T13_u4"]?.round, 14)
-        XCTAssertEqual(CutCopy.verdictLines(end.lastReveal, me: "T13_u3"), ["You're out with a 2"])
+        // the reducer reaches the server's winner, the last one alive, after the server's rounds
+        XCTAssertTrue(cut.candidates.contains(cut.winner))
+        XCTAssertEqual(end.winner, cut.winner)
+        XCTAssertEqual(end.rounds, cut.rounds)
+        XCTAssertEqual(end.alive, [cut.winner])
+        XCTAssertEqual(Set(end.out.keys), Set(cut.candidates).subtracting([cut.winner]), "everyone else is out")
+        XCTAssertTrue(end.out.values.allSatisfy { !$0.left }, "nobody left: each was cut out")
+        // the tie: round 14 puts two out on the same lowest rank, a 4 (suits never count)
+        let tie = try XCTUnwrap(cut.reveals.first { $0.eliminated.count > 1 })
+        XCTAssertEqual(tie.round, 14)
+        XCTAssertEqual(tie.eliminated.count, 2)
+        XCTAssertEqual(Set(tie.eliminated.map { tie.draws[$0] }), ["4"], "the two-way tie on 4s")
+        for u in tie.eliminated { XCTAssertEqual(end.out[u]?.round, 14, "\(u): both out in the tie") }
+        // the last round: the winner over the one left, who is out with a 2
+        let last = try XCTUnwrap(cut.reveals.last)
+        XCTAssertEqual(last.round, 15)
+        let lastOut = try XCTUnwrap(last.eliminated.first)
+        XCTAssertEqual(last.eliminated, [lastOut])
+        XCTAssertNotEqual(lastOut, cut.winner)
+        XCTAssertEqual(end.out[lastOut]?.round, 15)
+        XCTAssertEqual(last.draws[lastOut], "2")
+        XCTAssertEqual(CutCopy.verdictLines(end.lastReveal, me: lastOut), ["You're out with a 2"])
+        // every member out was out in exactly one of the recording's reveals
+        XCTAssertEqual(cut.reveals.flatMap(\.eliminated).sorted(), end.out.keys.sorted())
     }
 
     func testTheRecordedJoinsRestoreTheCutAndTheResult() throws {
@@ -90,7 +141,7 @@ final class CutForABuckTests: XCTestCase {
         XCTAssertTrue(t.isCutPhase)
         let cut = try XCTUnwrap(t.cut)
         XCTAssertEqual(cut.last, .restore)
-        XCTAssertFalse(cut.participants.isEmpty)
+        XCTAssertEqual(Set(cut.participants), Set(try Self.recordedCut().candidates), "the restored cut's members are the cut's")
         for d in cut.drawn.values { XCTAssertFalse(d.auto) }
 
         // a socket without the cap: round_active, no cut
@@ -101,8 +152,10 @@ final class CutForABuckTests: XCTestCase {
         let done = try XCTUnwrap(joins.first { ($0["data"] as? [String: Any])?["phase"] as? String == "complete" }?["data"] as? [String: Any])
         t.loadFromServerState(done)
         XCTAssertNil(t.cut)
-        XCTAssertEqual(t.cutResult?.winner, "T13_u2")
-        XCTAssertEqual(t.cutResult?.rounds, 15)
+        let recorded = try Self.recordedCut()
+        XCTAssertEqual(t.cutResult?.winner, recorded.winner, "the complete phase's result is the cut's winner")
+        XCTAssertEqual(t.cutResult?.rounds, recorded.rounds)
+        XCTAssertEqual(recorded.rounds, 15)
 
         let summary = try XCTUnwrap(try Self.fixtureEvents().first { $0["event"] as? String == "lobbiesUpdated" }?["data"] as? [String: Any])
         let row = try XCTUnwrap((summary["tournaments"] as? [[String: Any]])?.first.flatMap(TournamentSummary.from))
