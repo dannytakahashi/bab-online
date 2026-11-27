@@ -1,6 +1,6 @@
 /**
  * The host of a finished tournament (live check 2026-11-25, before Cut for a
- * buck: Cancel Tournament still showed behind the results). The complete
+ * buck: End Tournament still showed behind the results). The complete
  * phase is the final results in the lobby itself: never Ready, Begin or
  * Cancel, whichever way the host gets there: back from the last table's
  * results (returnToTournament), from the main room, a reload, the end

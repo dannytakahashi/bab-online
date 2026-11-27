@@ -609,13 +609,16 @@ export function updateTournamentPlayers(players, currentUsername, newCreator = n
   if (players) lobbyPlayers = players;
   // Promoted: only the host's socket may begin or cancel, so without the
   // controls the tournament would be stuck until a reload.
-  // Spectators have no Ready button and get no controls.
+  // Spectators are never the host. The flag follows the role even where
+  // the controls are gone (the cut's view): Leave's words say so.
   const readyBtn = document.getElementById('tournamentReadyBtn');
-  if (!isCreator && readyBtn && isHost(players, currentUsername, newCreator)) {
+  if (!isCreator && lobbyContainer && !lobbySpectator && isHost(players, currentUsername, newCreator)) {
     isCreator = true;
     lobbyContainer.dataset.isCreator = 'true';
-    addCreatorControls(readyBtn, lobbySocket, players);
-    addRoundsPicker(lobbySocket);
+    if (readyBtn) {
+      addCreatorControls(readyBtn, lobbySocket, players);
+      addRoundsPicker(lobbySocket);
+    }
   } else if (isCreator && lobbyContainer && someoneElseHosts(players, currentUsername, newCreator)) {
     // An idle host loses the role while still here (server hand-off,
     // 2026-11-15); a dropped one comes back through a full render

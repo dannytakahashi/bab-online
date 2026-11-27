@@ -213,6 +213,34 @@ describe('End Tournament asks first', () => {
     expect(document.activeElement).toBe($('cutLeaveBtn'));
   });
 
+  it('the host role passing to me in the cut: the cut\'s Leave says another player becomes the host', () => {
+    const socket = fakeSocket();
+    showTournamentLobby(payload({ phase: 'between_rounds', currentRound: 1, host: 'bo' }), socket, 'me');
+    applyCutEvent('start', { candidates: ['me', 'bo', 'cy'], startsInMs: 15000, deckCount: 54 }, { tournament: 't1' });
+    setTournamentPhase('cut');
+    syncTournamentCut('start');
+    // bo leaves during the cut; the server hands me the role (tournamentPlayerLeft's newCreator)
+    updateTournamentPlayers([member('me', { isCreator: true }), member('cy')], 'me', 'me');
+    $('cutLeaveBtn').click();
+    expect(message()).toBe("You'll be out of cut for a buck. Another player becomes the host.");
+    // End is still not offered in the cut, and no host controls came back
+    expect($('tournamentCancelBtn')).toBeNull();
+    // the role passing on again while it is open: the words follow
+    updateTournamentPlayers([member('me'), member('cy', { isCreator: true })], 'me', 'cy');
+    expect(tournamentConfirmChoice()).toBe('leave');
+    expect(message()).toBe("You'll be out of cut for a buck.");
+  });
+
+  it('a phase change alone changes the words: End opened in the lobby, then the round starts', () => {
+    const socket = fakeSocket();
+    showTournamentLobby(payload(), socket, 'me');
+    $('tournamentCancelBtn').click();
+    expect(message()).toBe('The tournament ends for everyone before it starts.');
+    setTournamentPhase('round_active');
+    expect(tournamentConfirmChoice()).toBe('end');
+    expect(message()).toBe('The tournament ends for everyone, and any games still in play stop now.');
+  });
+
   it('the results showing close either dialog', () => {
     const socket = fakeSocket();
     showTournamentLobby(payload({ phase: 'between_rounds', currentRound: 1 }), socket, 'me');
