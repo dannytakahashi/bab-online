@@ -124,7 +124,7 @@ export function showCreateGameDialog(socket) {
     });
     return btn;
   };
-  const classic = choice('createGameClassic', 'Back Alley Bridge', '4 players, two teams. The classic game.', () => socket.emit('createLobby', {}));
+  const classic = choice('createGameClassic', 'Back Alley Bridge', '4 players in two teams.', () => socket.emit('createLobby', {}));
   const gyb = choice('createGameGyb', GYB_NAME, GYB_BLURB, () => socket.emit('createLobby', { mode: GYB_MODE }));
   const tournament = choice('createGameTournament', TOURNAMENT_NAME, TOURNAMENT_BLURB, () => socket.emit('createTournament'));
   const cancel = createButton({ label: 'Cancel', variant: 'secondary' });

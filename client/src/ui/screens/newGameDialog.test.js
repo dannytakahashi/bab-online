@@ -43,7 +43,7 @@ describe('New Game', () => {
       blurb: b.querySelector('.mode-pick__blurb').textContent,
     }));
     expect(choices).toEqual([
-      { id: 'createGameClassic', name: 'Back Alley Bridge', blurb: '4 players, two teams. The classic game.' },
+      { id: 'createGameClassic', name: 'Back Alley Bridge', blurb: '4 players in two teams.' },
       { id: 'createGameGyb', name: GYB_NAME, blurb: GYB_BLURB },
       { id: 'createGameTournament', name: 'Tournament', blurb: 'Several rounds, a new partner each round. The top score wins.' },
     ]);
