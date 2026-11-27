@@ -498,7 +498,7 @@ const defs = {
     }),
     // One track of a pull answer: Cloudflare's result (mid, or its errorCode:
     // empty_track_error / not_found_track_error retry) or the server's
-    // refusal (not_in_room, own_track, blocked, duplicate, no_result)
+    // refusal (not_in_room, own_track, blocked, duplicate, too_many_pulls, no_result)
     sfuPulledTrack: obj({
         username: orNull(str()),
         sessionId: str(),

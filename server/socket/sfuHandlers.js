@@ -17,7 +17,8 @@
  *   sfuIceRestart   my iceRestart offer -> answer, on the same session (the
  *                   form the spike found: tracks/new re-declaring my track)
  *   sfuResume       re-register a session I hold after a reconnect or a
- *                   server restart (proved by the sessionToken sfuSession gave)
+ *                   server restart (proved by the sessionToken sfuSession gave;
+ *                   a session this process ended answers session_gone)
  *   sfuLeave        I am done with my session
  *
  * Checked on every ask, in order: the requestId; the per-socket limit
@@ -32,7 +33,9 @@
  *
  * Every Cloudflare call runs on the session's serial queue
  * (sfuRoom.queues), re-checked when its turn comes (a job whose session was
- * replaced answers `superseded` without a call). A 410 clears the member's
+ * replaced answers `superseded` without a call; one not started within 3 s
+ * answers `busy` without a call). A pull Cloudflare answered after its asker
+ * lost the session is closed again by force (nobody records it). A 410 clears the member's
  * session at once (its queued jobs answer session_gone) and the room hears
  * of it. Logged: op, status, codes and timing, never an SDP, a token or the
  * secret.
@@ -216,7 +219,18 @@ const sfuPull = op('pull', 'sfuPull', 'sfuCall', async (ctx) => {
     if (allowed.length === 0) {
         return { sessionId: data.sessionId, requiresImmediateRenegotiation: false, offer: null, tracks: notAllowed };
     }
-    const out = await onSession(ctx, 'tracks/new(pull)', (sid) => cf.pull(sid, allowed));
+    let out;
+    try {
+        out = await onSession(ctx, 'tracks/new(pull)', (sid) => cf.pull(sid, allowed));
+    } finally {
+        sfuRoom.releasePulls(entry, allowed);
+    }
+    if (out.late) {
+        // Cloudflare opened these after the asker lost the session (it left,
+        // or replaced it): nobody records them, so they are closed by force
+        const opened = (out.late.body?.tracks || []).filter((x) => x.mid && !x.errorCode).map((x) => x.mid);
+        sfuRoom.closeLate(t, data.sessionId, opened, 'superseded');
+    }
     if (out.error) return out;
     const body = out.r.body;
     // Cloudflare answers the tracks in request order; match by name, else by index
@@ -278,6 +292,9 @@ const sfuIceRestart = op('iceRestart', 'sfuIceRestart', 'sfuCall', async (ctx) =
 const sfuResume = op('resume', 'sfuResume', 'sfuCall', async (ctx) => {
     const { t, entry, io, data, username } = ctx;
     if ((data.trackName === null) !== (data.mid === null)) return { error: err('invalid') };
+    // A session this process ended (I left, replaced it, sfuLeave, past the
+    // grace, a 410): its pulls were closed; make a new one
+    if (sfuRoom.wasEnded(t, data.sessionId)) return { error: err('session_gone') };
     if (!sessionToken.verify({ tournamentId: t.tournamentId, username, sessionId: data.sessionId, token: data.sessionToken })) {
         socketLogger.warn('Voice SFU: resume with a token that does not match', { tournamentId: t.tournamentId, username });
         return { error: err('bad_token') };

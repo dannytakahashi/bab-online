@@ -318,6 +318,12 @@ function setupGracefulShutdown(server, io, opts = {}) {
             ...connectionStats(),
             sockets: socketCount(io)
         });
+        // Each tournament SFU room's last stats line (logged every 60 s otherwise)
+        try {
+            require('../voice/sfu/sfuRoom').logAllStats('shutdown');
+        } catch (error) {
+            logger.error('Voice SFU: stats at shutdown failed', { error: error.message });
+        }
         handingOff = !!(io && handoff && safeEnabled(handoff));
         const drainMs = handingOff ? handoffDrainMs : legacyDrainMs;
         // Pending stats retries run now instead of after their backoff,

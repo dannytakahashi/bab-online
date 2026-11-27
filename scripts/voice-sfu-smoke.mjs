@@ -13,11 +13,20 @@
  *   4. getStats: every page hears every publisher (inbound bytes and audio
  *      energy growing on each pulled mid)
  *   5. an ICE restart on a's session (the spike's tracks/new form), still heard
- *   6. the SDP's size as c pulls a's track again and again (bytes per m-section)
+ *   6. a pull of a track the session already pulls is refused (duplicate: no
+ *      Cloudflare call; the SDP growth per m-section was measured by this step
+ *      before the server refused repeats, docs/claude/voice.md)
  *   7. a forced 410: b closes its PeerConnection; after Cloudflare's window
  *      (~35 s) a call on b's session must answer session_gone and the room hears
  *      b's session end (sfuMember session null); then b recovers with a new
  *      session, pushes, and c hears it again
+ *   8. the block backstop: a and b pull each other, a blocks b, and both pages
+ *      IGNORE the `left` (they keep their pulls): ~6.5 s later neither hears
+ *      the other (the server's force close), c still hears both
+ *   9. revocation: c leaves the room (joinMainRoom) and keeps its
+ *      PeerConnection: within ~2.5 s it hears nobody (the server closed c's
+ *      pulls at Cloudflare); back in the room, an sfuResume of that session
+ *      answers session_gone
  *
  * Usage (MONGO_URI a private test mongod, never 27017; the Cloudflare DEV app's
  * id and secret in the environment, never on the command line):
@@ -307,21 +316,9 @@ async function main() {
         report.steps.hearingAfterRestart = await hear();
         check('ICE restart on a (tracks/new re-declaring its track): ok, b and c still hear a', report.steps.aIceRestart.ok && (report.steps.hearingAfterRestart[1][names[0]]?.kbps ?? 0) > 5 && (report.steps.hearingAfterRestart[2][names[0]]?.kbps ?? 0) > 5, report.steps.aIceRestart);
 
-        // 6. SDP growth: c pulls a's track again and again
-        const growth = [];
-        for (let i = 0; i < 12; i++) {
-            const r = await c.evaluate((n) => window.pull(n), names[0]);
-            growth.push(r.ok ? 'ok' : (r.errorCode || r.why || r.error?.code));
-            if (!r.ok) break;
-        }
-        report.steps.sdpGrowth = { results: growth, sizes: await c.evaluate(() => window.S.sdp) };
-        const sizes = report.steps.sdpGrowth.sizes;
-        if (sizes.length >= 2) {
-            const f = sizes[0];
-            const l = sizes.at(-1);
-            report.steps.sdpGrowth.bytesPerMSection = { offer: Math.round((l.offerBytes - f.offerBytes) / (l.mSections - f.mSections)), answer: Math.round((l.answerBytes - f.answerBytes) / (l.mSections - f.mSections)) };
-        }
-        check('SDP size measured per m-section', sizes.length >= 2, report.steps.sdpGrowth.bytesPerMSection);
+        // 6. a track c already pulls, asked again: duplicate (Cloudflare would open it again)
+        report.steps.duplicate = await c.evaluate((n) => window.pull(n), names[0]);
+        check('a pull of a track the session already pulls: duplicate', report.steps.duplicate.ok === false && report.steps.duplicate.errorCode === 'duplicate', report.steps.duplicate);
 
         // 7. forced 410
         if (!o.skip410) {
@@ -346,6 +343,41 @@ async function main() {
             report.steps.hearingAfterRecovery = after;
             check('b recovers with a new session: c hears b again', report.steps.bRecover.ok && report.steps.cRepullB.ok && (after[2][names[1]]?.kbps ?? 0) > 5, { recover: report.steps.bRecover, repull: report.steps.cRepullB });
         }
+
+        // 8. the block backstop with clients that ignore `left`
+        const pullIfNeeded = async (p, who) => {
+            const r = await p.evaluate((n) => window.pull(n), who);
+            return r.ok || r.errorCode === 'duplicate' ? { ok: true, mid: r.mid ?? 'held' } : r;
+        };
+        report.steps.blockPulls = { aPullB: await pullIfNeeded(a, names[1]), bPullA: await pullIfNeeded(b, names[0]) };
+        await sleep(2000);
+        const beforeBlock = await hear();
+        await a.evaluate((n) => new Promise((r) => { window.S.socket.once('blockListUpdated', r); window.S.socket.emit('blockUser', { username: n }); }), names[1]);
+        await sleep(6500);
+        const afterBlock = await hear();
+        const kb = (h, i, who) => h[i][who]?.kbps ?? 0;
+        report.steps.block = { pulls: report.steps.blockPulls, before: beforeBlock, after: afterBlock, leftSeen: await a.evaluate((n) => window.S.members.some((m) => m.event === 'left' && m.member.username === n), names[1]) };
+        check('block, both clients ignoring left: ~6.5 s later a hears no b, b hears no a; c still hears both', kb(beforeBlock, 0, names[1]) > 5 && kb(beforeBlock, 1, names[0]) > 5 && kb(afterBlock, 0, names[1]) < 2 && kb(afterBlock, 1, names[0]) < 2 && kb(afterBlock, 2, names[0]) > 5 && kb(afterBlock, 2, names[1]) > 5, { before: [kb(beforeBlock, 0, names[1]), kb(beforeBlock, 1, names[0])], after: [kb(afterBlock, 0, names[1]), kb(afterBlock, 1, names[0])], c: [kb(afterBlock, 2, names[0]), kb(afterBlock, 2, names[1])] });
+
+        // 9. revocation: c leaves the room keeping its PeerConnection
+        const cOld = await c.evaluate(() => ({ sessionId: window.S.sessionId, token: window.S.token }));
+        await c.evaluate(() => new Promise((r, j) => { const t = setTimeout(() => j(new Error('no mainRoomJoined')), 10000); window.S.socket.once('mainRoomJoined', () => { clearTimeout(t); r(); }); window.S.socket.emit('joinMainRoom'); }));
+        await sleep(2500);
+        const afterLeave = await hear();
+        report.steps.revoke = { c: afterLeave[2] };
+        check('c left the room (keeping its PeerConnection): it hears nobody (pulls closed by the server)', kb(afterLeave, 2, names[0]) < 2 && kb(afterLeave, 2, names[1]) < 2, afterLeave[2]);
+        // still a member of the tournament: back on its lobby screen the way a client comes back (returnToTournament)
+        await c.evaluate(() => new Promise((r, j) => { const t = setTimeout(() => j(new Error('no tournamentJoined after returnToTournament')), 10000); window.S.socket.once('tournamentJoined', () => { clearTimeout(t); r(); }); window.S.socket.emit('returnToTournament'); }));
+        await sleep(300);
+        const resumeOld = await c.evaluate((o2) => window.ask('sfuResume', { sessionId: o2.sessionId, sessionToken: o2.token, trackName: null, mid: null }), cOld);
+        report.steps.resumeEnded = { ok: resumeOld.ok, code: resumeOld.error?.code };
+        check('back in the room: sfuResume of the session the server ended answers session_gone', resumeOld.ok === false && resumeOld.error?.code === 'session_gone', report.steps.resumeEnded);
+        await sleep(500);
+        const revokeLines = server.lines.filter((l) => /pulls revoked|blocked pair pulls closed by force/.test(l));
+        report.steps.serverCloses = revokeLines;
+        // a's close covers every session of b (its recent ones too), c's revoke every pull it held (Cloudflare's GET lists them)
+        const tracksOf = (l) => Number((/"tracks":(\d+)/.exec(l) || [])[1] || 0);
+        check('server log: the block\'s force closes (both directions) and the revocation, listed from Cloudflare\'s GET', revokeLines.filter((l) => /blocked pair pulls closed by force/.test(l) && /"ok":true/.test(l) && tracksOf(l) >= 1).length >= 2 && revokeLines.some((l) => /pulls revoked/.test(l) && /"why":"left"/.test(l) && /"ok":true/.test(l) && tracksOf(l) >= 2), revokeLines.map((l) => l.replace(/^.*Voice SFU: /, '')));
 
         // cleanup
         for (const p of pages) await p.evaluate(() => window.ask('sfuLeave', {}).finally(() => window.S.pc?.close())).catch(() => {});

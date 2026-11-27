@@ -221,7 +221,9 @@ describe('the flag', () => {
     test('config: clamps and defaults', () => {
         expect(sfuConfig.roomMax({})).toBe(100);
         expect(sfuConfig.roomMax({ VOICE_SFU_ROOM_MAX: '1' })).toBe(2);
-        expect(sfuConfig.roomMax({ VOICE_SFU_ROOM_MAX: '9999' })).toBe(500);
+        // no fixed small cap: the env may go far past the default
+        expect(sfuConfig.roomMax({ VOICE_SFU_ROOM_MAX: '9999' })).toBe(9999);
+        expect(sfuConfig.roomMax({ VOICE_SFU_ROOM_MAX: '9999999' })).toBe(sfuConfig.ROOM_MAX_MAX);
         expect(sfuConfig.roomMax({ VOICE_SFU_ROOM_MAX: 'x' })).toBe(100);
         expect(sfuConfig.graceMs({})).toBe(38000);
         expect(sfuConfig.graceMs({ VOICE_SFU_GRACE_MS: '1' })).toBe(5000);
@@ -555,11 +557,24 @@ describe('refusals', () => {
         expect(own.tracks.map((t) => t.errorCode)).toEqual(['own_track', 'not_in_room']);
         const dup = await ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [{ sessionId: sa.sessionId, trackName: 'mic' }, { sessionId: sa.sessionId, trackName: 'mic' }] });
         expect(dup.tracks.map((t) => t.errorCode)).toEqual([null, 'duplicate']);
-        // open pulls per session are capped at the room's ceiling (Cloudflare allows the same track again and again)
+        // a track the session already pulls, asked again in later asks (Cloudflare would open it every time): duplicate, no call
+        const pullsBefore = fake.callsOf('pull').length;
+        for (let i = 0; i < 5; i++) {
+            const again = await ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [{ sessionId: sa.sessionId, trackName: 'mic' }] });
+            expect(again.tracks).toEqual([expect.objectContaining({ mid: null, errorCode: 'duplicate', errorDescription: 'already pulled as mid 0' })]);
+        }
+        expect(fake.callsOf('pull')).toHaveLength(pullsBefore);
+        expect([...fake.sessions.get(sb.sessionId).tracks.values()].filter((t) => t.location === 'remote')).toHaveLength(1);
+        // two asks in flight for one track: the second is a duplicate too
+        entryOf(ctx, b).pulls.clear();
+        const [p1, p2] = await Promise.all([1, 2].map(() => ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [{ sessionId: sa.sessionId, trackName: 'mic' }] })));
+        expect([p1.tracks[0].errorCode, p2.tracks[0].errorCode]).toEqual([null, 'duplicate']);
+        expect(p2.tracks[0].errorDescription).toBe('a pull of it is in progress');
+        expect(entryOf(ctx, b).pending.size).toBe(0);
+        // the backstop: open pulls per session at most the room's ceiling
         process.env.VOICE_SFU_ROOM_MAX = '2';
-        expect((await ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [{ sessionId: sa.sessionId, trackName: 'mic' }] })).tracks[0].errorCode).toBe(null);
+        entryOf(ctx, b).pulls = new Map([['7', { sessionId: 'f'.repeat(64), trackName: 'x', username: null }], ['8', { sessionId: 'e'.repeat(64), trackName: 'x', username: null }]]);
         expect((await ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [{ sessionId: sa.sessionId, trackName: 'mic' }] })).tracks[0].errorCode).toBe('too_many_pulls');
-        expect(entryOf(ctx, b).pulls.size).toBe(2);
     });
 
     test('a blocked pair: never in each other\'s roster, pulls refused; a block mid-call: left both ways, force close 5 s later', async () => {
@@ -590,6 +605,213 @@ describe('refusals', () => {
         expect(entryOf(ctx, a).pulls.size).toBe(0);
         // and no new pull between them
         expect((await ask(ctx, a, 'sfuPull', { sessionId: sa.sessionId, tracks: [{ sessionId: sb.sessionId, trackName: 'mic' }] })).tracks[0].errorCode).toBe('blocked');
+    });
+});
+
+// ==================== revocation and blocks (review of #433) ====================
+
+/** The mids `sid` pulls at the fake Cloudflare. */
+const remoteMidsAt = (sid) => [...(fake.sessions.get(sid)?.tracks.entries() || [])].filter(([, t]) => t.location === 'remote').map(([m]) => m);
+/** Force closes on `sid` since call index `from`. */
+const forcedOn = (sid, from = 0) => fake.calls.slice(from).filter((c) => c.op === 'close' && c.sessionId === sid && c.body.force === true);
+/** Let queued server work (GET + close) run. */
+async function settle() {
+    for (let i = 0; i < 8; i++) await jest.advanceTimersByTimeAsync(0);
+}
+const pullOf = (sx) => ({ sessionId: sx.sessionId, trackName: 'mic' });
+
+describe('revocation: the server closes what a member may no longer hear', () => {
+    test.each(['the main room', 'leaveTournament', 'cancel', 'seated at a table'])('leaving (%s): tracks/close force on the leaver\'s session at Cloudflare', async (how) => {
+        const ctx = await tournament(['sfu', 'sfu']);
+        const [a, b] = ctx.sockets;
+        const sa = await joinVoice(ctx, a, { publish: true });
+        const sb = await joinVoice(ctx, b);
+        await ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [pullOf(sa)] });
+        expect(remoteMidsAt(sb.sessionId)).toEqual(['0']);
+        const from = fake.calls.length;
+        if (how === 'the main room') mainRoomHandlers.joinMainRoom(b, ctx.io);
+        else if (how === 'leaveTournament') await tournamentHandlers.leaveTournament(b, ctx.io);
+        else if (how === 'cancel') await tournamentHandlers.cancelTournament(a, ctx.io);
+        else {
+            for (const s of ctx.sockets) tournamentHandlers.tournamentReady(s, ctx.io);
+            const starting = tournamentHandlers.beginTournament(a, ctx.io);
+            await advanceUntil(() => liveTables(ctx.t).length > 0 && liveTables(ctx.t).every((g) => [Phase.BIDDING, Phase.PLAYING].includes(g.stage)), 100, 120000);
+            await starting;
+        }
+        await settle();
+        // listed by GET sessions/{sid}, not from the record
+        expect(fake.calls.slice(from).some((c) => c.op === 'get' && c.sessionId === sb.sessionId)).toBe(true);
+        expect(forcedOn(sb.sessionId, from)).toEqual([expect.objectContaining({ body: { tracks: [{ mid: '0' }], force: true } })]);
+        expect(remoteMidsAt(sb.sessionId)).toEqual([]);
+        expect(logs.some((l) => l.msg === 'Voice SFU: pulls revoked' && l.meta.why === 'left' && l.meta.tracks === 1 && l.meta.ok)).toBe(true);
+    });
+
+    test('a replaced session, sfuLeave, a grace that ran out: the old session\'s pulls closed; resuming it answers session_gone', async () => {
+        const ctx = await tournament(['sfu', 'sfu']);
+        const [a, b] = ctx.sockets;
+        ctx.t.phase = 'between_rounds';
+        const sa = await joinVoice(ctx, a, { publish: true });
+        const s1 = await joinVoice(ctx, b);
+        await ask(ctx, b, 'sfuPull', { sessionId: s1.sessionId, tracks: [pullOf(sa)] });
+        // a new session: the first one's pull goes (a modified client could keep listening on it)
+        const s2 = await joinVoice(ctx, b);
+        await settle();
+        expect(remoteMidsAt(s1.sessionId)).toEqual([]);
+        expect(await ask(ctx, b, 'sfuResume', { sessionId: s1.sessionId, sessionToken: s1.sessionToken, trackName: null, mid: null })).toMatchObject({ ok: false, error: { code: 'session_gone' } });
+        expect(entryOf(ctx, b).sessionId).toBe(s2.sessionId);
+        // sfuLeave
+        await ask(ctx, b, 'sfuPull', { sessionId: s2.sessionId, tracks: [pullOf(sa)] });
+        expect(await ask(ctx, b, 'sfuLeave', { sessionId: s2.sessionId })).toMatchObject({ ok: true });
+        await settle();
+        expect(remoteMidsAt(s2.sessionId)).toEqual([]);
+        // a drop past the grace: the room forgets the session, so it is closed too
+        const s3 = await joinVoice(ctx, b);
+        await ask(ctx, b, 'sfuPull', { sessionId: s3.sessionId, tracks: [pullOf(sa)] });
+        const from = fake.calls.length;
+        await kill(ctx.io, b);
+        await jest.advanceTimersByTimeAsync(30000);
+        expect(forcedOn(s3.sessionId, from)).toEqual([]);
+        await jest.advanceTimersByTimeAsync(9000);
+        await settle();
+        expect(forcedOn(s3.sessionId, from)).toHaveLength(1);
+        expect(remoteMidsAt(s3.sessionId)).toEqual([]);
+        // a 410'd session is not called again
+        const before = fake.calls.length;
+        fake.goneSession(sa.sessionId);
+        await ask(ctx, a, 'sfuRenegotiate', { sessionId: sa.sessionId, answer: ANSWER });
+        await settle();
+        expect(fake.calls.slice(before).map((c) => c.op)).toEqual(['renegotiate']);
+    });
+
+    test('a pull Cloudflare answers after its asker left the room is closed by force (nobody records it)', async () => {
+        const ctx = await tournament(['sfu', 'sfu']);
+        const [a, b] = ctx.sockets;
+        const sa = await joinVoice(ctx, a, { publish: true });
+        const sb = await joinVoice(ctx, b);
+        const real = fake.fetch;
+        let release = null;
+        cf._setFetchForTests(async (url, init) => {
+            const body = init.body ? JSON.parse(init.body) : null;
+            if (body?.tracks?.[0]?.location === 'remote') await new Promise((r) => { release = r; });
+            return real(url, init);
+        });
+        const pending = ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [pullOf(sa)] });
+        await jest.advanceTimersByTimeAsync(0);
+        expect(release).not.toBeNull();
+        mainRoomHandlers.joinMainRoom(b, ctx.io);
+        release();
+        expect(await pending).toMatchObject({ ok: false, error: { code: 'superseded' } });
+        await settle();
+        expect(remoteMidsAt(sb.sessionId)).toEqual([]);
+        cf._setFetchForTests(real);
+    });
+
+    test('a pull answered after its asker\'s socket dropped (the session kept for the grace) is closed; the session stays', async () => {
+        const ctx = await tournament(['sfu', 'sfu']);
+        const [a, b] = ctx.sockets;
+        ctx.t.phase = 'between_rounds';
+        const sa = await joinVoice(ctx, a, { publish: true });
+        const sb = await joinVoice(ctx, b);
+        const real = fake.fetch;
+        let release = null;
+        cf._setFetchForTests(async (url, init) => {
+            const body = init.body ? JSON.parse(init.body) : null;
+            if (body?.tracks?.[0]?.location === 'remote') await new Promise((r) => { release = r; });
+            return real(url, init);
+        });
+        const pending = ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [pullOf(sa)] });
+        await jest.advanceTimersByTimeAsync(0);
+        await kill(ctx.io, b);
+        release();
+        expect(await pending).toMatchObject({ ok: false, error: { code: 'superseded' } });
+        await settle();
+        cf._setFetchForTests(real);
+        expect(remoteMidsAt(sb.sessionId)).toEqual([]);
+        expect(entryOf(ctx, b).sessionId).toBe(sb.sessionId);
+        expect(logs.some((l) => l.msg === 'Voice SFU: late pulls closed' && l.meta.tracks === 1)).toBe(true);
+    });
+});
+
+describe('blocks fail closed and reach a member who is away', () => {
+    test('B blocked A and dropped (reconnecting, no socket): A never sees B\'s record and cannot pull B', async () => {
+        const ctx = await tournament(['sfu', 'sfu'], { blocks: { 1: [0] } });
+        const [a, b] = ctx.sockets;
+        ctx.t.phase = 'between_rounds';
+        const sb = await joinVoice(ctx, b, { publish: true });
+        const sa = await joinVoice(ctx, a);
+        const mark = ctx.log.length;
+        await kill(ctx.io, b);
+        expect(entryOf(ctx, b).socketId).toBeNull();
+        expect(membersTo(ctx, mark, a.id)).toEqual([]);
+        expect((await ask(ctx, a, 'sfuPull', { sessionId: sa.sessionId, tracks: [pullOf(sb)] })).tracks[0].errorCode).toBe('blocked');
+        // a's lobby screen drawn again: still not listed
+        const m2 = ctx.log.length;
+        tournamentVoice.enter(ctx.io, ctx.t, a.id);
+        expect(rostersTo(ctx, m2, a.id)[0].members).toEqual([]);
+    });
+
+    test('a member whose block list is unknown is kept apart (fail closed) until it is loaded, then both hear joined', async () => {
+        const ctx = await tournament(['sfu']);
+        const [a] = ctx.sockets;
+        const b = member(ctx, `late_${seq}`);
+        delete b.data.blockedUsers;
+        const mark = ctx.log.length;
+        await tournamentHandlers.joinTournament(b, ctx.io, { tournamentId: ctx.t.tournamentId });
+        expect(rostersTo(ctx, mark, b.id)[0].members).toEqual([]);
+        await settle();
+        expect(membersTo(ctx, mark, a.id).map((m) => [m.event, m.member.username])).toEqual([['joined', b.username]]);
+        expect(membersTo(ctx, mark, b.id).map((m) => [m.event, m.member.username])).toEqual([['joined', a.username]]);
+    });
+
+    test('a block of a member away in its grace: left to the blocker, and both pulls closed by force 5 s later', async () => {
+        const ctx = await tournament(['sfu', 'sfu']);
+        const [a, b] = ctx.sockets;
+        ctx.t.phase = 'between_rounds';
+        const sa = await joinVoice(ctx, a, { publish: true });
+        const sb = await joinVoice(ctx, b, { publish: true });
+        await ask(ctx, a, 'sfuPull', { sessionId: sa.sessionId, tracks: [pullOf(sb)] });
+        await ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [pullOf(sa)] });
+        await kill(ctx.io, b);
+        const mark = ctx.log.length;
+        await safety.blockUser(a, ctx.io, { username: b.username });
+        expect(membersTo(ctx, mark, a.id).map((m) => [m.event, m.member.username])).toEqual([['left', b.username]]);
+        await jest.advanceTimersByTimeAsync(sfuRoom.BLOCK_ENFORCE_MS + 10);
+        await settle();
+        expect(remoteMidsAt(sa.sessionId)).toEqual([]);
+        expect(remoteMidsAt(sb.sessionId)).toEqual([]);
+        // back on a new socket and resumed with its old pull of a: closed again at once
+        const b2 = member(ctx, b.username);
+        await tournamentHandlers.joinTournament(b2, ctx.io, { tournamentId: ctx.t.tournamentId });
+        fake.sessions.get(sb.sessionId).tracks.set('5', { location: 'remote', trackName: 'mic', sessionId: sa.sessionId });
+        expect(await ask(ctx, b2, 'sfuResume', { sessionId: sb.sessionId, sessionToken: sb.sessionToken, trackName: 'mic', mid: '0', pulls: [{ mid: '5', sessionId: sa.sessionId, trackName: 'mic' }] })).toMatchObject({ ok: true });
+        await settle();
+        expect(remoteMidsAt(sb.sessionId)).toEqual([]);
+        expect(entryOf(ctx, b2).pulls.size).toBe(0);
+        // an unblock: each gets the other's record again
+        const m2 = ctx.log.length;
+        await safety.unblockUser(a, ctx.io, { username: b.username });
+        expect(membersTo(ctx, m2, a.id).map((m) => [m.event, m.member.username])).toEqual([['joined', b.username]]);
+        expect(membersTo(ctx, m2, b2.id).map((m) => [m.event, m.member.username])).toEqual([['joined', a.username]]);
+    });
+
+    test('after a restart, a pull re-registered before its publisher resumed is still closed by a block (live A10)', async () => {
+        const ctx = await tournament(['sfu', 'sfu']);
+        const [a, b] = ctx.sockets;
+        const sa = await joinVoice(ctx, a, { publish: true });
+        const sb = await joinVoice(ctx, b, { publish: true });
+        const pa = await ask(ctx, a, 'sfuPull', { sessionId: sa.sessionId, tracks: [pullOf(sb)] });
+        const pb = await ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [pullOf(sa)] });
+        ctx.t.voiceRoom = { order: 0, members: new Map() };
+        for (const s of [a, b]) tournamentVoice.enter(ctx.io, ctx.t, s.id);
+        // b first: a has no session here yet, so b's pull names nobody
+        expect(await ask(ctx, b, 'sfuResume', { sessionId: sb.sessionId, sessionToken: sb.sessionToken, trackName: 'mic', mid: '0', pulls: [{ mid: pb.tracks[0].mid, ...pullOf(sa) }] })).toMatchObject({ ok: true });
+        expect(entryOf(ctx, b).pulls.get(pb.tracks[0].mid).username).toBeNull();
+        expect(await ask(ctx, a, 'sfuResume', { sessionId: sa.sessionId, sessionToken: sa.sessionToken, trackName: 'mic', mid: '0', pulls: [{ mid: pa.tracks[0].mid, ...pullOf(sb) }] })).toMatchObject({ ok: true });
+        await safety.blockUser(b, ctx.io, { username: a.username });
+        await jest.advanceTimersByTimeAsync(sfuRoom.BLOCK_ENFORCE_MS + 10);
+        await settle();
+        expect(remoteMidsAt(sa.sessionId)).toEqual([]);
+        expect(remoteMidsAt(sb.sessionId)).toEqual([]);
     });
 });
 
@@ -694,6 +916,42 @@ describe('Cloudflare failures and the queue', () => {
         expect(await q.run('k', async () => { throw new Error('boom'); })).toMatchObject({ dropped: 'error' });
         await jest.advanceTimersByTimeAsync(0);
         expect(q.size()).toBe(0);
+    });
+
+    test('a request not started within 3 s answers busy and never reaches Cloudflare (a client gives up at ~12 s)', async () => {
+        const ctx = await tournament(['sfu', 'sfu']);
+        const [a] = ctx.sockets;
+        const sa = await joinVoice(ctx, a, { publish: true });
+        fake.fail = (op) => (op === 'renegotiate' ? 'hang' : null);
+        const first = ask(ctx, a, 'sfuRenegotiate', { sessionId: sa.sessionId, answer: ANSWER });
+        const second = ask(ctx, a, 'sfuRenegotiate', { sessionId: sa.sessionId, answer: ANSWER });
+        let secondAt = null;
+        second.then(() => { secondAt = Date.now(); });
+        const t0 = Date.now();
+        await jest.advanceTimersByTimeAsync(3010);
+        expect(secondAt - t0).toBeGreaterThanOrEqual(3000);
+        expect(await second).toMatchObject({ ok: false, error: { code: 'busy', retryable: true, retryAfterMs: 500 } });
+        await jest.advanceTimersByTimeAsync(5100);
+        expect(await first).toMatchObject({ ok: false, error: { code: 'timeout' } });
+        await settle();
+        expect(fake.callsOf('renegotiate')).toHaveLength(1);
+        // the server's own work has no deadline and survives a drop
+        const q = createSessionQueues({ waitMs: 50 });
+        let release;
+        const running = q.run('k', () => new Promise((r) => { release = r; }));
+        const internal = q.run('k', async () => 'mine', { internal: true });
+        const client = q.run('k', async () => 'theirs');
+        q.drop('k', 'superseded');
+        await jest.advanceTimersByTimeAsync(100);
+        release('one');
+        expect(await Promise.all([running, internal, client])).toEqual(['one', 'mine', { dropped: 'superseded' }]);
+    });
+
+    test('every SFU room logs its stats line at a shutdown', async () => {
+        const ctx = await tournament(['sfu', 'sfu']);
+        await joinVoice(ctx, ctx.sockets[0]);
+        sfuRoom.logAllStats('shutdown');
+        expect(logs.some((l) => l.msg === 'Voice SFU: room stats' && l.meta.why === 'shutdown' && l.meta.tournamentId === ctx.t.tournamentId)).toBe(true);
     });
 
     test('nothing logged carries the secret, a session token or an SDP', async () => {

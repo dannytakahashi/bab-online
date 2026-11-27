@@ -53,7 +53,8 @@ const { safeTimeout } = require('../../utils/safeTimer');
 
 const RETRYABLE_STATUS = new Set([406, 409, 429, 500, 502, 503, 504]);
 // Bounds on what we read back from Cloudflare (never trust a body's size)
-const MAX_TRACKS_BACK = 128;
+// (a GET of a big room's listener lists every pull it holds)
+const MAX_TRACKS_BACK = 1024;
 const MAX_TEXT = 256;
 const ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 

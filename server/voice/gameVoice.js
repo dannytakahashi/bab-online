@@ -326,7 +326,8 @@ function endBlockedCall(io, aSid, bSid) {
     if (!io || !aSid || !bSid || aSid === bSid) return false;
     const room = voiceRoomOf(aSid);
     // A tournament's SFU room (server/voice/sfu/sfuRoom.js): no mesh call to
-    // end; each is told the other left, and their pulls are closed
+    // end (the blocker's new list already kept them apart there, an away
+    // member too: sfuRoom.blockListChanged via rememberBlockList)
     if (typeof room === 'string' && room.startsWith('sfu:')) {
         return require('./sfu/sfuRoom').blockedPairFound(io, aSid, bSid);
     }

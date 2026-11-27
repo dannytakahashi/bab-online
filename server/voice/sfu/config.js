@@ -16,7 +16,9 @@
  *                         room stays a mesh (one warning)
  *   CF_SFU_API_BASE       tests / dev only: a fake Cloudflare (ignored, with
  *                         one warning, when NODE_ENV=production)
- *   VOICE_SFU_ROOM_MAX    the SFU room's safety ceiling (default 100, 2..500)
+ *   VOICE_SFU_ROOM_MAX    the SFU room's safety ceiling (default 100, 2..100000:
+ *                         no fixed small cap; raise it with the env, the line
+ *                         past it holds the rest)
  *   VOICE_SFU_GRACE_MS    how long a dropped member's session stays listed as
  *                         "reconnecting" (default 38000, 5000..120000)
  *   VOICE_SFU_TIMEOUT_MS  one Cloudflare call's timeout (default 8000, 1000..30000)
@@ -35,7 +37,9 @@ const DEFAULT_API_BASE = 'https://rtc.live.cloudflare.com';
 const MESH_MAX_WITH_SFU = 8;
 const ROOM_MAX_DEFAULT = 100;
 const ROOM_MAX_MIN = 2;
-const ROOM_MAX_MAX = 500;
+// Not a cap anyone should meet (owner 2026-11-26: "worth having the
+// capability for unbounded size"); the env picks the ceiling
+const ROOM_MAX_MAX = 100000;
 const GRACE_DEFAULT_MS = 38000;
 const TIMEOUT_DEFAULT_MS = 8000;
 

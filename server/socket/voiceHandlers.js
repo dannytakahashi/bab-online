@@ -230,6 +230,14 @@ function setSpectatorsCanTalk(socket, io, data) {
 function rememberBlockList(socket, blockedUsers) {
     if (!socket || !socket.data) return;
     socket.data.blockedUsers = new Set(Array.isArray(blockedUsers) ? blockedUsers : []);
+    // A tournament's SFU room keeps each member's list per username (a member
+    // away in its reconnect grace has no socket): it takes the new one, and a
+    // new block between two of its members is enforced there
+    try {
+        require('../voice/sfu/sfuRoom').blockListChanged(socket, socket.data.blockedUsers);
+    } catch (error) {
+        socketLogger.error('Voice SFU: block list update failed', { error: error?.message });
+    }
 }
 
 module.exports = {

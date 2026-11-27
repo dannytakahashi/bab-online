@@ -235,7 +235,7 @@ const c2s = {
         status: 'unsent', joi: null, joiInHandler: 'sfuPull', rateLimit: null, sentBy: nobody,
         examples: [{ requestId: 'sfu-3', sessionId: 'abc123', tracks: [{ sessionId: 'def456', trackName: 'mic' }] }],
         invalid: [{ requestId: 'sfu-3', sessionId: 'abc123', tracks: [] }, { requestId: 'sfu-3', sessionId: 'abc123', tracks: [{ sessionId: 'def456', trackName: 'a b' }] }, { requestId: 'sfu-3', sessionId: 'abc123', tracks: [{ sessionId: 'def456' }] }],
-        notes: SFU_NOTE + ' Pull other members\' published tracks (their roster sessionId + trackName), at most 64 per ask (Cloudflare\'s per-request limit). Only another member\'s CURRENT published track in my room is pulled, never one of a blocked pair; each track of the answer (sfuReply op pull) carries its mid or an errorCode, and a pull with failed tracks may still carry the SFU\'s offer, which must be answered (sfuRenegotiate).',
+        notes: SFU_NOTE + ' Pull other members\' published tracks (their roster sessionId + trackName), at most 64 per ask (Cloudflare\'s per-request limit). Only another member\'s CURRENT published track in my room is pulled, never one of a blocked pair, never one this session already pulls or is asking for (duplicate: close the mid you hold first); each track of the answer (sfuReply op pull) carries its mid or an errorCode, and a pull with failed tracks may still carry the SFU\'s offer, which must be answered (sfuRenegotiate).',
     },
     sfuRenegotiate: {
         payload: open({ requestId: sfuReq(), sessionId: ref('sfuSessionId'), answer: open({ type: konstStr('answer'), sdp: sfuSdp() }) }),
@@ -263,14 +263,14 @@ const c2s = {
         status: 'unsent', joi: null, joiInHandler: 'sfuResume', rateLimit: null, sentBy: nobody,
         examples: [{ requestId: 'sfu-7', sessionId: 'abc123', sessionToken: 'a'.repeat(43), trackName: 'mic', mid: '0', pulls: [{ mid: '1', sessionId: 'def456', trackName: 'mic' }] }, { requestId: 'sfu-7', sessionId: 'abc123', sessionToken: 'a'.repeat(43), trackName: null, mid: null }],
         invalid: [{ requestId: 'sfu-7', sessionId: 'abc123', sessionToken: 'short', trackName: null, mid: null }, { requestId: 'sfu-7', sessionId: 'abc123', trackName: null, mid: null }, { requestId: 'sfu-7', sessionId: 'abc123', sessionToken: 'a'.repeat(43), mid: null }],
-        notes: SFU_NOTE + ' Re-register a session I still hold (its PeerConnection alive) after my socket reconnected or the server restarted (a new bootId): the sessionToken sfuSession gave, my published track (both null when none; one null alone is invalid) and what I pull (so the server can enforce a later block). A token that does not prove the session is mine: bad_token. Answered sfuReply op resume; the room hears sfuMember resumed (same session and track) or session.',
+        notes: SFU_NOTE + ' Re-register a session I still hold (its PeerConnection alive) after my socket reconnected or the server restarted (a new bootId): the sessionToken sfuSession gave, my published track (both null when none; one null alone is invalid) and what I pull (so the server can enforce a later block). A token that does not prove the session is mine: bad_token. A session this server ended (I left the room, replaced it, sent sfuLeave, or my reconnect grace ran out; its pulls were closed at Cloudflare): session_gone, make a new one. Answered sfuReply op resume; the room hears sfuMember resumed (same session and track) or session.',
     },
     sfuLeave: {
         payload: open({ requestId: sfuReq(), sessionId: orNull(ref('sfuSessionId')) }, { optional: ['sessionId'] }),
         status: 'unsent', joi: null, joiInHandler: 'sfuLeave', rateLimit: null, sentBy: nobody,
         examples: [{ requestId: 'sfu-8', sessionId: 'abc123' }, { requestId: 'sfu-8' }],
         invalid: [{ requestId: 'sfu-8', sessionId: 'a b' }, { sessionId: 'abc123' }],
-        notes: SFU_NOTE + ' I am done with my session (voice stops on this screen: no company, a page hide): the room hears sfuMember session (null) at once, instead of waiting for the reconnect grace. Idempotent (a session that is not mine is ignored). Answered sfuReply op leave. Then close the PeerConnection; Cloudflare drops the session.',
+        notes: SFU_NOTE + ' I am done with my session (voice stops on this screen: no company, a page hide): the room hears sfuMember session (null) at once, instead of waiting for the reconnect grace, and the server closes what the session pulls at Cloudflare. Idempotent (a session that is not mine is ignored). Answered sfuReply op leave. Then close the PeerConnection; Cloudflare drops the session.',
     },
 
     // Admin panel (web; iOS from 1.2.2 build 10)
