@@ -103,7 +103,15 @@
           "voiceOffer",
           "voiceAnswer",
           "voiceIceCandidate",
-          "getVoiceIceServers"
+          "getVoiceIceServers",
+          "sfuSession",
+          "sfuPush",
+          "sfuPull",
+          "sfuRenegotiate",
+          "sfuClose",
+          "sfuIceRestart",
+          "sfuResume",
+          "sfuLeave"
         ]
       },
       {
@@ -645,16 +653,7 @@
     ]
   },
   "exclude": {
-    "web": {
-      "sfuSession": "Cloudflare SFU voice (2026-11-26, server PR 1): status unsent until the web SFU transport (PR 2) sends it, which lists it here and makes it active",
-      "sfuPush": "Cloudflare SFU voice (2026-11-26, server PR 1): status unsent until the web SFU transport (PR 2) sends it, which lists it here and makes it active",
-      "sfuPull": "Cloudflare SFU voice (2026-11-26, server PR 1): status unsent until the web SFU transport (PR 2) sends it, which lists it here and makes it active",
-      "sfuRenegotiate": "Cloudflare SFU voice (2026-11-26, server PR 1): status unsent until the web SFU transport (PR 2) sends it, which lists it here and makes it active",
-      "sfuClose": "Cloudflare SFU voice (2026-11-26, server PR 1): status unsent until the web SFU transport (PR 2) sends it, which lists it here and makes it active",
-      "sfuIceRestart": "Cloudflare SFU voice (2026-11-26, server PR 1): status unsent until the web SFU transport (PR 2) sends it, which lists it here and makes it active",
-      "sfuResume": "Cloudflare SFU voice (2026-11-26, server PR 1): status unsent until the web SFU transport (PR 2) sends it, which lists it here and makes it active",
-      "sfuLeave": "Cloudflare SFU voice (2026-11-26, server PR 1): status unsent until the web SFU transport (PR 2) sends it, which lists it here and makes it active"
-    },
+    "web": {},
     "swift": {
       "searchPlayers": "player search is web only (the owner declined it for iOS, 2026-11-15); iOS 1.2.2 has the profile events",
       "searchPlayersResponse": "player search is web only (the owner declined it for iOS, 2026-11-15); iOS 1.2.2 has the profile events",

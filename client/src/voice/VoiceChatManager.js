@@ -42,11 +42,26 @@
  * a failed call); the higher end replaces its offer with an answer. An
  * offer that arrives after the answer to ours is a new negotiation, never
  * a collision (the server relays one sender's signals in order).
+ *
+ * The tournament lobby's voice room may be a Cloudflare SFU room instead
+ * (server flag VOICE_SFU=tournament; docs/claude/voice.md "SFU voice, web"):
+ * `this.sfu` (voice/sfu/SfuTransport.js) holds that room and its one
+ * RTCPeerConnection, and every pulled track plays through this session's
+ * ONE AudioContext (a GainNode and an AnalyserNode per pull: per-person
+ * volume 0-200%, the noise gate and the speaking indicator), so a big room
+ * never opens one output stream per person. Its members appear in the
+ * peer-facing API under `sfu:<username>` ids (getPeers, peerUsername,
+ * volumes, mutes, isSpeaking). Everything above (the mesh) is unchanged.
  */
 
 import { CLIENT_EVENTS } from '../constants/events.js';
 import { getGameState } from '../state/GameState.js';
 import { sessionWantsUnmuted, rememberSessionMute, micAlreadyAllowed } from './voiceSessionMute.js';
+import { SfuTransport } from './sfu/SfuTransport.js';
+
+/** The id of an SFU room member in the peer-facing API (getPeers, volumes, speaking): by username. */
+export const SFU_PEER_PREFIX = 'sfu:';
+export const sfuPeerId = (username) => `${SFU_PEER_PREFIX}${username}`;
 
 /** What voice used before TURN, and still uses without it. */
 export const STUN_ICE_SERVERS = Object.freeze([
@@ -186,6 +201,34 @@ export class VoiceChatManager {
     // This page got the microphone once (kept through shutdown): a later
     // start may open it again with no prompt (voiceSessionMute.js)
     this._micGrantedThisPage = false;
+
+    // The SFU room (kept across sessions: its roster arrives before voice
+    // starts, no voice alone). The socket the voice handlers listen on
+    // (setSignalSocket): the roster arrives before initialize sets
+    // socketManager. Each pull's audio nodes, and the one muted element
+    // that makes Chromium decode the pulled tracks for Web Audio
+    this._signalSocket = null;
+    this._sfuNodes = new Map(); // sfu:<username> -> {track, source, gain}
+    this._sfuSink = null; // {el, stream}
+    this.sfu = new SfuTransport({
+      getSocket: () => this._signalSocket || this.socketManager,
+      audio: {
+        add: (username, track) => this._addSfuPull(username, track),
+        remove: (username) => this._removeSfuPull(username),
+      },
+      getMicTrack: () => (this.active ? this.localStream?.getAudioTracks()[0] || null : null),
+    });
+  }
+
+  /** The socket the voice handlers listen on (handlers/voiceHandlers.js). */
+  setSignalSocket(socketManager) {
+    this._signalSocket = socketManager || null;
+    // A drop fails the SFU requests still open (their replies went with
+    // the socket), so the next socket's resume goes at once (step 11)
+    this._unsubSignalState?.();
+    this._unsubSignalState = typeof socketManager?.onStateChange === 'function'
+      ? socketManager.onStateChange((event) => { if (event === 'disconnect') this.sfu.onSocketDisconnect(); })
+      : null;
   }
 
   /**
@@ -251,6 +294,9 @@ export class VoiceChatManager {
     else this._silentSource();
     this._startSpeakingDetection();
     this._armUnlock();
+    // An SFU room's session is lazy (made when there is something to pull
+    // or push); in a mesh room the transport does nothing
+    this.sfu.start();
 
     console.log('[Voice] initialized, username:', this._localUsername, 'talk:', !!this.localStream, 'audioCtx:', this._audioContext?.state);
     this._notifyMode();
@@ -497,6 +543,8 @@ export class VoiceChatManager {
       this.localStream = stream;
       this._addAnalyser('self', stream);
       await this._replaceSenders();
+      // An SFU room publishes on the first unmute (never before)
+      this.sfu.micReady();
     } else {
       const old = this.localStream;
       this.localStream = null;
@@ -806,6 +854,14 @@ export class VoiceChatManager {
    * state the speaking poll saw).
    */
   _applyVolume(socketId, { speaking = null } = {}) {
+    const sfuNode = this._sfuNodes.get(socketId);
+    if (sfuNode) {
+      // An SFU pull plays through its GainNode: 0-200% for real (an element caps at 100%)
+      const open = speaking === null ? this._speakingStates.get(socketId) !== false : speaking;
+      const level = this._effectiveMuted(socketId) || !open ? 0 : (this._peerVolumes.get(socketId) ?? 1.0);
+      this._setGain(sfuNode.gain, level);
+      return;
+    }
     const peer = this.peers.get(socketId);
     if (!peer?.audioEl) return;
     if (this._effectiveMuted(socketId)) {
@@ -857,7 +913,19 @@ export class VoiceChatManager {
     for (const [socketId, peer] of this.peers) {
       result.push({ socketId, username: peer.username });
     }
+    // An SFU room's members (none in a mesh room)
+    if (this.active) {
+      for (const m of this.sfu.members()) result.push({ socketId: sfuPeerId(m.username), username: m.username });
+    }
     return result;
+  }
+
+  /** The username behind a peer id (a mesh call's socket id, or an SFU member's `sfu:<username>`). */
+  peerUsername(id) {
+    const peer = this.peers.get(id);
+    if (peer) return peer.username || null;
+    if (typeof id === 'string' && id.startsWith(SFU_PEER_PREFIX)) return id.slice(SFU_PEER_PREFIX.length) || null;
+    return null;
   }
 
   /**
@@ -1072,6 +1140,9 @@ export class VoiceChatManager {
       throw err;
     }
 
+    // An SFU room's published sender too
+    await this.sfu.replaceMicTrack(newTrack);
+
     // All replacements succeeded — now safe to stop old tracks
     this.localStream = newStream;
     this._preferredDeviceId = deviceId || null;
@@ -1129,6 +1200,15 @@ export class VoiceChatManager {
    * Shut down all voice connections and clean up.
    */
   shutdown() {
+    // The SFU room first (sfuLeave while the socket is known, then its
+    // PeerConnection closes; the roster stays for the next start)
+    this.sfu.stop({ leave: true });
+    for (const username of [...this._sfuNodes.keys()].map((id) => id.slice(SFU_PEER_PREFIX.length))) this._removeSfuPull(username);
+    if (this._sfuSink) {
+      this._sfuSink.el.srcObject = null;
+      this._sfuSink.el.remove();
+      this._sfuSink = null;
+    }
     this.active = false;
     this._generation++;
 
@@ -1484,6 +1564,7 @@ export class VoiceChatManager {
     this._disarmAutoplay();
     this._disarmUnlock();
     if (this._audioContext?.state === 'suspended') this._audioContext.resume?.()?.catch?.(() => {});
+    if (this._sfuSink) this._play(this._sfuSink.el);
     for (const peer of this.peers.values()) {
       if (!peer.audioEl) continue;
       if (peer.audioEl.srcObject) {
@@ -1559,6 +1640,111 @@ export class VoiceChatManager {
       p.catch((err) => {
         if (err?.name === 'NotAllowedError') el._voiceUnlocked = false;
       });
+    }
+  }
+
+  // ============================================
+  // SFU room audio: every pull mixed in this session's ONE AudioContext
+  // ============================================
+
+  /**
+   * A pulled track (SfuTransport ontrack): into the session's AudioContext
+   * through an AnalyserNode (speaking) and a GainNode (volume, my mute of
+   * that person, the noise gate). Chromium feeds a remote WebRTC track to
+   * Web Audio only while a media element plays it, so every pull is also
+   * added to ONE muted element's stream (silent itself; measured 2026-11-26:
+   * no element, no samples), never one element per person.
+   */
+  _addSfuPull(username, track) {
+    const id = sfuPeerId(username);
+    const prev = this._sfuNodes.get(id);
+    if (prev?.track === track) return;
+    if (prev) this._removeSfuPull(username, { keepSpeaking: true });
+    const ctx = this._audioContext;
+    this._ensureSfuSink()?.stream.addTrack?.(track);
+    const node = { track, source: null, gain: null };
+    this._sfuNodes.set(id, node);
+    if (!ctx || typeof ctx.createMediaStreamSource !== 'function') return;
+    try {
+      const source = ctx.createMediaStreamSource(new MediaStream([track]));
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      const gain = ctx.createGain();
+      source.connect(analyser);
+      source.connect(gain);
+      gain.connect(ctx.destination);
+      node.source = source;
+      node.gain = gain;
+      this._analysers.set(id, { analyser, dataArray: new Float32Array(analyser.fftSize), source });
+      this._gainNodes.set(id, gain);
+      this._applyVolume(id, { speaking: true });
+    } catch (err) {
+      console.warn('[Voice] SFU pull not mixed:', err?.message);
+    }
+    this._ensureContextRunning();
+  }
+
+  /** A pull closed (its member left, changed session, or the session ended). */
+  _removeSfuPull(username, { keepSpeaking = false } = {}) {
+    const id = sfuPeerId(username);
+    const node = this._sfuNodes.get(id);
+    if (!node) return;
+    this._sfuNodes.delete(id);
+    try { node.source?.disconnect(); } catch (e) { /* gone */ }
+    try { node.gain?.disconnect(); } catch (e) { /* gone */ }
+    try { this._sfuSink?.stream.removeTrack?.(node.track); } catch (e) { /* gone */ }
+    this._analysers.delete(id);
+    this._gainNodes.delete(id);
+    if (keepSpeaking) return;
+    const wasSpeaking = !!this._speakingStates.get(id);
+    this._speakingStates.delete(id);
+    this._speakingLastActive.delete(id);
+    if (wasSpeaking) {
+      this._speakingCallbacks.forEach(cb => {
+        try { cb(id, false); } catch (e) { /* ignore */ }
+      });
+    }
+  }
+
+  _ensureSfuSink() {
+    if (this._sfuSink) return this._sfuSink;
+    if (typeof document === 'undefined' || typeof MediaStream === 'undefined') return null;
+    const el = document.createElement('audio');
+    el.muted = true;
+    el.autoplay = true;
+    el.id = 'voice-sfu-sink';
+    const stream = new MediaStream();
+    el.srcObject = stream;
+    document.body.appendChild(el);
+    this._sfuSink = { el, stream };
+    this._play(el);
+    return this._sfuSink;
+  }
+
+  /** The AudioContext must run to be heard: a page with no gesture yet waits for one ("Click anywhere"). */
+  _ensureContextRunning() {
+    const ctx = this._audioContext;
+    if (!ctx || ctx.state !== 'suspended') return;
+    const p = ctx.resume?.();
+    const check = () => {
+      if (this._audioContext === ctx && ctx.state === 'suspended') this._armAutoplay();
+    };
+    if (p && typeof p.then === 'function') {
+      // a refused resume never settles in some browsers: look again shortly
+      p.then(check, check);
+      setTimeout(check, 1000);
+    } else {
+      check();
+    }
+  }
+
+  _setGain(gain, level) {
+    if (!gain?.gain) return;
+    const ctx = this._audioContext;
+    if (ctx && typeof gain.gain.setTargetAtTime === 'function') {
+      gain.gain.setTargetAtTime(level, ctx.currentTime || 0, 0.015);
+    } else {
+      gain.gain.value = level;
     }
   }
 

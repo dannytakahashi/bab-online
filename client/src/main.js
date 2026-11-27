@@ -825,10 +825,28 @@ function initializeApp() {
     setTournamentVoiceFull(data.admitted ? null : data.cap);
   }
 
+  /**
+   * The tournament room as a Cloudflare SFU room (VOICE_SFU=tournament on
+   * the server; voice/sfu/SfuTransport.js, docs/claude/voice.md "SFU voice,
+   * web"): its roster is the company (another member listed), and a member
+   * waiting in line past the room's ceiling sees "Voice is full (N people)",
+   * as in the mesh. Every roster change re-checks the gate.
+   */
+  voiceManager.sfu.onChange(() => {
+    if (session.screen === SCREEN.TOURNAMENT_LOBBY && voiceManager.sfu.mode === 'sfu') {
+      setTournamentVoiceFull(voiceManager.sfu.status === 'waiting' ? voiceManager.sfu.cap : null);
+    }
+    voiceGate.update();
+  });
+
   function hasVoiceCompany() {
     const screen = session.screen;
     if (screen === SCREEN.LOBBY) return lobbyOthers.size > 0;
-    if (screen === SCREEN.TOURNAMENT_LOBBY) return tournamentVoicePeers.size > 0;
+    if (screen === SCREEN.TOURNAMENT_LOBBY) {
+      // an SFU room (its sfuRoster came): another member listed in it
+      if (voiceManager.sfu.mode === 'sfu') return voiceManager.sfu.hasCompany();
+      return tournamentVoicePeers.size > 0;
+    }
     // the score modal of a lobby-born game: the server moved me into the
     // reopened lobby, whose members are my voice room now (play again)
     if (screen === SCREEN.GAME_END && session.lobbyReturn) return lobbyOthers.size > 0;
@@ -982,7 +1000,7 @@ function initializeApp() {
     voiceManager.onSpeakingChange((id, isSpeaking) => {
       // Cut for a buck's ring (the tournament lobby's voice room)
       if (session.screen === SCREEN.TOURNAMENT_LOBBY) {
-        setTournamentCutTalking(id === 'self' ? gameState.username : voiceManager.peers.get(id)?.username || null, isSpeaking);
+        setTournamentCutTalking(id === 'self' ? gameState.username : voiceManager.peerUsername(id), isSpeaking);
       }
       if (id === 'self') {
         // a watcher has no seat of its own: my mic button rings (never the
@@ -996,7 +1014,7 @@ function initializeApp() {
         const el = document.getElementById('player-avatar-container');
         if (el) el.classList.toggle('voice-speaking', isSpeaking);
       } else {
-        const username = voiceManager.peers.get(id)?.username || null;
+        const username = voiceManager.peerUsername(id);
         // A stop always clears the badge's ring for that peer: the watcher
         // may be gone from the list already (it left; its call ends after)
         if (!isSpeaking) {
@@ -1199,6 +1217,9 @@ function initializeApp() {
           // the server's list of who is here; a lobby's people are not
           if (!ctx?.reenter) lobbyOthers = new Set();
           tournamentVoicePeers = new Map();
+          // ... or its sfuRoster (an SFU room); a session held so far waits
+          // for that next voice event (SfuTransport.enterRoom)
+          voiceManager.sfu.enterRoom();
           startVoice();
         },
         exit: (_data, ctx) => {
@@ -1209,6 +1230,8 @@ function initializeApp() {
           // server announces the table at its seating), and so is a game watched
           tournamentVoicePeers = new Map();
           stopVoice();
+          // the SFU room too (stopVoice sent its sfuLeave)
+          voiceManager.sfu.exitRoom();
         },
       },
       [SCREEN.TABLE]: {

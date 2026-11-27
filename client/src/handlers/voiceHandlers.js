@@ -25,6 +25,22 @@ import { getVoiceChatManager } from '../voice/VoiceChatManager.js';
  */
 export function registerVoiceHandlers(socketManager, { onVoiceSettings, onVoicePeers, onTournamentVoiceStatus } = {}) {
   const voiceManager = getVoiceChatManager();
+  // The SFU room's roster comes before voice starts (no voice alone): the
+  // transport sends and listens on this socket from the start
+  voiceManager.setSignalSocket?.(socketManager);
+
+  // Cloudflare SFU voice (the tournament lobby room with VOICE_SFU=tournament;
+  // docs/claude/voice.md "SFU voice, web"): an sfuRoster makes the room an
+  // SFU room (step 1), sfuMember upserts it, sfuReply answers a request
+  socketManager.on(SERVER_EVENTS.SFU_ROSTER, (data) => {
+    voiceManager.sfu?.onRoster(data);
+  });
+  socketManager.on(SERVER_EVENTS.SFU_MEMBER, (data) => {
+    voiceManager.sfu?.onMember(data);
+  });
+  socketManager.on(SERVER_EVENTS.SFU_REPLY, (data) => {
+    voiceManager.sfu?.onReply(data);
+  });
 
   // A casual game's voice settings (private, unsequenced; only to a socket
   // that said casualSpectators): the page sets the talk mode, starts voice
@@ -38,10 +54,14 @@ export function registerVoiceHandlers(socketManager, { onVoiceSettings, onVoiceP
   // tournament lobby screen while this socket waits in line
   socketManager.on(SERVER_EVENTS.TOURNAMENT_VOICE_STATUS, (data) => {
     if (!data || typeof data !== 'object' || typeof data.admitted !== 'boolean') return;
+    // the room is a mesh (an SFU session still held closes first)
+    voiceManager.sfu?.onMeshEvent();
     onTournamentVoiceStatus?.(data);
   });
 
   socketManager.on(SERVER_EVENTS.VOICE_PEER_LIST, (data) => {
+    // a mesh room (or a table): an SFU session still held closes first
+    voiceManager.sfu?.onMeshEvent();
     const { peers } = data;
     peers.forEach(peer => {
       voiceManager.connectToPeer(peer.socketId, peer.username);
@@ -53,6 +73,7 @@ export function registerVoiceHandlers(socketManager, { onVoiceSettings, onVoiceP
     // Don't initiate here — the new joiner will initiate to us via voicePeerList.
     // If both sides initiate simultaneously, WebRTC glare breaks both connections.
     console.log('Voice peer joined:', data.socketId, data.username);
+    voiceManager.sfu?.onMeshEvent();
     onVoicePeers?.('joined', data);
   });
 
