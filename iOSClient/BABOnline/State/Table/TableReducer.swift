@@ -128,10 +128,20 @@ enum TableReducer {
         s.table.myTurn = s.myTurn
         // the your-turn cue: the edge into my choice, from a live delta only (a snapshot that
         // lands on my turn, a rolled-back submission or an ack timeout is not news)
-        if case .server(let ev) = e, !ev.event.isSnapshotCarrier, !before.isChoosing, s.myTurn.isChoosing {
+        if case .server(let ev) = e, !ev.event.isSnapshotCarrier, !before.isChoosing, case .choosing(let action) = s.myTurn {
             fx.append(.sound(.turn))
+            // the haptic on my turn (player request, owner 2026-11-26): the same edge, so never a
+            // snapshot, a resync, a re-render or a lazy / watching / spectating viewer (myTurn is
+            // `.seat` only); TurnHaptic keeps it to once per turn and to the setting and the app
+            fx.append(.haptic(.myTurn(turnCue(s, action))))
         }
         return fx
+    }
+
+    /// The turn that is open for me now (TurnHaptic's once-per-turn key).
+    static func turnCue(_ s: TableState, _ action: TurnAction) -> TurnCue {
+        TurnCue(gameId: s.table.gameId, dealSeq: s.table.deal?.dealSeq ?? 0, action: action,
+                trick: action == .play ? s.table.trickNo : 0)
     }
 
     /// Catch-up (buffered events replayed after a snapshot or a lapsed resync): its effects
@@ -143,7 +153,7 @@ enum TableReducer {
         var revealed = false
         fx += inner.filter {
             switch $0 {
-            case .sound, .animate(.dealt), .animate(.helpBadge): return false
+            case .sound, .animate(.dealt), .animate(.helpBadge), .haptic(.myTurn): return false
             case .revealHSI: revealed = true; return false
             default: return true
             }

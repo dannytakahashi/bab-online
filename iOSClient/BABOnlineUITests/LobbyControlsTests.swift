@@ -98,8 +98,10 @@ final class LobbyControlsTests: XCTestCase {
         lobbyLeave("game-lobby")
     }
 
+    /// The tournament lobby's Leave is in its "…" menu (owner 2026-11-26), labelled "More":
+    /// in the vertical bar on the Duo, in the header elsewhere; it holds Leave Tournament.
     func testTournamentLobbyLeave() {
-        lobbyLeave("tournament-lobby")
+        lobbyLeave("tournament-lobby", label: "More", item: "Leave Tournament")
     }
 
     /// Regular width (the iPad, the open Duo): the lobby chat is the right-hand
@@ -231,13 +233,17 @@ final class LobbyControlsTests: XCTestCase {
         app.terminate()
     }
 
-    private func lobbyLeave(_ fixture: String) {
+    private func lobbyLeave(_ fixture: String, label: String = "Leave", item: String? = nil) {
         let app = Fixture.launch(fixture)
         XCTAssertTrue(Fixture.readyElement(app, fixture).waitForExistence(timeout: 20))
         sleep(1)
         let column = verticalBarColumn(app)
-        assertControl(app, "label CONTAINS %@", "Leave", column: column)
-        assertContentClear(app, column: column, barLabels: ["Leave"])
+        let control = assertControl(app, "label CONTAINS %@", label, column: column)
+        assertContentClear(app, column: column, barLabels: [label])
+        if let item, let control {
+            control.tap()
+            XCTAssertTrue(app.buttons[item].firstMatch.waitForExistence(timeout: 3), "\(label) holds \(item)")
+        }
         app.terminate()
     }
 }

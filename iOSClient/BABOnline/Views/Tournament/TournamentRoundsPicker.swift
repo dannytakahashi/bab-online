@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// The host's "Rounds 1 2 3 4 5" control (owner 2026-11-25; iOS 1.2.7 (41); the web's
-/// RoundsPicker.js), right above Begin in the lobby phase only (`TournamentRounds.showsPicker`:
+/// RoundsPicker.js), in the lobby header under "Waiting to start · N rounds" (owner 2026-11-26;
+/// it was above Begin) in the lobby phase only (`TournamentRounds.showsPicker`:
 /// it follows host hand-offs like Begin and Cancel and goes once the tournament begins). A
 /// segmented control at the standard text sizes; at the accessibility sizes, where five
 /// segments and the label leave each a letter wide, a menu reading "Rounds: 4". A pick shows at

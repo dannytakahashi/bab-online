@@ -56,7 +56,7 @@ final class TournamentExtrasUITests: XCTestCase {
 
     // MARK: - Rounds
 
-    /// The host's segmented 1-5 above Begin: a pick shows at once (round line, scoreboard
+    /// The host's segmented 1-5 in the header: a pick shows at once (round line, scoreboard
     /// columns), sends setTournamentRounds and gets the server's system line.
     func testTheHostPicksTheRounds() {
         let app = lobby()
@@ -67,9 +67,13 @@ final class TournamentExtrasUITests: XCTestCase {
         XCTAssertEqual(roundLine(app), "Waiting to start · 4 rounds")
         XCTAssertTrue(app.staticTexts["R4"].exists)
         XCTAssertFalse(app.staticTexts["R5"].exists)
-        let begin = element(app, "tournament.begin")
-        XCTAssertTrue(begin.exists)
-        XCTAssertLessThan(picker.frame.maxY, begin.frame.minY + 1, "right above Begin")
+        // in the header under the round line (owner 2026-11-26), well above the one action slot
+        let line = element(app, "tournament.roundLine")
+        XCTAssertLessThanOrEqual(line.frame.maxY, picker.frame.minY + 1, "under \"Waiting to start · 4 rounds\"")
+        let ready = element(app, "tournament.ready")
+        XCTAssertTrue(ready.exists, "the host is not ready yet: the slot reads Ready")
+        XCTAssertLessThan(picker.frame.maxY, app.staticTexts["Players"].frame.minY, "in the header, above the players")
+        XCTAssertLessThan(picker.frame.maxY, ready.frame.minY)
         assertOnScreen(app, picker, "the picker")
         shot("rounds-host")
 
@@ -163,12 +167,23 @@ final class TournamentExtrasUITests: XCTestCase {
         return app
     }
 
-    /// Rows are about 300 to 400 pt tall at AX5: short drags until all of `e` is on screen.
+    /// Rows are about 300 to 400 pt tall at AX5: short drags until all of `e` is on screen, up
+    /// when it hangs below the window, down when a swipe carried it past the top (the closed
+    /// Duo: "(44.0, -22.67, 318.0, 401.0) outside the window").
     private func dragFullyIn(_ app: XCUIApplication, _ e: XCUIElement) {
         let window = app.windows.firstMatch.frame
-        for _ in 0..<8 where e.frame.maxY > window.maxY - 20 {
-            let start = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
-            start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -160)))
+        for _ in 0..<8 {
+            let f = e.frame
+            let dy: CGFloat
+            if f.maxY > window.maxY - 20 {
+                dy = -min(160, f.maxY - window.maxY + 40)
+            } else if f.minY < window.minY {
+                dy = min(160, window.minY - f.minY + 40)
+            } else {
+                break
+            }
+            let start = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: dy < 0 ? 0.75 : 0.4))
+            start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: dy)))
         }
     }
 

@@ -15,6 +15,7 @@ struct AccountSettingsView: View {
     @EnvironmentObject var socketService: SocketService
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var sounds = SoundPlayer.shared
+    @ObservedObject private var haptics = HapticSettings.shared
 
     /// Opens the admin panel once this sheet has closed (MainRoomView); the Admin entry shows
     /// only while `authState.isAdmin` and this is set.
@@ -137,7 +138,8 @@ struct AccountSettingsView: View {
         .listRowBackground(Theme.surface)
     }
 
-    /// The same switch as the table's speaker (SoundToggleButton), plus the volume.
+    /// The same switch as the table's speaker (SoundToggleButton), plus the volume, and the
+    /// haptic on my turn (TurnHaptic; player request, owner 2026-11-26).
     private var soundSection: some View {
         Section {
             Toggle("Sound", isOn: $sounds.isEnabled)
@@ -169,11 +171,28 @@ struct AccountSettingsView: View {
                 }
                 #endif
             }
+            if offersVibrate {
+                Toggle("Vibrate on my turn", isOn: $haptics.vibratesOnTurn)
+                    .foregroundColor(Theme.textPrimary)
+                    .tint(Theme.primary)
+                    .accessibilityHint("A tap when it's your turn to bid or play")
+                    .accessibilityIdentifier("settings.vibrateOnTurn")
+            }
         } footer: {
-            Text("Card, turn and trick sounds. The silent switch mutes them, except during voice chat.")
+            Text("Card, turn and trick sounds. The silent switch mutes them, except during voice chat."
+                 + (offersVibrate ? " Vibrate on my turn taps once when your bid or play turn opens." : ""))
                 .foregroundColor(Theme.textDim)
         }
         .listRowBackground(Theme.surface)
+    }
+
+    /// "Vibrate on my turn" on a phone only (HapticSettings.isOffered).
+    private var offersVibrate: Bool {
+        #if os(iOS)
+        HapticSettings.isOffered(on: .current)
+        #else
+        false
+        #endif
     }
 
     @ViewBuilder

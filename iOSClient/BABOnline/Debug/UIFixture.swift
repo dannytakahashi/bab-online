@@ -160,6 +160,7 @@ enum UIFixture {
             seedScreen(name, appState, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
             // iOS 1.2.7's tournament extras: the over-cap notice, the rounds' answers (UIFixture+Tournament)
             seedTournamentExtras(tournament)
+            if name.hasPrefix("tournament-") { seedTournamentRoles(tournament, me: auth.username) }
             // `-uiLobbyName "<title>"` / UI_FIXTURE_LOBBY_NAME: a game lobby's title (the header's
             // fit at a real lobby's name)
             if let title = ProcessInfo.processInfo.environment["UI_FIXTURE_LOBBY_NAME"]
@@ -481,6 +482,11 @@ enum UIFixture {
         case SocketEvents.Client.setTournamentRounds:
             // answered as the server does (UIFixture+Tournament)
             message = tournamentRoundsSent(data)
+        case SocketEvents.Client.tournamentReady, SocketEvents.Client.tournamentUnready,
+             SocketEvents.Client.beginTournament, SocketEvents.Client.beginNextRound,
+             SocketEvents.Client.cancelTournament, SocketEvents.Client.leaveTournament:
+            guard let sent = tournamentActionSent(event) else { return }
+            message = sent
         case SocketEvents.Client.setSpectatorsCanTalk:
             // this build has no switch (2026-11-18); a send would show here
             message = "setSpectatorsCanTalk"

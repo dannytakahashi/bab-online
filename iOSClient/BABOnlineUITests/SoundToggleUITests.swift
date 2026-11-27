@@ -128,4 +128,49 @@ final class SoundToggleUITests: XCTestCase {
         XCTAssertEqual(toggle.value as? String ?? "", start, "the speaker's flip is the Account switch's setting")
         app.terminate()
     }
+
+    /// "Vibrate on my turn" (player request, owner 2026-11-26): next to Sound in the Account
+    /// sheet, on by default, remembered across launches.
+    func testVibrateOnMyTurnIsASwitchThatIsRemembered() {
+        func open() -> (XCUIApplication, XCUIElement) {
+            let app = Fixture.launch("main-room")
+            XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 15))
+            app.buttons.matching(NSPredicate(format: "label == %@", "Account settings")).firstMatch.tap()
+            let toggle = app.switches["settings.vibrateOnTurn"]
+            revealSound(app, toggle)
+            XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+            return (app, toggle)
+        }
+        if UIDevice.current.userInterfaceIdiom != .phone {
+            // no haptic engine on an iPad: no switch, and the footer does not promise one
+            let app = Fixture.launch("main-room")
+            XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 15))
+            app.buttons.matching(NSPredicate(format: "label == %@", "Account settings")).firstMatch.tap()
+            let sound = app.switches["settings.sound"]
+            revealSound(app, sound)
+            XCTAssertTrue(sound.waitForExistence(timeout: 5))
+            XCTAssertFalse(app.switches["settings.vibrateOnTurn"].exists, "no Vibrate on my turn on an iPad")
+            XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Vibrate")).firstMatch.exists)
+            app.terminate()
+            return
+        }
+        var (app, toggle) = open()
+        XCTAssertEqual(toggle.label, "Vibrate on my turn")
+        let start = toggle.value as? String ?? ""
+        XCTAssertTrue(app.switches["settings.sound"].exists, "beside the Sound switch")
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = "vibrate-account-sheet"
+        shot.lifetime = .keepAlways
+        add(shot)
+        toggle.switches.firstMatch.exists ? toggle.switches.firstMatch.tap() : toggle.tap()
+        let flipped = toggle.value as? String ?? ""
+        XCTAssertNotEqual(flipped, start)
+        app.terminate()
+        (app, toggle) = open()
+        XCTAssertEqual(toggle.value as? String ?? "", flipped, "remembered")
+        // back as it was
+        toggle.switches.firstMatch.exists ? toggle.switches.firstMatch.tap() : toggle.tap()
+        XCTAssertEqual(toggle.value as? String ?? "", start)
+        app.terminate()
+    }
 }

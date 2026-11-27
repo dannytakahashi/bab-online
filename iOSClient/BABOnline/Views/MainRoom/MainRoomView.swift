@@ -24,8 +24,6 @@ private struct MainRoomScreen: View {
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @State private var hingeTick = 0
     @State private var showLeaderboard = false
-    /// New Game's choice of game (Get Your Bid, owner 2026-11-24: the web's create dialog).
-    @State private var showCreateGame = false
     @State private var showOnlineUsers = false
     @State private var showAccountSettings = false
     @State private var didEnterBackground = false
@@ -81,17 +79,6 @@ private struct MainRoomScreen: View {
                 LobbyEmitter.joinMainRoom()
             }
         }
-        // New Game: which game (the web's create dialog: "Back Alley Bridge" sends createLobby {}
-        // as before, "Get Your Bid" createLobby {mode: 'gyb'})
-        .confirmationDialog("New Game", isPresented: $showCreateGame, titleVisibility: .visible) {
-            Button(GybRules.classicName) { createLobby(.classic) }
-                .accessibilityIdentifier("newGame.classic")
-            Button(GybRules.name) { createLobby(.gyb) }
-                .accessibilityIdentifier("newGame.gyb")
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("\(GybRules.classicName): \(GybRules.classicBlurb)\n\(GybRules.name): \(GybRules.blurb)")
-        }
         .sheet(isPresented: $showLeaderboard) {
             StatsView()
                 .statsSheetSizing()
@@ -145,6 +132,24 @@ private struct MainRoomScreen: View {
         }
     }
 
+    /// New Game's choice of game (owner 2026-11-26: a native menu on the control, replacing the
+    /// confirmation dialog): each game's name with its one-line rules as the item's subtitle (a
+    /// Button whose label is two Texts: title + subtitle, iOS 17+). "Back Alley Bridge" sends
+    /// createLobby {} as before, "Get Your Bid" createLobby {mode: 'gyb'}.
+    @ViewBuilder
+    private var newGameChoices: some View {
+        Button { createLobby(.classic) } label: {
+            Text(GybRules.classicName)
+            Text(GybRules.classicBlurb)
+        }
+        .accessibilityIdentifier("newGame.classic")
+        Button { createLobby(.gyb) } label: {
+            Text(GybRules.name)
+            Text(GybRules.blurb)
+        }
+        .accessibilityIdentifier("newGame.gyb")
+    }
+
     /// The choice was made: only while the main room may still send (the session gate).
     private func createLobby(_ mode: GameMode) {
         guard socketService.canSendMainRoomActions else { return }
@@ -162,9 +167,14 @@ private struct MainRoomScreen: View {
     private func lobbyHeader(_ words: HeaderWords) -> some View {
         let othersIconsOnly = words != .words
         return HStack(spacing: othersIconsOnly ? 4 : 8) {
-            headerButton("New Game", icon: "suit.spade.fill", color: Theme.primary,
-                         iconsOnly: words == .icons) { showCreateGame = true }
-                .disabled(!socketService.canSendMainRoomActions)
+            Menu {
+                newGameChoices
+            } label: {
+                headerLabel("New Game", icon: "suit.spade.fill", color: Theme.primary, iconsOnly: words == .icons)
+            }
+            .menuIndicator(.hidden)
+            .accessibilityHint("Choose which game to start")
+            .disabled(!socketService.canSendMainRoomActions)
             headerButton("Tournament", icon: "trophy.fill", color: Theme.warning,
                          iconsOnly: othersIconsOnly) { createTournament() }
                 .disabled(!socketService.canSendMainRoomActions)
@@ -212,8 +222,14 @@ private struct MainRoomScreen: View {
     @ToolbarContentBuilder
     private var barControls: some ToolbarContent {
         ToolbarItemGroup(placement: .barLeading) {
-            barButton("New Game", icon: "suit.spade.fill", color: Theme.primary) { showCreateGame = true }
-                .disabled(!socketService.canSendMainRoomActions)
+            Menu {
+                newGameChoices
+            } label: {
+                Label("New Game", systemImage: "suit.spade.fill")
+            }
+            .tint(Theme.primary)
+            .accessibilityHint("Choose which game to start")
+            .disabled(!socketService.canSendMainRoomActions)
             barButton("Tournament", icon: "trophy.fill", color: Theme.warning) { createTournament() }
                 .disabled(!socketService.canSendMainRoomActions)
             barButton("Stats", icon: "chart.bar.fill", color: Theme.textSecondary) { showLeaderboard = true }
@@ -246,15 +262,20 @@ private struct MainRoomScreen: View {
     private func headerButton(_ title: String, icon: String, color: Color, iconsOnly: Bool,
                               action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(title, systemImage: icon)
-                .labelStyle(HeaderLabelStyle(iconsOnly: iconsOnly))
-                .font(.callout.bold())
-                .foregroundColor(color)
-                .lineLimit(1)
-                .fixedSize()
-                .frame(minWidth: iconsOnly ? 44 : nil, minHeight: 32)
-                .contentShape(Rectangle())
+            headerLabel(title, icon: icon, color: color, iconsOnly: iconsOnly)
         }
+    }
+
+    /// A header control's look (a Button's or New Game's Menu's label).
+    private func headerLabel(_ title: String, icon: String, color: Color, iconsOnly: Bool) -> some View {
+        Label(title, systemImage: icon)
+            .labelStyle(HeaderLabelStyle(iconsOnly: iconsOnly))
+            .font(.callout.bold())
+            .foregroundColor(color)
+            .lineLimit(1)
+            .fixedSize()
+            .frame(minWidth: iconsOnly ? 44 : nil, minHeight: 32)
+            .contentShape(Rectangle())
     }
 }
 
