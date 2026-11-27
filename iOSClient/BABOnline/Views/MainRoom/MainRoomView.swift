@@ -226,22 +226,26 @@ private struct MainRoomScreen: View {
     private func color(_ item: MainRoomControls.Item) -> Color {
         switch MainRoomControls.tint(item) {
         case .primary: return Theme.primary
-        case .gold: return Theme.warning
+        case .plain: return Theme.textPrimary
         }
     }
 
     // MARK: - Vertical bar (iOS 27.1)
 
-    /// The header's controls as toolbar items: the actions on top, the online
-    /// count and the account settings as the trailing group.
+    /// The header's controls as toolbar items, in two pills (`MainRoomControls.barPill`): New
+    /// Game alone on top; the trophy, the online count (Players), Admin and the account settings
+    /// as the trailing group.
     @ToolbarContentBuilder
     private var barControls: some ToolbarContent {
         ToolbarItemGroup(placement: .barLeading) {
-            ForEach(MainRoomControls.items, id: \.self) { item in
+            ForEach(MainRoomControls.barItems(.play), id: \.self) { item in
                 barControl(item)
             }
         }
         ToolbarItemGroup(placement: .barTrailing) {
+            ForEach(MainRoomControls.barItems(.browse), id: \.self) { item in
+                barControl(item)
+            }
             // The vertical bar lays out symbols only (a text or custom label lands outside
             // the column), and a badge reads as an alert: the count is in the chat header.
             Button(action: { showOnlineUsers = true }) {
