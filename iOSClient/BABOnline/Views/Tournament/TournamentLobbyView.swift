@@ -543,7 +543,10 @@ private struct TournamentLobbyScreen: View {
         if !bar.usesVerticalBar && menuEntry != .none {
             Group {
                 if withText, case .button = menuEntry {
-                    entryPoint.labelStyle(.titleAndIcon)
+                    // one line, as Main Room beside it (review of PR #437: at AX5 "Stop Watching"
+                    // wrapped to two and doubled the row); the Large Content Viewer and VoiceOver
+                    // keep the whole words
+                    entryPoint.labelStyle(.titleAndIcon).lineLimit(1).minimumScaleFactor(0.5)
                 } else {
                     entryPoint.labelStyle(.iconOnly)
                 }
@@ -585,7 +588,10 @@ private struct TournamentLobbyScreen: View {
                     Button(role: .destructive) {
                         ask(item)
                     } label: {
-                        Label(TournamentLobbyMenu.menuTitle(item), systemImage: TournamentLobbyMenu.icon(item))
+                        // words alone (review of PR #437, as #430 did): with the icon "Cancel
+                        // Tournament…" broke over two lines at the default size on the open and
+                        // closed Duo and the iPhone 18 Pro; the trailing ellipsis says it asks first
+                        Text(TournamentLobbyMenu.menuTitle(item))
                     }
                     .disabled(item == .cancel && !canSendTournamentActions)
                     .accessibilityIdentifier(TournamentLobbyMenu.menuIdentifier(item))
@@ -602,9 +608,7 @@ private struct TournamentLobbyScreen: View {
 
     /// What the open confirmation depends on.
     private var confirmContext: TournamentLobbyMenu.Context {
-        TournamentLobbyMenu.Context(hasTournament: tournamentState.tournamentId != nil, phase: tournamentState.phase,
-                                    isCreator: isCreator, isSpectator: tournamentState.isSpectator,
-                                    othersConnected: othersConnected, othersPresent: othersPresent)
+        TournamentLobbyMenu.Context(tournament: tournamentState, me: authState.username, canSend: canSendTournamentActions)
     }
 
     private func confirmMessage(_ item: TournamentLobbyMenu.Item) -> String {
@@ -616,6 +620,11 @@ private struct TournamentLobbyScreen: View {
     /// in flight when UIKit presents it (the presenter also skips a controller being dismissed).
     private func ask(_ item: TournamentLobbyMenu.Item) {
         DispatchQueue.main.async {
+            #if os(iOS)
+            // an alert that went some other way than its buttons or a discard (a refused present,
+            // a dismissal from outside) never locks the entry point (review of PR #437)
+            if !confirmAlert.isPresented { dropConfirm() }
+            #endif
             guard confirming == nil,
                   TournamentLobbyMenu.stillOffers(item, phase: tournamentState.phase, isCreator: isCreator,
                                                   isSpectator: tournamentState.isSpectator) else { return }
@@ -628,7 +637,11 @@ private struct TournamentLobbyScreen: View {
                 confirming = nil
                 if answer == .confirm { perform(item) }
             }
-            if shown { confirming = item }
+            if shown {
+                confirming = item
+                // Cancel's confirm waits for the session and the re-entry, as its menu item does
+                confirmAlert.setConfirmEnabled(TournamentLobbyMenu.confirmEnabled(item, canSend: canSendTournamentActions))
+            }
             #if DEBUG
             if shown { UIFixture.tournamentConfirmPresented() }
             #endif
@@ -643,11 +656,14 @@ private struct TournamentLobbyScreen: View {
     private func confirmContextChanged(_ context: TournamentLobbyMenu.Context) {
         guard let item = confirming else { return }
         #if os(iOS)
+        guard confirmAlert.isPresented else { dropConfirm(); return }  // it went some other way
         switch TournamentLobbyMenu.change(open: item, showing: confirmAlert.message, in: context) {
         case .none: break
         case .message(let words): confirmAlert.update(message: words)
-        case .discard: dropConfirm()
+        case .discard: dropConfirm(); return
         }
+        // the session or the re-entry dropped under Cancel's alert: its confirm waits (in place)
+        confirmAlert.setConfirmEnabled(TournamentLobbyMenu.confirmEnabled(item, canSend: context.canSend))
         #endif
     }
 

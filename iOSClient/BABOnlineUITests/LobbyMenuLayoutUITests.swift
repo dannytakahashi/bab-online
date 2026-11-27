@@ -224,6 +224,12 @@ final class LobbyMenuLayoutUITests: XCTestCase {
     func testCancelAsksInAnAlertAndKeepSendsNothing() {
         let app = lobby("tournament-rounds")
         openHostMenu(app)
+        // each row on one line at the default size (review of PR #437: with the icon "Cancel
+        // Tournament…" broke over two on the Duo, open and closed, and the iPhone 18 Pro)
+        let cancelRow = app.buttons["Cancel Tournament…"].firstMatch, leaveRow = app.buttons["Leave Tournament…"].firstMatch
+        XCTAssertEqual(cancelRow.frame.height, leaveRow.frame.height, accuracy: 2,
+                       "Cancel Tournament… \(cancelRow.frame) as tall as Leave Tournament… \(leaveRow.frame)")
+        XCTAssertLessThan(cancelRow.frame.height, 56, "one line: \(cancelRow.frame)")
         shot("menu-host")
         app.buttons["Cancel Tournament…"].firstMatch.tap()
         var alert = openedAlert(app, "Cancel tournament?", TournamentCopy.cancelInTheLobby)
@@ -359,6 +365,44 @@ final class LobbyMenuLayoutUITests: XCTestCase {
         app.terminate()
     }
 
+    /// The tournament gone under Leave's alert with no screen change (`-uiResetOnAlert`: the state
+    /// is reset 3 s after it opens): the alert goes with nothing sent, never "The tournament ends,
+    /// since nobody else has joined." in place (review of PR #437).
+    func testTheTournamentGoneRemovesTheAlert() {
+        let app = lobby("tournament-between", ["-uiResetOnAlert", "YES"])
+        let button = leaveButton(app)
+        reach(app, button)
+        button.tap()
+        let alert = openedAlert(app, "Leave tournament?", TournamentCopy.noWayBack)
+        waitFor("the tournament going took the alert away", timeout: 6) { !alert.exists }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertEqual(app.alerts.count, 0, "no alert with new words in its place")
+        XCTAssertEqual(sent(app), "-", "nothing sent")
+        app.terminate()
+    }
+
+    /// A re-entry under Cancel's alert (`-uiRejoinOnAlert`: 3 s after it opens, for 3 s): the
+    /// same alert stays, its Cancel Tournament disabled while the re-entry waits (as the menu
+    /// item is), then enabled again; it sends cancelTournament once tapped (review of PR #437: it
+    /// closed the alert and sent nothing).
+    func testCancelsConfirmWaitsForTheReentry() {
+        let app = lobby("tournament-rounds", ["-uiRejoinOnAlert", "YES"])
+        openHostMenu(app)
+        app.buttons["Cancel Tournament…"].firstMatch.tap()
+        let alert = openedAlert(app, "Cancel tournament?", TournamentCopy.cancelInTheLobby)
+        XCTAssertTrue(confirm(alert).isEnabled, "enabled while the session is up")
+        XCTAssertTrue(keep(alert).isEnabled)
+        waitFor("disabled during the re-entry", timeout: 6) { !confirm(alert).isEnabled }
+        XCTAssertTrue(alert.exists, "the same alert stays")
+        XCTAssertTrue(keep(alert).isEnabled, "Keep Tournament never waits")
+        shot("alert-cancel-waits")
+        waitFor("enabled once the re-entry is answered", timeout: 6) { confirm(alert).isEnabled }
+        XCTAssertEqual(sent(app), "-")
+        confirm(alert).tap()
+        waitFor("cancelTournament sent") { sent(app) == "cancelTournament" }
+        app.terminate()
+    }
+
     /// Screenshots of the entry point, the menu and each alert at the default size and AX5
     /// (`TEST_RUNNER_BAB_SHOTS`): the host in the lobby (the menu, Cancel, Leave), the host between
     /// rounds (Cancel), a member between rounds (the Leave button), a spectator. Each alert must
@@ -384,6 +428,8 @@ final class LobbyMenuLayoutUITests: XCTestCase {
                     let button = who == "spectator" ? entryButton(app, "tournament.stopWatching", "Stop Watching") : leaveButton(app)
                     reach(app, button)
                     XCTAssertTrue(button.isHittable, "\(size) \(who): the button")
+                    // one line in the AX controls row (review of PR #437: "Stop / Watching" was 132 pt)
+                    XCTAssertLessThan(button.frame.height, 100, "\(size) \(who): one line, \(button.frame)")
                     shot("\(size)-\(who)-button")
                     button.tap()
                 }

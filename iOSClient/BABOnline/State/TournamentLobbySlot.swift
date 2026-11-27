@@ -270,6 +270,12 @@ enum TournamentLobbyMenu {
         items(phase: phase, isCreator: isCreator, isSpectator: isSpectator).contains(item)
     }
 
+    /// Cancel's confirm waits for the session and the re-entry (`canSend`, the lobby's
+    /// canSendTournamentActions), as its menu item does: an open Cancel alert's destructive button
+    /// is disabled while they drop (review of PR #437: it closed the alert and sent nothing). Leave
+    /// and Stop Watching never wait.
+    static func confirmEnabled(_ item: Item, canSend: Bool) -> Bool { item != .cancel || canSend }
+
     /// What the lobby knows that the open alert depends on.
     struct Context: Equatable {
         var hasTournament: Bool
@@ -278,6 +284,33 @@ enum TournamentLobbyMenu {
         var isSpectator: Bool
         var othersConnected: Int
         var othersPresent: Int
+        /// The lobby's canSendTournamentActions (`confirmEnabled`).
+        var canSend: Bool = true
+
+        /// The lobby's context from its state, read as the lobby reads it (its isCreator,
+        /// othersConnected, othersPresent): `me` my username, `canSend` canSendTournamentActions.
+        /// No tournament is an empty id (TournamentState.reset; review of PR #437: the view tested
+        /// the non-optional id against nil, so "the tournament gone" never discarded the alert).
+        init(tournament t: TournamentState, me: String, canSend: Bool) {
+            hasTournament = !t.tournamentId.isEmpty
+            phase = t.phase
+            isCreator = me == t.creatorUsername
+            isSpectator = t.isSpectator
+            othersConnected = t.players.filter { $0.connected && $0.username != me }.count
+            othersPresent = t.players.filter { $0.username != me }.count
+            self.canSend = canSend
+        }
+
+        init(hasTournament: Bool, phase: String, isCreator: Bool, isSpectator: Bool, othersConnected: Int,
+             othersPresent: Int, canSend: Bool = true) {
+            self.hasTournament = hasTournament
+            self.phase = phase
+            self.isCreator = isCreator
+            self.isSpectator = isSpectator
+            self.othersConnected = othersConnected
+            self.othersPresent = othersPresent
+            self.canSend = canSend
+        }
     }
 
     /// What an open alert does when the lobby changes under it.

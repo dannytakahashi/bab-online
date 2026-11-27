@@ -20,6 +20,10 @@ import SwiftUI
 ///   Tournament / Stop Watching's confirmation alert opens, the host role passes to that member (as
 ///   tournamentPlayerLeft's `newCreator` would), once: Cancel's alert goes, Leave's says the new
 ///   consequence in place.
+/// - `-uiResetOnAlert YES`: 3 s after that alert opens the tournament state is reset (the
+///   tournament gone) with no screen change: the alert goes with no answer.
+/// - `-uiRejoinOnAlert YES`: 3 s after that alert opens a re-entry starts
+///   (`rejoiningTournamentId`), and ends 3 s later: Cancel's confirm is disabled, then enabled.
 extension UIFixture {
     static weak var fixtureTournament: TournamentState?
 
@@ -131,10 +135,27 @@ extension UIFixture {
 
     private static var handOffDriven = false
 
-    /// The tournament lobby's confirmation alert opened (`-uiHandOffOnAlert <name>`).
+    /// The tournament lobby's confirmation alert opened (`-uiHandOffOnAlert <name>`,
+    /// `-uiResetOnAlert`, `-uiRejoinOnAlert`).
     @MainActor
     static func tournamentConfirmPresented() {
-        guard isActive, !handOffDriven, let to = UserDefaults.standard.string(forKey: "uiHandOffOnAlert") else { return }
+        guard isActive, !handOffDriven else { return }
+        let defaults = UserDefaults.standard
+        if defaults.bool(forKey: "uiResetOnAlert") {
+            handOffDriven = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { fixtureTournament?.reset() }
+            return
+        }
+        if defaults.bool(forKey: "uiRejoinOnAlert") {
+            handOffDriven = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                guard let tournament = fixtureTournament else { return }
+                tournament.rejoiningTournamentId = tournament.tournamentId
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { tournament.rejoiningTournamentId = nil }
+            }
+            return
+        }
+        guard let to = defaults.string(forKey: "uiHandOffOnAlert") else { return }
         handOffDriven = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {  // after the test read the first words
             guard let tournament = fixtureTournament, tournament.players.contains(where: { $0.username == to }) else { return }

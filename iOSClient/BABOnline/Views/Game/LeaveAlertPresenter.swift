@@ -44,6 +44,11 @@ final class LeaveAlertPresenter {
 
     var isUp: Bool { alert != nil }
 
+    /// The open alert is presented (UIKit sets its presenting controller as `present` runs): false
+    /// for one UIKit refused to present or something else dismissed (review of PR #437). The
+    /// tournament lobby discards such an alert so it never locks its entry point.
+    var isPresented: Bool { alert?.presentingViewController != nil }
+
     /// The open alert's message (nil: none open).
     var message: String? { alert?.message }
 
@@ -80,6 +85,18 @@ final class LeaveAlertPresenter {
         guard let a = alert, a.message != message else { return }
         a.message = message
     }
+
+    /// Whether the open alert's destructive button can be tapped (nil: none open).
+    var confirmEnabled: Bool? { confirmAction?.isEnabled }
+
+    /// Enables or disables the open alert's destructive button where it stands (the tournament
+    /// lobby's Cancel waits for the session). Nothing open: nothing changes.
+    func setConfirmEnabled(_ on: Bool) {
+        guard let action = confirmAction, action.isEnabled != on else { return }
+        action.isEnabled = on
+    }
+
+    private var confirmAction: UIAlertAction? { alert?.actions.first { $0.style == .destructive } }
 
     /// A button of the open alert: of an alert already closing (a reopen), it does nothing.
     private func answer(_ a: UIAlertController?, _ answer: Answer, _ answered: (Answer) -> Void) {

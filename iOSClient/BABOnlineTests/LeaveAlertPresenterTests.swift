@@ -53,6 +53,15 @@ final class LeaveAlertPresenterTests: XCTestCase {
         // a second present while one is up does nothing
         XCTAssertFalse(p.present(words, answered: { answers.append($0) }))
 
+        XCTAssertTrue(p.isPresented)
+        XCTAssertEqual(p.confirmEnabled, true)
+        // the destructive button waits in place (the lobby's Cancel during a reconnect)
+        p.setConfirmEnabled(false)
+        XCTAssertEqual(a.actions.map(\.isEnabled), [false, true], "the keep button stays")
+        XCTAssertTrue(try presented(p) === a)
+        p.setConfirmEnabled(true)
+        XCTAssertEqual(a.actions.map(\.isEnabled), [true, true])
+
         p.update(message: "second")
         XCTAssertEqual(p.message, "second")
         XCTAssertTrue(try presented(p) === a, "the same alert, its text changed in place")
@@ -66,6 +75,34 @@ final class LeaveAlertPresenterTests: XCTestCase {
         XCTAssertEqual(answers, [], "a discard answers nothing")
         p.update(message: "third")  // nothing open: nothing changes
         XCTAssertEqual(a.message, "second")
+        p.setConfirmEnabled(false)  // nothing open: nothing changes
+        XCTAssertNil(p.confirmEnabled)
+        XCTAssertTrue(a.actions[0].isEnabled)
+    }
+
+    /// An alert something else dismissed (review of PR #437) reads as not presented the moment it
+    /// is gone, and a discard frees the presenter for the next one: the tournament lobby's entry
+    /// point never locks on a lost alert.
+    func testAnAlertDismissedFromOutsideIsNotPresented() throws {
+        let p = LeaveAlertPresenter()
+        let words = LeaveAlertPresenter.Words(title: "Leave tournament?", message: "m", confirm: "Leave Tournament",
+                                              keep: "Stay")
+        guard p.present(words, answered: { _ in XCTFail("no answer for a lost alert") }) else {
+            throw XCTSkip("the test host has no window to present on")
+        }
+        XCTAssertTrue(p.isPresented, "presented as soon as present returns")
+        settle()
+        try presented(p).presentingViewController?.dismiss(animated: false)
+        settle()
+        XCTAssertFalse(p.isPresented)
+        p.discard()
+        settle()
+        XCTAssertFalse(p.isUp)
+        XCTAssertTrue(p.present(words, answered: { _ in }), "the next alert opens")
+        settle()
+        XCTAssertTrue(p.isPresented)
+        p.discard()
+        settle()
     }
 
     /// The in-game form presents "Exit game?" with Exit Game / Cancel, as before.

@@ -366,4 +366,46 @@ final class TournamentLobbySlotTests: XCTestCase {
         XCTAssertEqual(M.change(open: .stopWatching, showing: "You go back to the main room.",
                                 in: ctx("round_active", host: false, spectator: true)), .none)
     }
+
+    /// The view's context comes from TournamentState as the lobby reads it; no tournament is an
+    /// empty id (reset), so an open alert goes when the tournament does, with or without a screen
+    /// change (review of PR #437: the non-optional id was tested against nil, always "there").
+    func testTheContextSeesTheTournamentGone() {
+        typealias M = TournamentLobbyMenu
+        let t = TournamentState()
+        t.tournamentId = "t1"
+        t.phase = "lobby"
+        t.creatorUsername = "kim"
+        t.players = ["kim", "ivy", "hal"].map {
+            TournamentPlayer(id: "sid-\($0)", username: $0, pic: nil, isReady: false, isCreator: $0 == "kim",
+                             connected: $0 != "hal")
+        }
+        var c = M.Context(tournament: t, me: "ivy", canSend: true)
+        XCTAssertEqual(c, M.Context(hasTournament: true, phase: "lobby", isCreator: false, isSpectator: false,
+                                    othersConnected: 1, othersPresent: 2, canSend: true))
+        XCTAssertTrue(M.Context(tournament: t, me: "kim", canSend: false).isCreator)
+        let memberLeave = M.confirmMessage(.leave, phase: "lobby", isCreator: false, othersConnected: 1, othersPresent: 2)
+        XCTAssertEqual(M.change(open: .leave, showing: memberLeave, in: c), .none)
+        t.reset()
+        c = M.Context(tournament: t, me: "ivy", canSend: true)
+        XCTAssertFalse(c.hasTournament, "reset leaves an empty id: no tournament")
+        XCTAssertEqual(M.change(open: .leave, showing: memberLeave, in: c), .discard,
+                       "never \"The tournament ends, since nobody else has joined.\" in place")
+    }
+
+    /// Cancel's confirm waits for the session and the re-entry, as its menu item does; Leave and
+    /// Stop Watching never wait (review of PR #437). The consequence does not depend on it.
+    func testOnlyCancelsConfirmWaitsForTheSession() {
+        typealias M = TournamentLobbyMenu
+        XCTAssertFalse(M.confirmEnabled(.cancel, canSend: false))
+        XCTAssertTrue(M.confirmEnabled(.cancel, canSend: true))
+        for item in [M.Item.leave, .stopWatching] {
+            XCTAssertTrue(M.confirmEnabled(item, canSend: false))
+            XCTAssertTrue(M.confirmEnabled(item, canSend: true))
+        }
+        let cancel = M.confirmMessage(.cancel, phase: "lobby", isCreator: true, othersConnected: 3, othersPresent: 3)
+        let offline = M.Context(hasTournament: true, phase: "lobby", isCreator: true, isSpectator: false,
+                                othersConnected: 3, othersPresent: 3, canSend: false)
+        XCTAssertEqual(M.change(open: .cancel, showing: cancel, in: offline), .none, "the alert stays, its confirm waits")
+    }
 }
