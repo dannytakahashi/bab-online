@@ -313,7 +313,7 @@ If you have not bid 10 seconds into your bidding turn, a 30-second timer starts:
 
 Create a tournament from the main room to compete across 1 to 5 rounds (the host picks, 4 by default) of planned games:
 
-1. Click **Create Tournament** — opens a tournament lobby (unbounded player count)
+1. Click **New Game → Tournament** — opens a tournament lobby (unbounded player count)
 2. Other players click **Join** on the tournament listing in the main room (joining is only open before the tournament starts)
 3. The host picks the number of rounds (**Rounds 1 2 3 4 5**, beside Begin; everyone sees "Waiting to start · 3 rounds"), all players ready up, then the host clicks **Begin Tournament**
 4. Players are shuffled and divided into games of 4 (bots fill remaining slots)

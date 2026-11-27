@@ -497,6 +497,9 @@ describe('lobby controls keep their behaviour on the kit', () => {
     expect(document.getElementById('tournamentReadyBtn').hidden).toBe(false);
     expect(begin.textContent).toBe('Begin Next Round');
     document.getElementById('tournamentCancelBtn').click();
+    // End Tournament asks first (owner 2026-11-26)
+    expect(socket.emitted('cancelTournament')).toHaveLength(0);
+    document.getElementById('tournamentConfirmOk').click();
     expect(socket.emitted('cancelTournament')).toHaveLength(1);
   });
 });

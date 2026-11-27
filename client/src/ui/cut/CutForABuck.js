@@ -227,7 +227,7 @@ function saveView(v) {
  * @param {Function} [opts.now] - clock (tests)
  * @returns {{element, update, setPlayers, setTalking, destroy, relayout}}
  */
-export function createCutView({ me, spectator = false, socket = null, players = [], onViewProfile = null, sound = getSoundManager(), now = () => Date.now() } = {}) {
+export function createCutView({ me, spectator = false, socket = null, players = [], onViewProfile = null, onLeave = null, sound = getSoundManager(), now = () => Date.now() } = {}) {
   const view = {};
   let state = null;
   let layout = null;
@@ -318,10 +318,11 @@ export function createCutView({ me, spectator = false, socket = null, players = 
   const liveLoud = el('div', { className: 'visually-hidden', attrs: { 'aria-live': 'assertive', id: 'cutLiveWinner' } });
   const popover = el('div', { className: 'cut-popover kit-panel kit-elev-3', attrs: { role: 'dialog', 'aria-modal': 'false', hidden: '' } });
   stage.appendChild(popover);
-  const leaveBtn = createButton({ label: 'Leave', variant: 'secondary', onClick: () => socket?.emit('leaveTournament') });
+  // the lobby's onLeave asks first (TournamentLobby.openTournamentConfirm,
+  // owner 2026-11-26); without one (a bare view) it sends at once
+  const leaveBtn = createButton({ label: spectator ? 'Stop Watching' : 'Leave', variant: 'secondary', onClick: () => (onLeave ? onLeave() : socket?.emit('leaveTournament')) });
   leaveBtn.id = 'cutLeaveBtn';
   const actions = el('div', { className: 'screen-actions cut-actions', children: [leaveBtn] });
-  if (spectator) leaveBtn.textContent = 'Stop watching';
   root.append(bar, status, stage, list, actions, live, liveLoud);
   if (spectator) root.classList.add('is-spectator');
 

@@ -63,7 +63,7 @@ describe('the emit gate', () => {
     goDown();
     socket.clearEmits();
     sendChat('while down');
-    document.querySelector('#mainRoomContainer .room-create button').click(); // + Create Game
+    document.querySelector('#mainRoomContainer .room-create button').click(); // New Game
     document.getElementById('createGameClassic').click(); // ...the base game (the dialog's first choice)
     expect(socket.emitted('mainRoomChat')).toEqual([]);
     expect(socket.emitted('createLobby')).toEqual([]);
