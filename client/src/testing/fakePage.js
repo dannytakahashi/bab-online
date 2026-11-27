@@ -167,7 +167,52 @@ export function createFakeVoice() {
     getPeers: vi.fn(() => []),
     isSpeaking: vi.fn(() => false),
     isPeerMuted: vi.fn(() => false),
+    peerUsername: vi.fn(function peerUsername(id) {
+      return this.peers.get(id)?.username || (typeof id === 'string' && id.startsWith('sfu:') ? id.slice(4) : null);
+    }),
+    setSignalSocket: vi.fn(),
+    sfu: createFakeSfu(),
   };
+}
+
+/**
+ * The SFU room as the page sees it (voice/sfu/SfuTransport.js's page-facing
+ * part): the mode an sfuRoster or a mesh event decides, the roster's status
+ * and members, the change callbacks. No PeerConnection.
+ */
+export function createFakeSfu() {
+  const sfu = {
+    mode: null,
+    status: null,
+    cap: null,
+    roster: new Map(),
+    callbacks: [],
+    meshEvents: 0,
+    onChange: vi.fn((cb) => { sfu.callbacks.push(cb); }),
+    notify() { sfu.callbacks.forEach((cb) => cb()); },
+    hasCompany: vi.fn(() => sfu.mode === 'sfu' && sfu.status === 'admitted' && sfu.roster.size > 0),
+    members: vi.fn(() => [...sfu.roster.keys()].map((username) => ({ username, state: 'live' }))),
+    enterRoom: vi.fn(() => { sfu.mode = null; sfu.notify(); }),
+    exitRoom: vi.fn(() => { sfu.mode = null; sfu.status = null; sfu.roster = new Map(); sfu.notify(); }),
+    onMeshEvent: vi.fn(() => { sfu.meshEvents++; sfu.mode = 'mesh'; sfu.status = null; sfu.roster = new Map(); sfu.notify(); }),
+    onRoster: vi.fn((d) => {
+      sfu.mode = 'sfu';
+      sfu.status = d.status;
+      sfu.cap = d.cap ?? null;
+      sfu.roster = new Map((d.members || []).map((m) => [m.username, m]));
+      sfu.notify();
+    }),
+    onMember: vi.fn((d) => {
+      if (sfu.mode !== 'sfu' || sfu.status !== 'admitted') return;
+      if (d.event === 'left') sfu.roster.delete(d.member.username);
+      else sfu.roster.set(d.member.username, d.member);
+      sfu.notify();
+    }),
+    onReply: vi.fn(),
+    start: vi.fn(),
+    stop: vi.fn(),
+  };
+  return sfu;
 }
 
 // Any property is a (cached) vi.fn: stands in for a scene manager

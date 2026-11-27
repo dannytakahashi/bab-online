@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// The tournament lobby's one action slot at the bottom (owner 2026-11-26: "one primary action"):
 /// Ready, then Unready; for the host, once Begin is allowed (`TournamentBegin.canBegin`, the
@@ -95,40 +96,147 @@ struct TournamentLobbySlot: Equatable {
     }
 }
 
-/// The lobby header's "…" menu (owner 2026-11-26): Cancel Tournament for the host, Leave for
-/// everyone (the host too: the role passes on, as the old Leave did), Stop Watching for a
-/// spectator; each confirmed in its own submenu (the consequence, then one destructive button).
-/// Cancel is not offered during Cut for a buck (as before), and the complete phase has no menu (its
-/// back control reads "Main Room").
+/// The lobby's Leave / End Tournament / Stop Watching (owner 2026-11-26): End Tournament for the
+/// host, Leave for everyone (the host too: the role passes on, as the old Leave did), Stop Watching
+/// for a spectator. One action = one button, never a menu within a menu (owner 2026-11-26 on the
+/// open Duo, "it shouldn't be a menu within a menu within a menu", then "I think you're right
+/// tournament host should get two separate icons"): a member, a spectator and the host during the
+/// cut get that one choice's button; the host outside the cut gets two, Leave and End Tournament,
+/// side by side (the vertical bar's column on the open Duo). A "…" menu of the two survives only as
+/// the fallback where a header row cannot fit both icons (`fallbackIdentifier`; the lobby's
+/// ViewThatFits). Each opens a centred alert that says what happens (`confirmMessage`) with a
+/// destructive button and a keep button. End is not offered during Cut for a buck (as before), and
+/// the complete phase has none (its back control reads "Main Room"). The wire event stays
+/// `cancelTournament`; "End" is only the words (the web's too, #436).
 enum TournamentLobbyMenu {
-    enum Item: Equatable { case cancel, leave, stopWatching }
+    enum Item: Equatable, Hashable { case end, leave, stopWatching }
+
+    /// Where the choices sit: nothing, or one button per choice.
+    enum Entry: Equatable {
+        case none
+        /// One choice: its own button.
+        case button(Item)
+        /// The host outside the cut: Leave and End Tournament, a button each (`displayOrder`).
+        case buttons([Item])
+    }
 
     static func items(phase: String, isCreator: Bool, isSpectator: Bool) -> [Item] {
         if phase == "complete" { return [] }
         if isSpectator { return [.stopWatching] }
         var items: [Item] = [.leave]
-        if isCreator && phase != CutForABuck.phase { items.append(.cancel) }
+        if isCreator && phase != CutForABuck.phase { items.append(.end) }
         return items
     }
 
+    /// One button per choice (a one-item menu is a wasted level, the game lobby's bar item is the
+    /// precedent; two choices are two buttons, owner 2026-11-26).
+    static func entry(phase: String, isCreator: Bool, isSpectator: Bool) -> Entry {
+        let items = items(phase: phase, isCreator: isCreator, isSpectator: isSpectator)
+        switch items.count {
+        case 0: return .none
+        case 1: return .button(items[0])
+        default: return .buttons(items)
+        }
+    }
+
+    /// The buttons in the order they are laid out: the vertical bar's column reads them top down
+    /// (Leave first, where a member's Leave is), a header row leading to trailing with Leave last
+    /// (the trailing corner, where a member's Leave is), End Tournament before it.
+    static func displayOrder(_ entry: Entry, inBar: Bool) -> [Item] {
+        switch entry {
+        case .none: return []
+        case .button(let item): return [item]
+        case .buttons(let items):
+            let leaveFirst = items.filter { $0 == .leave } + items.filter { $0 != .leave }
+            return inBar ? leaveFirst : leaveFirst.reversed()
+        }
+    }
+
+    /// A button's accessibility identifier: `tournament.leave`, `tournament.end`,
+    /// `tournament.stopWatching`.
+    static func identifier(_ item: Item) -> String {
+        switch item {
+        case .end: return "tournament.end"
+        case .leave: return "tournament.leave"
+        case .stopWatching: return "tournament.stopWatching"
+        }
+    }
+
+    /// The fallback "…" menu (a header row with no room for two icons): `tournament.more`, its
+    /// rows `tournament.menu.<item>`.
+    static let fallbackIdentifier = "tournament.more"
+    static func menuIdentifier(_ item: Item) -> String { "tournament.menu.\(item)" }
+
+    /// The confirmation alert's buttons' identifiers (UIAlertAction's accessibilityIdentifier).
+    static let confirmIdentifier = "tournament.confirm"
+    static let keepIdentifier = "tournament.keep"
+
     static func title(_ item: Item) -> String {
         switch item {
-        case .cancel: return "Cancel Tournament"
+        case .end: return "End Tournament"
         case .leave: return "Leave Tournament"
         case .stopWatching: return "Stop Watching"
         }
     }
 
+    /// The fallback menu's row: the title with a trailing ellipsis (it opens a confirmation).
+    static func menuTitle(_ item: Item) -> String { title(item) + "…" }
+
+    /// A button's visible words (the full `title` is its VoiceOver label): "Leave" / "End
+    /// Tournament" / "Stop Watching". In the default one-row header it is the icon alone, the words
+    /// in the accessibility sizes' controls row, the bar, and the Large Content Viewer.
+    static func buttonTitle(_ item: Item) -> String {
+        switch item {
+        case .end: return "End Tournament"
+        case .leave: return "Leave"
+        case .stopWatching: return "Stop Watching"
+        }
+    }
+
+    /// End Tournament is a stop, never an xmark (it reads as close / dismiss).
     static func icon(_ item: Item) -> String {
         switch item {
-        case .cancel: return "xmark.circle"
+        case .end: return "stop.circle"
         case .leave: return "rectangle.portrait.and.arrow.right"
         case .stopWatching: return "eye.slash"
         }
     }
 
-    /// What happens, in plain words, as the server does it (review of PR #430): the header of the
-    /// item's confirm submenu.
+    /// A button's VoiceOver hint.
+    static func hint(_ item: Item) -> String {
+        switch item {
+        case .end: return "Asks before ending the tournament for everyone"
+        case .leave: return "Asks before you leave the tournament"
+        case .stopWatching: return "Asks before you stop watching the tournament"
+        }
+    }
+
+    /// The fallback menu's VoiceOver label and hint.
+    static let fallbackLabel = "More"
+    static let fallbackHint = "Leave or end the tournament"
+
+    /// The accessibility sizes' controls row tries the host's two buttons' words at the reader's
+    /// size, then capped at these sizes in turn (the largest that fits the row), before the icons
+    /// alone: "End Tournament" and "Leave" at AX1 to AX5 do not fit a phone's row beside the mic.
+    static let wordCaps: [DynamicTypeSize] = [.accessibility1, .xxxLarge, .xLarge]
+
+    /// End Tournament ends the tournament for everyone: it alone is drawn in the danger colour.
+    static func isDestructiveForEveryone(_ item: Item) -> Bool { item == .end }
+
+    /// End Tournament waits for the session and the re-entry (the lobby's
+    /// canSendTournamentActions); Leave and Stop Watching never wait.
+    static func isEnabled(_ item: Item, canSend: Bool) -> Bool { item != .end || canSend }
+
+    /// The alert's title, the question.
+    static func confirmTitle(_ item: Item) -> String {
+        switch item {
+        case .end: return "End tournament?"
+        case .leave: return "Leave tournament?"
+        case .stopWatching: return "Stop watching?"
+        }
+    }
+
+    /// What happens, in plain words, as the server does it (review of PR #430): the alert's message.
     /// - the lobby phase: a member may join again while it waits to start; the host's role passes
     ///   to another member; with nobody else in it the tournament is deleted
     ///   (`GameManager.leaveTournament`: deleteTournamentIfAbandoned before transferCreator). In the
@@ -144,10 +252,12 @@ enum TournamentLobbyMenu {
     ///   while its abandon window holds it; the app cannot tell, and that window is short and rare;
     /// - the cut: leaving takes me out of it (cutForABuck.memberLeft).
     /// `othersConnected`: connected members besides me; `othersPresent`: every member besides me.
+    /// One verb for the tournament going away, "ends", in End's and Leave's words alike ("closes"
+    /// could read as closed to new players).
     static func confirmMessage(_ item: Item, phase: String, isCreator: Bool, othersConnected: Int,
                                othersPresent: Int) -> String {
         switch item {
-        case .cancel:
+        case .end:
             return phase == "lobby"
                 ? "The tournament ends for everyone before it starts."
                 : "The tournament ends for everyone, and any games still in play stop now."
@@ -155,12 +265,12 @@ enum TournamentLobbyMenu {
             switch phase {
             case "lobby":
                 // alone in the lobby (the host, in practice: a lone member is handed the role)
-                if othersPresent == 0 { return Copy.closesAlone }
+                if othersPresent == 0 { return Copy.endsAlone }
                 return isCreator ? "\(Copy.rejoinWhileWaiting) \(Copy.newHost)" : Copy.rejoinWhileWaiting
             case CutForABuck.phase:
                 return isCreator && othersConnected > 0 ? "\(Copy.outOfTheCut) \(Copy.newHost)" : Copy.outOfTheCut
             default:
-                if phase == "between_rounds" && othersConnected == 0 { return Copy.closesNobodyConnected }
+                if phase == "between_rounds" && othersConnected == 0 { return Copy.endsNobodyConnected }
                 return isCreator && othersConnected > 0 ? "\(Copy.noWayBack) \(Copy.newHost)" : Copy.noWayBack
             }
         case .stopWatching:
@@ -170,21 +280,91 @@ enum TournamentLobbyMenu {
 
     enum Copy {
         static let rejoinWhileWaiting = "You can join again while it's waiting to start."
-        static let closesAlone = "The tournament closes, since nobody else has joined."
-        static let closesNobodyConnected = "The tournament closes, since nobody else is connected."
+        static let endsAlone = "The tournament ends, since nobody else has joined."
+        static let endsNobodyConnected = "The tournament ends, since nobody else is connected."
         static let noWayBack = "You can't come back to this tournament, and you won't be among the winners."
         /// Lowercase mid-sentence (the owner's rule, CutCopy).
         static let outOfTheCut = "You'll be out of cut for a buck."
         static let newHost = "Another player becomes the host."
     }
 
-    /// The confirming button (destructive role), the item's submenu's one button; closing the menu
-    /// is the keep choice, so there is no second button.
+    /// The alert's destructive button.
     static func confirmButton(_ item: Item) -> String { title(item) }
 
-    /// A confirm for a choice the menu no longer offers (the role or the phase changed under the
-    /// open menu: a host hand-off, the cut, the results) is dropped.
+    /// The alert's keep (cancel-role) button: never a bare "Cancel" (it would read as Cancel the
+    /// tournament beside End Tournament), and VoiceOver hears the keep choice as a button.
+    static func keepButton(_ item: Item) -> String {
+        switch item {
+        case .end: return "Keep Tournament"
+        case .leave: return "Stay"
+        case .stopWatching: return "Keep Watching"
+        }
+    }
+
+    /// A confirm for a choice no longer offered (the role or the phase changed under the open
+    /// alert: a host hand-off, the cut, the results) is dropped.
     static func stillOffers(_ item: Item, phase: String, isCreator: Bool, isSpectator: Bool) -> Bool {
         items(phase: phase, isCreator: isCreator, isSpectator: isSpectator).contains(item)
+    }
+
+    /// End's confirm waits for the session and the re-entry (`canSend`, the lobby's
+    /// canSendTournamentActions), as its button does: an open End alert's destructive button is
+    /// disabled in place while they drop (review of PR #437: it closed the alert and sent nothing).
+    /// Leave and Stop Watching never wait.
+    static func confirmEnabled(_ item: Item, canSend: Bool) -> Bool { isEnabled(item, canSend: canSend) }
+
+    /// What the lobby knows that the open alert depends on.
+    struct Context: Equatable {
+        var hasTournament: Bool
+        var phase: String
+        var isCreator: Bool
+        var isSpectator: Bool
+        var othersConnected: Int
+        var othersPresent: Int
+        /// The lobby's canSendTournamentActions (`confirmEnabled`).
+        var canSend: Bool = true
+
+        /// The lobby's context from its state, read as the lobby reads it (its isCreator,
+        /// othersConnected, othersPresent): `me` my username, `canSend` canSendTournamentActions.
+        /// No tournament is an empty id (TournamentState.reset; review of PR #437: the view tested
+        /// the non-optional id against nil, so "the tournament gone" never discarded the alert).
+        init(tournament t: TournamentState, me: String, canSend: Bool) {
+            hasTournament = !t.tournamentId.isEmpty
+            phase = t.phase
+            isCreator = me == t.creatorUsername
+            isSpectator = t.isSpectator
+            othersConnected = t.players.filter { $0.connected && $0.username != me }.count
+            othersPresent = t.players.filter { $0.username != me }.count
+            self.canSend = canSend
+        }
+
+        init(hasTournament: Bool, phase: String, isCreator: Bool, isSpectator: Bool, othersConnected: Int,
+             othersPresent: Int, canSend: Bool = true) {
+            self.hasTournament = hasTournament
+            self.phase = phase
+            self.isCreator = isCreator
+            self.isSpectator = isSpectator
+            self.othersConnected = othersConnected
+            self.othersPresent = othersPresent
+            self.canSend = canSend
+        }
+    }
+
+    /// What an open alert does when the lobby changes under it.
+    enum Change: Equatable {
+        /// Nothing it shows changed.
+        case none
+        /// Only the consequence changed: the open alert's message becomes this, in place.
+        case message(String)
+        /// Its choice is no longer offered (or the tournament is gone): it goes, with no answer.
+        case discard
+    }
+
+    static func change(open item: Item, showing message: String?, in c: Context) -> Change {
+        guard c.hasTournament, stillOffers(item, phase: c.phase, isCreator: c.isCreator, isSpectator: c.isSpectator)
+        else { return .discard }
+        let now = confirmMessage(item, phase: c.phase, isCreator: c.isCreator, othersConnected: c.othersConnected,
+                                 othersPresent: c.othersPresent)
+        return now == message ? .none : .message(now)
     }
 }

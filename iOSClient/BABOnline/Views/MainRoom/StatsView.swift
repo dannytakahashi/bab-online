@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// The main room's Stats sheet: the web's Leaderboard and Records pages as two tabs of one
-/// sheet (a segmented control under the title), over a second segmented control for the games
+/// The main room's Stats sheet, opened by the trophy ("Leaderboard"): the web's Leaderboard and
+/// Records pages as two tabs of one sheet (a segmented control under the title, and the title is
+/// the tab's name, so the trophy's "Leaderboard" is the first word read after the tap), over a second segmented control for the games
 /// counted (Humans / Bots / All, `StatsScope`: one choice for both tabs, saved on disk). Each
 /// tab asks the server when it appears and when the scope changes, keeps its last good data on
 /// screen while a refresh runs or after one fails, and refreshes on a pull. The close button is
@@ -53,7 +54,8 @@ struct StatsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .background(Theme.background.ignoresSafeArea())
-            .navigationTitle("Stats")
+            // the tab on screen (review of PR #438: "Stats" was the name the header no longer uses)
+            .navigationTitle(leaderboardState.tab.title)
             .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }

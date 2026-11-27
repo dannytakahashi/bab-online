@@ -52,6 +52,9 @@ describe('the tournament host leaves', () => {
     beginBtn.click();
     expect(page.socket.emitted('beginTournament')).toHaveLength(1);
     document.getElementById('tournamentCancelBtn').click();
+    // End Tournament asks first (owner 2026-11-26)
+    expect(page.socket.emitted('cancelTournament')).toHaveLength(0);
+    document.getElementById('tournamentConfirmOk').click();
     expect(page.socket.emitted('cancelTournament')).toHaveLength(1);
   });
 

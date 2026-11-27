@@ -17,7 +17,7 @@ private struct MainRoomScreen: View {
     @EnvironmentObject var tournamentState: TournamentState
     /// `isAdmin` shows the Admin button (display only: the server checks every request).
     @EnvironmentObject var authState: AuthState
-    /// New Game / Tournament wait for the session: after a reconnect, a tap before the
+    /// New Game (a lobby or a tournament) waits for the session: after a reconnect, a tap before the
     /// restore's answer made a lobby that the restore's joinMainRoom then left at once.
     @ObservedObject private var socketService = SocketService.shared
     @Environment(\.scenePhase) private var scenePhase
@@ -110,8 +110,9 @@ private struct MainRoomScreen: View {
 
     private var lobbyBrowserPanel: some View {
         VStack(spacing: 0) {
-            // Header: words when the whole row fits on one line; else New Game keeps
-            // its word and the rest are icons (phones, the open Duo's 55% panel: owner
+            // Header: New Game (the spade menu) and the trophy (the leaderboard and records):
+            // words when the whole row fits on one line; else New Game keeps
+            // its word and the trophy is an icon (phones, the open Duo's 55% panel: owner
             // 2026-11-16, a new player needs to see "New Game"); icons only as the last
             // resort (large Dynamic Type on a narrow screen). Measured, not size-class
             // based, so no label ever wraps mid-word. Icon-only labels keep their title
@@ -132,54 +133,44 @@ private struct MainRoomScreen: View {
         }
     }
 
-    /// New Game's choice of game (owner 2026-11-26: a native menu on the control, replacing the
-    /// confirmation dialog): each game's name with its one-line rules as the item's subtitle (a
-    /// Button whose label is two Texts: title + subtitle, iOS 17+). "Back Alley Bridge" sends
-    /// createLobby {} as before, "Get Your Bid" createLobby {mode: 'gyb'}.
+    /// New Game's choices (owner 2026-11-26: a native menu on the control, replacing the
+    /// confirmation dialog; then "we could fold tournament into the spade menu"): each one's name
+    /// with its one line as the item's subtitle (a Button whose label is two Texts: title +
+    /// subtitle, iOS 17+; `NewGameChoice`). "Back Alley Bridge" sends createLobby {} as before,
+    /// "Get Your Bid" createLobby {mode: 'gyb'}, "Tournament" createTournament (what the trophy
+    /// sent until then).
     @ViewBuilder
     private var newGameChoices: some View {
-        Button { createLobby(.classic) } label: {
-            Text(GybRules.classicName)
-            Text(GybRules.classicBlurb)
+        ForEach(NewGameChoice.allCases) { choice in
+            Button { start(choice) } label: {
+                Text(choice.title)
+                Text(choice.blurb)
+            }
+            .accessibilityIdentifier(choice.identifier)
         }
-        .accessibilityIdentifier("newGame.classic")
-        Button { createLobby(.gyb) } label: {
-            Text(GybRules.name)
-            Text(GybRules.blurb)
-        }
-        .accessibilityIdentifier("newGame.gyb")
     }
 
     /// The choice was made: only while the main room may still send (the session gate).
-    private func createLobby(_ mode: GameMode) {
+    private func start(_ choice: NewGameChoice) {
         guard socketService.canSendMainRoomActions else { return }
-        LobbyEmitter.createLobby(mode: mode)
-    }
-
-    private func createTournament() {
-        TournamentRejoin.startFromMainRoom(tournamentState)
-        TournamentEmitter.createTournament()
+        if let mode = choice.lobbyMode {
+            LobbyEmitter.createLobby(mode: mode)
+        } else {
+            TournamentRejoin.startFromMainRoom(tournamentState)
+            TournamentEmitter.createTournament()
+        }
     }
 
     /// How much of the header's action row shows words.
     enum HeaderWords { case words, newGameWord, icons }
 
     private func lobbyHeader(_ words: HeaderWords) -> some View {
-        let othersIconsOnly = words != .words
-        return HStack(spacing: othersIconsOnly ? 4 : 8) {
-            Menu {
-                newGameChoices
-            } label: {
-                headerLabel("New Game", icon: "suit.spade.fill", color: Theme.primary, iconsOnly: words == .icons)
+        return HStack(spacing: words != .words ? 4 : 8) {
+            // New Game and the trophy (MainRoomControls.items: the leaderboard and records, owner
+            // 2026-11-26; the Stats icon is gone)
+            ForEach(MainRoomControls.items, id: \.self) { item in
+                headerControl(item, iconsOnly: words == .icons || (words == .newGameWord && item != .newGame))
             }
-            .menuIndicator(.hidden)
-            .accessibilityHint("Choose which game to start")
-            .disabled(!socketService.canSendMainRoomActions)
-            headerButton("Tournament", icon: "trophy.fill", color: Theme.warning,
-                         iconsOnly: othersIconsOnly) { createTournament() }
-                .disabled(!socketService.canSendMainRoomActions)
-            headerButton("Stats", icon: "chart.bar.fill", color: Theme.textSecondary,
-                         iconsOnly: othersIconsOnly) { showLeaderboard = true }
 
             Spacer(minLength: 8)
 
@@ -215,6 +206,30 @@ private struct MainRoomScreen: View {
         }
     }
 
+    /// One of the header's actions (MainRoomControls): its look, words, hint, identifier and
+    /// whether it waits for the session all come from there.
+    @ViewBuilder
+    private func headerControl(_ item: MainRoomControls.Item, iconsOnly: Bool) -> some View {
+        let label = headerLabel(MainRoomControls.title(item), icon: MainRoomControls.icon(item),
+                                color: color(item), iconsOnly: iconsOnly)
+        switch item {
+        case .newGame:
+            Menu { newGameChoices } label: { label }
+                .menuIndicator(.hidden)
+                .controlTraits(item)
+        case .leaderboard:
+            Button { showLeaderboard = true } label: { label }
+                .controlTraits(item)
+        }
+    }
+
+    private func color(_ item: MainRoomControls.Item) -> Color {
+        switch MainRoomControls.tint(item) {
+        case .primary: return Theme.primary
+        case .plain: return Theme.textPrimary
+        }
+    }
+
     // MARK: - Vertical bar (iOS 27.1)
 
     /// The header's controls as toolbar items: the actions on top, the online
@@ -222,17 +237,9 @@ private struct MainRoomScreen: View {
     @ToolbarContentBuilder
     private var barControls: some ToolbarContent {
         ToolbarItemGroup(placement: .barLeading) {
-            Menu {
-                newGameChoices
-            } label: {
-                Label("New Game", systemImage: "suit.spade.fill")
+            ForEach(MainRoomControls.items, id: \.self) { item in
+                barControl(item)
             }
-            .tint(Theme.primary)
-            .accessibilityHint("Choose which game to start")
-            .disabled(!socketService.canSendMainRoomActions)
-            barButton("Tournament", icon: "trophy.fill", color: Theme.warning) { createTournament() }
-                .disabled(!socketService.canSendMainRoomActions)
-            barButton("Stats", icon: "chart.bar.fill", color: Theme.textSecondary) { showLeaderboard = true }
         }
         ToolbarItemGroup(placement: .barTrailing) {
             // The vertical bar lays out symbols only (a text or custom label lands outside
@@ -252,17 +259,19 @@ private struct MainRoomScreen: View {
         }
     }
 
-    private func barButton(_ title: String, icon: String, color: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: icon)
-        }
-        .tint(color)
-    }
-
-    private func headerButton(_ title: String, icon: String, color: Color, iconsOnly: Bool,
-                              action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            headerLabel(title, icon: icon, color: color, iconsOnly: iconsOnly)
+    /// One of the bar's actions (the vertical bar lays out symbols only).
+    @ViewBuilder
+    private func barControl(_ item: MainRoomControls.Item) -> some View {
+        let label = Label(MainRoomControls.title(item), systemImage: MainRoomControls.icon(item))
+        switch item {
+        case .newGame:
+            Menu { newGameChoices } label: { label }
+                .tint(color(item))
+                .controlTraits(item)
+        case .leaderboard:
+            Button { showLeaderboard = true } label: { label }
+                .tint(color(item))
+                .controlTraits(item)
         }
     }
 
@@ -293,6 +302,12 @@ private struct HeaderLabelStyle: LabelStyle {
 }
 
 private extension View {
+    /// A main room control's hint, identifier and session gate (MainRoomControls): New Game sends,
+    /// so it waits for the session; the trophy opens a sheet and never waits.
+    func controlTraits(_ item: MainRoomControls.Item) -> some View {
+        modifier(MainRoomControlTraits(item: item))
+    }
+
     /// The Stats sheet as a page sheet on the iPad (iOS 18+): wide enough for the
     /// leaderboard's eight-column table; a phone's sheet is unchanged.
     @ViewBuilder
@@ -301,6 +316,23 @@ private extension View {
             presentationSizing(.page)
         } else {
             self
+        }
+    }
+}
+
+private struct MainRoomControlTraits: ViewModifier {
+    let item: MainRoomControls.Item
+    @ObservedObject private var socketService = SocketService.shared
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        let gated = content
+            .accessibilityHint(MainRoomControls.hint(item))
+            .disabled(MainRoomControls.waitsForSession(item) && !socketService.canSendMainRoomActions)
+        if let id = MainRoomControls.identifier(item) {
+            gated.accessibilityIdentifier(id)
+        } else {
+            gated
         }
     }
 }

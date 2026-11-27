@@ -42,7 +42,7 @@ afterEach(() => {
 });
 
 describe('creating a game', () => {
-  it('+ Create Game asks which game: the base game sends createLobby {}, Get Your Bid {mode: gyb}', () => {
+  it('New Game asks which game: the base game sends createLobby {}, Get Your Bid {mode: gyb}', () => {
     const socket = fakeSocket();
     showMainRoom({ lobbies: [], inProgressGames: [], tournaments: [], messages: [], onlineUsers: [] }, socket, 'ann');
     document.getElementById('createGameBtn').click();

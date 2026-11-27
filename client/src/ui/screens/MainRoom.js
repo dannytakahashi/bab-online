@@ -93,11 +93,18 @@ export function lobbyActionButton(lobby, socket, username = currentUsername) {
 /** The create dialog on screen (closed with the main room). */
 let createDialog = null;
 
+/** The New Game dialog's Tournament choice (iOS's spade menu says the same). */
+export const TOURNAMENT_NAME = 'Tournament';
+export const TOURNAMENT_BLURB = 'Several rounds, a new partner each round. The top score wins.';
+
 /**
- * "+ Create Game": choose the game (owner 2026-11-24: Get Your Bid "should
- * be an option when creating a new lobby"). One click on a choice creates
- * the lobby: the base game (createLobby {}, as the button always sent) or
- * Get Your Bid (createLobby {mode: 'gyb'}). Escape, the backdrop or Cancel
+ * "New Game" (owner 2026-11-26, as iOS's spade menu): one dialog with every
+ * way to start, each its name and a one-line blurb (owner 2026-11-24: Get
+ * Your Bid "should be an option when creating a new lobby"). One click on a
+ * choice creates it: the base game (createLobby {}, as the button always
+ * sent), Get Your Bid (createLobby {mode: 'gyb'}) or a tournament
+ * (createTournament, what the old "+ Create Tournament" button sent; the
+ * server answers with tournamentJoined). Escape, the backdrop or Cancel
  * creates nothing.
  * @param {Object} socket
  * @returns {Object} the modal
@@ -105,7 +112,7 @@ let createDialog = null;
 export function showCreateGameDialog(socket) {
   createDialog?.close('api');
   let modal = null;
-  const choice = (id, title, blurb, payload) => {
+  const choice = (id, title, blurb, send) => {
     const btn = el('button', {
       className: 'mode-pick__option',
       attrs: { type: 'button', id },
@@ -113,17 +120,18 @@ export function showCreateGameDialog(socket) {
     });
     btn.addEventListener('click', () => {
       modal.close('action');
-      socket.emit('createLobby', payload);
+      send();
     });
     return btn;
   };
-  const classic = choice('createGameClassic', 'Back Alley Bridge', '4 players, two teams. The classic game.', {});
-  const gyb = choice('createGameGyb', GYB_NAME, GYB_BLURB, { mode: GYB_MODE });
+  const classic = choice('createGameClassic', 'Back Alley Bridge', '4 players, two teams. The classic game.', () => socket.emit('createLobby', {}));
+  const gyb = choice('createGameGyb', GYB_NAME, GYB_BLURB, () => socket.emit('createLobby', { mode: GYB_MODE }));
+  const tournament = choice('createGameTournament', TOURNAMENT_NAME, TOURNAMENT_BLURB, () => socket.emit('createTournament'));
   const cancel = createButton({ label: 'Cancel', variant: 'secondary' });
   modal = openModal({
     id: 'createGameDialog',
-    title: 'Create Game',
-    body: [el('div', { className: 'mode-pick', attrs: { role: 'group', 'aria-label': 'Game mode' }, children: [classic, gyb] })],
+    title: 'New Game',
+    body: [el('div', { className: 'mode-pick', attrs: { role: 'group', 'aria-label': 'Game mode' }, children: [classic, gyb, tournament] })],
     actions: [cancel],
     initialFocus: classic,
     className: 'mode-pick-modal',
@@ -351,9 +359,9 @@ export function showMainRoom(data, socket, username = null) {
   lobbyPanel.appendChild(el('div', {
     className: 'room-create',
     children: [
-      // (the game is chosen in a dialog: Back Alley Bridge or Get Your Bid)
-      createButton({ label: '+ Create Game', variant: 'primary', className: 'is-block', attrs: { id: 'createGameBtn' }, onClick: () => showCreateGameDialog(socket) }),
-      createButton({ label: '+ Create Tournament', variant: 'secondary', className: 'is-block', onClick: () => socket.emit('createTournament') }),
+      // (what to start is chosen in a dialog: Back Alley Bridge, Get Your
+      // Bid or a tournament; the web keeps a labelled text button)
+      createButton({ label: 'New Game', variant: 'primary', className: 'is-block', attrs: { id: 'createGameBtn' }, onClick: () => showCreateGameDialog(socket) }),
     ],
   }));
 

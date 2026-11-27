@@ -1,11 +1,11 @@
 import SwiftUI
 
 /// The tournament lobby (owner 2026-11-26 layout): the header (title, round line, the host's
-/// Rounds picker in the lobby phase, the mic and a "…" menu with Leave / Cancel Tournament), the
-/// players and standings, the chat, then ONE action slot at the bottom (TournamentLobbySlot:
-/// Ready / Unready, or the host's Begin). Where the system shows the vertical bar (the iPhone
-/// Duo), the "…" menu (or the complete phase's Main Room) is the leading toolbar item in that
-/// column (VerticalBarHost).
+/// Rounds picker in the lobby phase, the mic and Leave (the host's Leave and End Tournament, an icon
+/// each), the players and standings, the chat, then ONE action slot at the bottom
+/// (TournamentLobbySlot: Ready / Unready, or the host's Begin). Where the system shows the vertical
+/// bar (the iPhone Duo), Leave / End Tournament (or the complete phase's Main Room) are the leading
+/// toolbar items in that column (VerticalBarHost).
 struct TournamentLobbyView: View {
     var body: some View {
         VerticalBarHost { TournamentLobbyScreen(bar: $0) }
@@ -30,6 +30,12 @@ private struct TournamentLobbyScreen: View {
     /// The compact cut's chat drawer, and how many lines it had when last closed.
     @State private var showsCutChat = false
     @State private var cutChatSeen = 0
+    #if os(iOS)
+    /// Leave / End Tournament / Stop Watching's confirmation (a UIKit alert: LeaveAlertPresenter
+    /// says why), and the choice it confirms while it is up.
+    @State private var confirmAlert = LeaveAlertPresenter()
+    #endif
+    @State private var confirming: TournamentLobbyMenu.Item?
 
     /// Cut for a buck is on and this app has its state (phase 'cut', the cap sent).
     private var showsCut: Bool { tournamentState.isCutPhase && tournamentState.cut != nil }
@@ -52,7 +58,7 @@ private struct TournamentLobbyScreen: View {
         TournamentVoice.lobbyWord(voiceManager, me: authState.username)
     }
 
-    /// Ready, Begin and Cancel wait for the session and for the restore's joinTournament
+    /// Ready, Begin and End Tournament wait for the session and for the restore's joinTournament
     /// (`TournamentState.rejoiningTournamentId`: this socket is not a member until it is
     /// answered). Leave never waits (during the re-entry it is `TournamentRejoin.abandon`).
     private var canSendTournamentActions: Bool {
@@ -116,13 +122,18 @@ private struct TournamentLobbyScreen: View {
         .verticalBarChrome(bar, showsBarControls: bar.usesVerticalBar)
         .toolbar {
             if bar.usesVerticalBar {
-                ToolbarItem(placement: .barLeading) {
+                ToolbarItemGroup(placement: .barLeading) {
                     if showsFinal {
                         Button(action: returnToMainRoom) {
                             Label("Main Room", systemImage: "chevron.left")
                         }
-                    } else if !menuItems.isEmpty {
-                        moreMenu
+                    } else {
+                        // the host's Leave and End Tournament, one item each, Leave on top (the
+                        // owner: "I think the sidebar is correct for the duo")
+                        ForEach(TournamentLobbyMenu.displayOrder(menuEntry, inBar: true), id: \.self) { item in
+                            entryButton(item)
+                                .tint(TournamentLobbyMenu.isDestructiveForEveryone(item) ? Theme.error : nil)
+                        }
                     }
                 }
             }
@@ -136,7 +147,11 @@ private struct TournamentLobbyScreen: View {
         .onChange(of: voiceCompany, initial: true) { _, word in
             VoiceChatManager.shared.setCompany(word.company, from: .tournament)
         }
+        // the open confirmation follows the lobby: its choice gone -> dropped, its consequence
+        // changed -> new words in place
+        .onChange(of: confirmContext) { _, context in confirmContextChanged(context) }
         .onDisappear {
+            dropConfirm()
             TournamentVoice.lobbyGone(screen: appState.screen,
                                       watching: SocketService.shared.gameState?.isSpectator ?? false,
                                       voice: .shared)
@@ -414,11 +429,11 @@ private struct TournamentLobbyScreen: View {
     // MARK: - Header
 
     /// The header: the title with the round line, the member count, while voice runs the mic
-    /// (iOS 1.2.6), and the "…" menu (Leave / Cancel Tournament; in the complete phase the back
+    /// (iOS 1.2.6), and Leave / Stop Watching or the host's Leave and End Tournament (in the complete phase the back
     /// control "Main Room" leads instead); under them the host's Rounds picker in the lobby phase.
     /// At the accessibility text sizes (AX1 to AX5) one row left the title a letter wide on a
     /// phone, so the controls take a row of their own and the title, the round line and the count
-    /// wrap under them. In the vertical bar the menu / Main Room is a toolbar item.
+    /// wrap under them. In the vertical bar Leave / End Tournament / Main Room are toolbar items.
     private var headerBar: some View { header() }
 
     /// The host's Rounds picker shows (the lobby phase only).
@@ -432,11 +447,11 @@ private struct TournamentLobbyScreen: View {
     }
 
     /// `scrollsDetails`: the compact layout at the accessibility sizes keeps only the controls row
-    /// (the mic and "…") fixed; the title, the round line, the count and the host's Rounds picker
+    /// (the mic, Leave and End Tournament) fixed; the title, the round line, the count and the host's Rounds picker
     /// scroll at the top of the players instead (`headerDetails`, compactLayout).
     private func header(scrollsDetails: Bool = false) -> some View {
         let controlsOnly = scrollsDetails
-        let hasControls = showsHeaderBack || showsMic || (!bar.usesVerticalBar && !menuItems.isEmpty)
+        let hasControls = showsHeaderBack || showsMic || (!bar.usesVerticalBar && menuEntry != .none)
         return VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: Theme.Space.s2) {
                 Group {
@@ -450,7 +465,7 @@ private struct TournamentLobbyScreen: View {
                         }
                     } else {
                         HStack {
-                            // Main Room (complete phase only), the count, the mic and the menu keep
+                            // Main Room (complete phase only), the count, the mic and Leave / End keep
                             // their size and the title gives way (one line, shrunk, then cut)
                             if showsHeaderBack {
                                 mainRoomButton.lineLimit(1).fixedSize()
@@ -460,7 +475,7 @@ private struct TournamentLobbyScreen: View {
                             Spacer(minLength: Theme.Space.s2)
                             countText.lineLimit(1).fixedSize()
                             headerMic
-                            headerMenu
+                            headerEntry(withText: false)
                         }
                     }
                 }
@@ -485,13 +500,14 @@ private struct TournamentLobbyScreen: View {
         .zIndex(1)  // the tip hangs over the player list
     }
 
-    /// The accessibility sizes' controls row: Main Room (complete phase), the mic and "…".
+    /// The accessibility sizes' controls row: Main Room (complete phase), the mic and Leave / Stop
+    /// Watching / End Tournament with their words (the one-row header has the icons alone).
     private var accessibilityControlsRow: some View {
         HStack {
             if showsHeaderBack { mainRoomButton.lineLimit(1).fixedSize() }
             Spacer()
             headerMic
-            headerMenu
+            headerEntry(withText: true)
         }
     }
 
@@ -521,68 +537,206 @@ private struct TournamentLobbyScreen: View {
         }
     }
 
-    // MARK: - The "…" menu
+    // MARK: - Leave / End Tournament / Stop Watching
 
-    private var menuItems: [TournamentLobbyMenu.Item] {
-        TournamentLobbyMenu.items(phase: tournamentState.phase, isCreator: isCreator,
+    /// One button per choice: a member's Leave, a spectator's Stop Watching, the host's Leave and
+    /// End Tournament (Leave alone during the cut).
+    private var menuEntry: TournamentLobbyMenu.Entry {
+        TournamentLobbyMenu.entry(phase: tournamentState.phase, isCreator: isCreator,
                                   isSpectator: tournamentState.isSpectator)
     }
 
-    /// In the content header (the vertical bar has it as a toolbar item).
+    /// In the content header (the vertical bar has them as toolbar items). `withText`: the
+    /// accessibility sizes' controls row shows the words beside the icons; the one-row header the
+    /// icons alone (the words would crowd the title). The host's two buttons go down a ViewThatFits:
+    /// in the controls row the words at the reader's size, then the words at smaller sizes
+    /// (`TournamentLobbyMenu.wordCaps`: the largest that fits, as the member's one word shrinks to
+    /// fit; review of PR #438: at every AX size the words went straight to two bare icons), then
+    /// the icons, then, only where a row cannot fit two icons, the "…" menu of both (no device
+    /// reaches it in the UI tests: the title gives way first). The entry lays out before the title
+    /// (`layoutPriority`), so it is offered all the room the title can give up, and the menu is
+    /// never picked while the title could still shrink. A gap from the mic keeps the pair a group
+    /// of its own (a stop beside a mic could read as a media control).
     @ViewBuilder
-    private var headerMenu: some View {
-        if !bar.usesVerticalBar && !menuItems.isEmpty {
-            moreMenu
+    private func headerEntry(withText: Bool) -> some View {
+        if !bar.usesVerticalBar {
+            switch menuEntry {
+            case .none:
+                EmptyView()
+            case .button(let item):
+                if withText {
+                    // one line, as Main Room beside it (review of PR #437: at AX5 "Stop Watching"
+                    // wrapped to two and doubled the row); the Large Content Viewer and VoiceOver
+                    // keep the whole words
+                    headerButton(item, withText: true).minimumScaleFactor(0.5)
+                } else {
+                    headerButton(item, withText: false)
+                }
+            case .buttons(let items):
+                ViewThatFits(in: .horizontal) {
+                    if withText {
+                        headerButtons(withText: true)
+                        headerButtons(withText: true).dynamicTypeSize(...TournamentLobbyMenu.wordCaps[0])
+                        headerButtons(withText: true).dynamicTypeSize(...TournamentLobbyMenu.wordCaps[1])
+                        headerButtons(withText: true).dynamicTypeSize(...TournamentLobbyMenu.wordCaps[2])
+                    }
+                    headerButtons(withText: false)
+                    fallbackMenu(items)
+                }
+                .layoutPriority(1)
+                .padding(.leading, showsMic ? Theme.Space.s2 : 0)
+            }
+        }
+    }
+
+    /// The host's two buttons in a header row, End Tournament then Leave (Leave in the trailing
+    /// corner, as a member's). Icons alone at the accessibility sizes get a gap: their glyphs fill
+    /// the hit target there and would touch.
+    private func headerButtons(withText: Bool) -> some View {
+        HStack(spacing: withText || typeSize.isAccessibilitySize ? Theme.Space.s3 : 0) {
+            ForEach(TournamentLobbyMenu.displayOrder(menuEntry, inBar: false), id: \.self) { item in
+                headerButton(item, withText: withText)
+            }
+        }
+    }
+
+    /// One header button: the icon alone, or with its words (one line) in the controls row. End
+    /// Tournament in the danger colour (it ends the tournament for everyone; review of PR #438: in
+    /// grey beside the mic a stop glyph read as a media control). A long press at the
+    /// accessibility sizes shows the words in the Large Content Viewer.
+    private func headerButton(_ item: TournamentLobbyMenu.Item, withText: Bool) -> some View {
+        entryButton(item)
+            .labelStyle(EntryLabelStyle(withText: withText))
+            .lineLimit(1)
+            .font(.title3)
+            .foregroundColor(Self.color(item))
+            .opacity(TournamentLobbyMenu.isEnabled(item, canSend: canSendTournamentActions) ? 1 : 0.4)
+            .frame(minWidth: Theme.hitTarget, minHeight: Theme.hitTarget)
+            .contentShape(Rectangle())
+            .accessibilityShowsLargeContentViewer()
+    }
+
+    /// A button's colour: End Tournament the danger text colour, the others the header's grey.
+    private static func color(_ item: TournamentLobbyMenu.Item) -> Color {
+        TournamentLobbyMenu.isDestructiveForEveryone(item) ? Theme.error : Theme.textSecondary
+    }
+
+    /// Leave / End Tournament / Stop Watching, one action per button (owner 2026-11-26: "it
+    /// shouldn't be a menu within a menu within a menu", then "tournament host should get two
+    /// separate icons"): each opens a centred alert with the consequence, a destructive button and
+    /// a keep button (`ask`). Never an anchored confirmationDialog: it showed as a popover pointing
+    /// at the chat (owner 2026-11-26, "the same fix you did for game selection"). End Tournament
+    /// waits for the session and the re-entry like the slot; Leave never waits (during the
+    /// re-entry it is TournamentRejoin.abandon).
+    private func entryButton(_ item: TournamentLobbyMenu.Item) -> some View {
+        Button {
+            ask(item)
+        } label: {
+            // a Label, so the Large Content Viewer and the bar have the words
+            Label(TournamentLobbyMenu.buttonTitle(item), systemImage: TournamentLobbyMenu.icon(item))
+        }
+        .disabled(!TournamentLobbyMenu.isEnabled(item, canSend: canSendTournamentActions))
+        .accessibilityLabel(TournamentLobbyMenu.title(item))
+        .accessibilityHint(TournamentLobbyMenu.hint(item))
+        .accessibilityIdentifier(TournamentLobbyMenu.identifier(item))
+    }
+
+    /// The fallback where a header row cannot fit the host's two icons: ONE level, a "…" menu of
+    /// plain destructive rows, words alone (with the icon "End Tournament…" could break over two
+    /// lines, as "Cancel Tournament…" did in #437), rebuilt (`.id`) when its choices change.
+    private func fallbackMenu(_ items: [TournamentLobbyMenu.Item]) -> some View {
+        Menu {
+            ForEach(items, id: \.self) { item in
+                Button(role: .destructive) {
+                    ask(item)
+                } label: {
+                    Text(TournamentLobbyMenu.menuTitle(item))
+                }
+                .disabled(!TournamentLobbyMenu.isEnabled(item, canSend: canSendTournamentActions))
+                .accessibilityIdentifier(TournamentLobbyMenu.menuIdentifier(item))
+            }
+        } label: {
+            Label(TournamentLobbyMenu.fallbackLabel, systemImage: "ellipsis.circle")
                 .labelStyle(.iconOnly)
                 .font(.title3)
                 .foregroundColor(Theme.textSecondary)
                 .frame(minWidth: Theme.hitTarget, minHeight: Theme.hitTarget)
                 .contentShape(Rectangle())
+                .accessibilityShowsLargeContentViewer()
+        }
+        .id(items)
+        .accessibilityLabel(TournamentLobbyMenu.fallbackLabel)
+        .accessibilityHint(TournamentLobbyMenu.fallbackHint)
+        .accessibilityIdentifier(TournamentLobbyMenu.fallbackIdentifier)
+    }
+
+    /// What the open confirmation depends on.
+    private var confirmContext: TournamentLobbyMenu.Context {
+        TournamentLobbyMenu.Context(tournament: tournamentState, me: authState.username, canSend: canSendTournamentActions)
+    }
+
+    private func confirmMessage(_ item: TournamentLobbyMenu.Item) -> String {
+        TournamentLobbyMenu.confirmMessage(item, phase: tournamentState.phase, isCreator: isCreator,
+                                           othersConnected: othersConnected, othersPresent: othersPresent)
+    }
+
+    /// Opens the alert for `item` on the next main-actor turn, so the menu's own dismissal is not
+    /// in flight when UIKit presents it (the presenter also skips a controller being dismissed).
+    private func ask(_ item: TournamentLobbyMenu.Item) {
+        DispatchQueue.main.async {
+            #if os(iOS)
+            // an alert that went some other way than its buttons or a discard (a refused present,
+            // a dismissal from outside) never locks the entry point (review of PR #437)
+            if !confirmAlert.isPresented { dropConfirm() }
+            #endif
+            guard confirming == nil,
+                  TournamentLobbyMenu.stillOffers(item, phase: tournamentState.phase, isCreator: isCreator,
+                                                  isSpectator: tournamentState.isSpectator) else { return }
+            #if os(iOS)
+            let words = LeaveAlertPresenter.Words(
+                title: TournamentLobbyMenu.confirmTitle(item), message: confirmMessage(item),
+                confirm: TournamentLobbyMenu.confirmButton(item), keep: TournamentLobbyMenu.keepButton(item),
+                confirmIdentifier: TournamentLobbyMenu.confirmIdentifier, keepIdentifier: TournamentLobbyMenu.keepIdentifier)
+            let shown = confirmAlert.present(words) { answer in
+                confirming = nil
+                if answer == .confirm { perform(item) }
+            }
+            if shown {
+                confirming = item
+                // End's confirm waits for the session and the re-entry, as its button does
+                confirmAlert.setConfirmEnabled(TournamentLobbyMenu.confirmEnabled(item, canSend: canSendTournamentActions))
+            }
+            #if DEBUG
+            if shown { UIFixture.tournamentConfirmPresented() }
+            #endif
+            #else
+            // the macOS app brings its own confirmation with its platform (no macOS target yet)
+            perform(item)
+            #endif
         }
     }
 
-    /// Leave / Cancel Tournament / Stop Watching, each confirmed IN the menu (owner 2026-11-26, "the
-    /// same fix you did for game selection": a confirmationDialog showed as a popover pointing at
-    /// the chat): the item opens a submenu headed by what happens, in plain words, whose one button
-    /// confirms; closing the menu keeps things as they are. Nothing floats over the screen, in the
-    /// header or as the vertical bar's item. The menu is rebuilt (`.id`) when its choices change
-    /// (a host hand-off, the cut, the results), so a confirm for a choice it no longer offers goes
-    /// away with it. Cancel waits for the session and the re-entry like the slot; Leave never waits
-    /// (during the re-entry it is TournamentRejoin.abandon).
-    private var moreMenu: some View {
-        Menu {
-            ForEach(menuItems, id: \.self) { item in
-                Menu {
-                    Section {
-                        Button(role: .destructive) {
-                            perform(item)
-                        } label: {
-                            Label(TournamentLobbyMenu.confirmButton(item), systemImage: TournamentLobbyMenu.icon(item))
-                        }
-                        .accessibilityIdentifier("tournament.confirm")
-                    } header: {
-                        Text(TournamentLobbyMenu.confirmMessage(item, phase: tournamentState.phase, isCreator: isCreator,
-                                                                othersConnected: othersConnected,
-                                                                othersPresent: othersPresent))
-                    }
-                } label: {
-                    // the title alone: the submenu repeats it as its bold title row beside a
-                    // chevron, and with the icon too "Cancel Tournament" broke over two lines there
-                    // at the default size on the closed Duo and the iPhone 17 (review of PR #430);
-                    // the confirm button keeps the icon
-                    Text(TournamentLobbyMenu.title(item))
-                }
-                .disabled(item == .cancel && !canSendTournamentActions)
-                .accessibilityIdentifier("tournament.menu.\(item)")
-            }
-        } label: {
-            Label("More", systemImage: "ellipsis.circle")
+    /// The lobby changed under the open alert.
+    private func confirmContextChanged(_ context: TournamentLobbyMenu.Context) {
+        guard let item = confirming else { return }
+        #if os(iOS)
+        guard confirmAlert.isPresented else { dropConfirm(); return }  // it went some other way
+        switch TournamentLobbyMenu.change(open: item, showing: confirmAlert.message, in: context) {
+        case .none: break
+        case .message(let words): confirmAlert.update(message: words)
+        case .discard: dropConfirm(); return
         }
-        .id(menuItems)
-        .accessibilityLabel("More")
-        .accessibilityHint(tournamentState.isSpectator ? "Stop watching the tournament"
-                           : isCreator ? "Leave or cancel the tournament" : "Leave the tournament")
-        .accessibilityIdentifier("tournament.more")
+        // the session or the re-entry dropped under End's alert: its confirm waits (in place)
+        confirmAlert.setConfirmEnabled(TournamentLobbyMenu.confirmEnabled(item, canSend: context.canSend))
+        #endif
+    }
+
+    /// The open alert goes with no answer (its choice is gone, or the lobby is).
+    private func dropConfirm() {
+        #if os(iOS)
+        confirmAlert.discard()
+        #endif
+        confirming = nil
     }
 
     /// Connected members besides me (a host alone closes the tournament by leaving).
@@ -802,21 +956,36 @@ private struct TournamentLobbyScreen: View {
         LobbyEmitter.joinMainRoom()
     }
 
-    private func cancelTournament() {
+    /// End Tournament (the wire event stays cancelTournament).
+    private func endTournament() {
         TournamentEmitter.cancelTournament()
     }
 
-    /// The "…" menu's choice, confirmed.
+    /// Leave / End Tournament / Stop Watching, confirmed in its alert.
     private func perform(_ item: TournamentLobbyMenu.Item) {
-        // the role or the phase changed under the open menu: a choice it no longer offers is dropped
+        // the backstop: the role or the phase changed under the open alert (its choice no longer
+        // offered); End re-checks the session at the confirm
         guard TournamentLobbyMenu.stillOffers(item, phase: tournamentState.phase, isCreator: isCreator,
                                               isSpectator: tournamentState.isSpectator) else { return }
         switch item {
-        case .cancel:
+        case .end:
             guard canSendTournamentActions, isCreator, !tournamentState.isCutPhase, !showsFinal else { return }
-            cancelTournament()
+            endTournament()
         case .leave, .stopWatching:
             leaveTournament()
+        }
+    }
+}
+
+/// A header button's look: title and icon (the accessibility sizes' controls row), or the icon
+/// alone (the one-row header; the title stays the Label's, for the Large Content Viewer).
+private struct EntryLabelStyle: LabelStyle {
+    let withText: Bool
+    func makeBody(configuration: Configuration) -> some View {
+        if withText {
+            TitleAndIconLabelStyle().makeBody(configuration: configuration)
+        } else {
+            IconOnlyLabelStyle().makeBody(configuration: configuration)
         }
     }
 }

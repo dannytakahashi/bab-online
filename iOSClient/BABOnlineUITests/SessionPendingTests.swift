@@ -21,12 +21,13 @@ final class SessionPendingTests: XCTestCase {
     func testMainRoomActionsWaitForTheSession() {
         let app = Fixture.launch("main-room", extra: ["-uiSessionPending", "YES"])
         XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 15))
-        for label in ["New Game", "Tournament", "Join", "Spectate"] {
+        // New Game holds a tournament too now (its third choice)
+        for label in ["New Game", "Join", "Spectate"] {
             let b = button(app, label)
             XCTAssertTrue(b.waitForExistence(timeout: 5), label)
             XCTAssertFalse(b.isEnabled, "\(label) waits for the restore")
         }
-        XCTAssertTrue(button(app, "Stats").isEnabled, "a sheet needs no session")
+        XCTAssertTrue(button(app, "Leaderboard").isEnabled, "a sheet needs no session")
     }
 
     /// A foreground after the keep-alive probes the connection before keeping it
@@ -36,12 +37,12 @@ final class SessionPendingTests: XCTestCase {
     func testMainRoomActionsWaitForAForegroundProbe() {
         let app = Fixture.launch("main-room", extra: ["-uiForegroundProbe", "YES"])
         XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 15))
-        for label in ["New Game", "Tournament", "Join", "Spectate"] {
+        for label in ["New Game", "Join", "Spectate"] {
             let b = button(app, label)
             XCTAssertTrue(b.waitForExistence(timeout: 5), label)
             XCTAssertFalse(b.isEnabled, "\(label) waits for the probe's answer")
         }
-        XCTAssertTrue(button(app, "Stats").isEnabled, "a sheet needs no session")
+        XCTAssertTrue(button(app, "Leaderboard").isEnabled, "a sheet needs no session")
         XCTAssertFalse(app.descendants(matching: .any)["connectionToast"].exists, "no Reconnecting toast")
     }
 
@@ -94,7 +95,7 @@ final class SessionPendingTests: XCTestCase {
     func testMainRoomActionsWorkOnceSignedIn() {
         let app = Fixture.launch("main-room")
         XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 15))
-        for label in ["New Game", "Tournament", "Join", "Spectate", "Stats"] {
+        for label in ["New Game", "Join", "Spectate", "Leaderboard"] {
             let b = button(app, label)
             XCTAssertTrue(b.waitForExistence(timeout: 5), label)
             XCTAssertTrue(b.isEnabled, label)

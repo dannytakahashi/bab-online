@@ -1009,3 +1009,171 @@ describe('Cloudflare failures and the queue', () => {
         expect(text).not.toContain('z'.repeat(43));
     });
 });
+
+// ==================== review of #434 ====================
+
+describe('review of #434', () => {
+    test('a member who leaves with a call in flight and rejoins: the old call\'s late 410 never clears the NEW session', async () => {
+        const ctx = await tournament(['sfu', 'sfu', 'sfu']);
+        const [a, b, x] = ctx.sockets;
+        const sa = await joinVoice(ctx, a, { publish: true });
+        const sx = await joinVoice(ctx, x, { publish: true });
+        const pull = await ask(ctx, x, 'sfuPull', { sessionId: sx.sessionId, tracks: [pullOf(sa)] });
+        expect(pull.ok).toBe(true);
+        // x's close of a's pull is in flight (Cloudflare waits ~5 s on a dead transport, then 410)
+        const real = fake.fetch;
+        let release = null;
+        cf._setFetchForTests(async (url, init) => {
+            if (init.method === 'PUT' && url.includes(`/sessions/${sx.sessionId}/tracks/close`) && !release) {
+                await new Promise((r) => { release = r; });
+                fake.goneSession(sx.sessionId);
+            }
+            return real(url, init);
+        });
+        const closing = ask(ctx, x, 'sfuClose', { sessionId: sx.sessionId, mids: [pull.tracks[0].mid], force: true });
+        await jest.advanceTimersByTimeAsync(0);
+        expect(release).not.toBeNull();
+        // x leaves and rejoins at once, with a new session it publishes on
+        await tournamentHandlers.leaveTournament(x, ctx.io);
+        await tournamentHandlers.joinTournament(x, ctx.io, { tournamentId: ctx.t.tournamentId });
+        const sx2 = await joinVoice(ctx, x, { publish: true });
+        const mark = ctx.log.length;
+        release();
+        expect(await closing).toMatchObject({ ok: false });
+        await settle();
+        cf._setFetchForTests(real);
+        // nobody heard x's session end: the room keeps the new one
+        for (const s of [a, b]) expect(membersTo(ctx, mark, s.id).filter((m) => m.member.username === x.username)).toEqual([]);
+        expect(entryOf(ctx, x)).toMatchObject({ sessionId: sx2.sessionId, trackName: 'mic' });
+        const late = await ask(ctx, b, 'sfuSession');
+        const pb = await ask(ctx, b, 'sfuPull', { sessionId: late.sessionId, tracks: [pullOf(sx2)] });
+        expect(pb.tracks[0]).toMatchObject({ username: x.username, errorCode: null });
+    });
+
+    test('a removed record owns nothing: its session, track and mid are cleared', async () => {
+        const ctx = await tournament(['sfu', 'sfu']);
+        const [, b] = ctx.sockets;
+        await joinVoice(ctx, b, { publish: true });
+        const old = entryOf(ctx, b);
+        await tournamentHandlers.leaveTournament(b, ctx.io);
+        expect(old).toMatchObject({ sessionId: null, sessionSocket: null, trackName: null, localMid: null });
+    });
+
+    test('a published track Cloudflare lost: a pull\'s not_found > 5 s after the push ends the publisher\'s session; it is told to make a new one', async () => {
+        const ctx = await tournament(['sfu', 'sfu', 'sfu']);
+        const [a, b, c] = ctx.sockets;
+        const sa = await joinVoice(ctx, a, { publish: true });
+        const sb = await joinVoice(ctx, b);
+        const sc = await joinVoice(ctx, c);
+        // a's push answered and a sends media, yet Cloudflare never lists its track
+        fake.sessions.get(sa.sessionId).tracks.clear();
+        // within the first 5 s a not_found is a publisher still coming up: no look
+        let r = await ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [pullOf(sa)] });
+        expect(r.tracks[0].errorCode).toBe('not_found_track_error');
+        await settle();
+        expect(fake.calls.filter((x) => x.op === 'get' && x.sessionId === sa.sessionId)).toHaveLength(0);
+        jest.advanceTimersByTime(sfuRoom.TRACK_CHECK_AFTER_MS + 100);
+        const mark = ctx.log.length;
+        r = await ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [pullOf(sa)] });
+        // a second listener at the same moment: one look only
+        await ask(ctx, c, 'sfuPull', { sessionId: sc.sessionId, tracks: [pullOf(sa)] });
+        await settle();
+        expect(logs.filter((l) => l.msg === 'Voice SFU: published track checked')).toHaveLength(1);
+        // the look, then the revocation's own GET of the ended session (its pulls closed)
+        expect(fake.calls.filter((x) => x.op === 'get' && x.sessionId === sa.sessionId)).toHaveLength(2);
+        // the room hears a's session end; a gets its roster with no session, the same bootId
+        for (const s of [b, c]) expect(membersTo(ctx, mark, s.id).map((m) => [m.event, m.member.username, m.member.sessionId])).toEqual([['session', a.username, null]]);
+        const [ra] = rostersTo(ctx, mark, a.id);
+        expect(ra).toMatchObject({ status: 'admitted', bootId, self: { sessionId: null, trackName: null } });
+        expect(entryOf(ctx, a).sessionId).toBeNull();
+        expect(sfuRoom.wasEnded(ctx.t, sa.sessionId)).toBe(true);
+        expect(logs.some((l) => l.msg === 'Voice SFU: published track lost, session ended' && l.meta.username === a.username && l.meta.status === 'missing')).toBe(true);
+        // a publishes again on a new session: pullable
+        const sa2 = await joinVoice(ctx, a, { publish: true });
+        expect((await ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [pullOf(sa2)] })).tracks[0]).toMatchObject({ errorCode: null, username: a.username });
+    });
+
+    test('a not_found while Cloudflare still lists the track as active (seen live): the first strike ends nothing, the second 5 s later ends the session', async () => {
+        const ctx = await tournament(['sfu', 'sfu']);
+        const [a, b] = ctx.sockets;
+        const sa = await joinVoice(ctx, a, { publish: true });
+        const sb = await joinVoice(ctx, b);
+        jest.advanceTimersByTime(sfuRoom.TRACK_CHECK_AFTER_MS + 100);
+        // Cloudflare answers not_found for the pull, but its GET lists the track active
+        fake.fail = (op) => (op === 'pull' ? { status: 200, json: { requiresImmediateRenegotiation: false, tracks: [{ sessionId: sa.sessionId, trackName: 'mic', mid: '', errorCode: 'not_found_track_error', errorDescription: 'Track not found on remote peer' }] } } : null);
+        const mark = ctx.log.length;
+        await ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [pullOf(sa)] });
+        await settle();
+        // a retry 1 s later: no second look within 5 s
+        jest.advanceTimersByTime(1000);
+        await ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [pullOf(sa)] });
+        await settle();
+        expect(fake.calls.filter((x) => x.op === 'get' && x.sessionId === sa.sessionId)).toHaveLength(1);
+        expect(entryOf(ctx, a).sessionId).toBe(sa.sessionId);
+        expect(membersTo(ctx, mark, b.id)).toEqual([]);
+        expect(logs.some((l) => l.msg === 'Voice SFU: published track checked' && l.meta.lost === false && l.meta.status === 'active' && l.meta.strikes === 1)).toBe(true);
+        // still not found 5 s on: the second strike ends it although the GET says active
+        jest.advanceTimersByTime(sfuRoom.TRACK_CHECK_EVERY_MS);
+        await ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [pullOf(sa)] });
+        await settle();
+        fake.fail = null;
+        expect(entryOf(ctx, a).sessionId).toBeNull();
+        expect(membersTo(ctx, mark, b.id).map((m) => [m.event, m.member.sessionId])).toEqual([['session', null]]);
+        expect(rostersTo(ctx, mark, a.id).at(-1)).toMatchObject({ status: 'admitted', bootId, self: { sessionId: null } });
+        expect(logs.some((l) => l.msg === 'Voice SFU: published track lost, session ended' && l.meta.status === 'active' && l.meta.strikes === 2)).toBe(true);
+    });
+
+    test('a pull that works between two not_founds clears the strike (strikes count in a row)', async () => {
+        const ctx = await tournament(['sfu', 'sfu', 'sfu']);
+        const [a, b, c] = ctx.sockets;
+        const sa = await joinVoice(ctx, a, { publish: true });
+        const sb = await joinVoice(ctx, b);
+        const sc = await joinVoice(ctx, c);
+        jest.advanceTimersByTime(sfuRoom.TRACK_CHECK_AFTER_MS + 100);
+        const notFound = (op) => (op === 'pull' ? { status: 200, json: { requiresImmediateRenegotiation: false, tracks: [{ sessionId: sa.sessionId, trackName: 'mic', mid: '', errorCode: 'not_found_track_error', errorDescription: 'Track not found on remote peer' }] } } : null);
+        fake.fail = notFound;
+        await ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [pullOf(sa)] });
+        await settle();
+        fake.fail = null;
+        expect((await ask(ctx, c, 'sfuPull', { sessionId: sc.sessionId, tracks: [pullOf(sa)] })).tracks[0].errorCode).toBeNull();
+        jest.advanceTimersByTime(sfuRoom.TRACK_CHECK_EVERY_MS);
+        fake.fail = notFound;
+        await ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [pullOf(sa)] });
+        await settle();
+        fake.fail = null;
+        expect(entryOf(ctx, a).sessionId).toBe(sa.sessionId);
+    });
+
+    test('a new session of the publisher starts its strikes again', async () => {
+        const ctx = await tournament(['sfu', 'sfu']);
+        const [a, b] = ctx.sockets;
+        const sa = await joinVoice(ctx, a, { publish: true });
+        const sb = await joinVoice(ctx, b);
+        jest.advanceTimersByTime(sfuRoom.TRACK_CHECK_AFTER_MS + 100);
+        const notFound = (sid) => (op) => (op === 'pull' ? { status: 200, json: { requiresImmediateRenegotiation: false, tracks: [{ sessionId: sid, trackName: 'mic', mid: '', errorCode: 'not_found_track_error', errorDescription: 'Track not found on remote peer' }] } } : null);
+        fake.fail = notFound(sa.sessionId);
+        await ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [pullOf(sa)] });
+        await settle();
+        fake.fail = null;
+        // a makes a new session itself (say, a 410 elsewhere): one strike on it ends nothing
+        const sa2 = await joinVoice(ctx, a, { publish: true });
+        jest.advanceTimersByTime(sfuRoom.TRACK_CHECK_AFTER_MS + 100);
+        fake.fail = notFound(sa2.sessionId);
+        await ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [pullOf(sa2)] });
+        await settle();
+        fake.fail = null;
+        expect(entryOf(ctx, a).sessionId).toBe(sa2.sessionId);
+    });
+
+    test('a not_found of a track that is not the member\'s current one (an old session) checks nothing', async () => {
+        const ctx = await tournament(['sfu', 'sfu']);
+        const [a, b] = ctx.sockets;
+        const sb = await joinVoice(ctx, b);
+        jest.advanceTimersByTime(sfuRoom.TRACK_CHECK_AFTER_MS + 100);
+        const r = await ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [{ sessionId: 'f'.repeat(32), trackName: 'mic' }] });
+        expect(r.tracks[0].errorCode).toBe('not_in_room');
+        await settle();
+        expect(fake.calls.filter((x) => x.op === 'get')).toHaveLength(0);
+        expect(a).toBeTruthy();
+    });
+});
