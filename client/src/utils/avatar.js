@@ -237,8 +237,12 @@ export function foldAvatarPayload(event, data) {
  * shows Cut for a buck, the tournament's finale (phase 'cut', the
  * cutForABuck* events, tournamentJoined.cut) and the complete phase as the
  * lobby's final results, so the server runs the cut when a member has it.
+ * And sfuVoice (2026-11-26, voice/sfu/SfuTransport.js): this page speaks the
+ * Cloudflare SFU protocol, so with the server flag VOICE_SFU=tournament its
+ * tournament lobby voice room is an SFU room (a server with the flag off
+ * ignores the cap: the mesh as before).
  */
-const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings', 'tournamentVoiceStatus', 'badges', 'cutForABuck'];
+const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings', 'tournamentVoiceStatus', 'badges', 'cutForABuck', 'sfuVoice'];
 
 export function clientHello(version, build, capable = true) {
   return {

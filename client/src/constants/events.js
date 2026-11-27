@@ -76,6 +76,14 @@ export const CLIENT_EVENTS = {
   VOICE_ANSWER: 'voiceAnswer',
   VOICE_ICE_CANDIDATE: 'voiceIceCandidate',
   GET_VOICE_ICE_SERVERS: 'getVoiceIceServers',
+  SFU_SESSION: 'sfuSession',
+  SFU_PUSH: 'sfuPush',
+  SFU_PULL: 'sfuPull',
+  SFU_RENEGOTIATE: 'sfuRenegotiate',
+  SFU_CLOSE: 'sfuClose',
+  SFU_ICE_RESTART: 'sfuIceRestart',
+  SFU_RESUME: 'sfuResume',
+  SFU_LEAVE: 'sfuLeave',
 
   // Account management
   DELETE_ACCOUNT: 'deleteAccount',
