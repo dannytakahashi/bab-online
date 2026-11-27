@@ -16,6 +16,10 @@ import SwiftUI
 /// - Any tournament lobby fixture: `-uiHost <name>`, `-uiMeReady YES|NO`, `-uiAllReady YES`
 ///   (`seedTournamentRoles`); Ready / Unready / Begin / Cancel / Leave show in "fixture.sent" by
 ///   their event names, and Ready / Unready update my row as the server's answer would.
+/// - Any tournament lobby fixture: `-uiHandOffOnAlert <name>`: 3 s after Leave / Cancel
+///   Tournament / Stop Watching's confirmation alert opens, the host role passes to that member (as
+///   tournamentPlayerLeft's `newCreator` would), once: Cancel's alert goes, Leave's says the new
+///   consequence in place.
 extension UIFixture {
     static weak var fixtureTournament: TournamentState?
 
@@ -123,6 +127,20 @@ extension UIFixture {
             }
         }
         return event
+    }
+
+    private static var handOffDriven = false
+
+    /// The tournament lobby's confirmation alert opened (`-uiHandOffOnAlert <name>`).
+    @MainActor
+    static func tournamentConfirmPresented() {
+        guard isActive, !handOffDriven, let to = UserDefaults.standard.string(forKey: "uiHandOffOnAlert") else { return }
+        handOffDriven = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {  // after the test read the first words
+            guard let tournament = fixtureTournament, tournament.players.contains(where: { $0.username == to }) else { return }
+            tournament.creatorUsername = to
+            tournament.players = tournament.players.map { var p = $0; p.isCreator = p.username == to; return p }
+        }
     }
 
     private static func systemLine(_ text: String, in tournament: TournamentState) {

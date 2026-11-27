@@ -98,10 +98,12 @@ final class LobbyControlsTests: XCTestCase {
         lobbyLeave("game-lobby")
     }
 
-    /// The tournament lobby's Leave is in its "…" menu (owner 2026-11-26), labelled "More":
-    /// in the vertical bar on the Duo, in the header elsewhere; it holds Leave Tournament.
+    /// The tournament lobby's Leave (owner 2026-11-26): a member's is a button ("Leave Tournament"),
+    /// the host's is in the "…" menu ("More") with Cancel Tournament; in the vertical bar on the
+    /// Duo, in the header elsewhere.
     func testTournamentLobbyLeave() {
-        lobbyLeave("tournament-lobby", label: "More", item: "Leave Tournament")
+        lobbyLeave("tournament-lobby", label: "Leave Tournament")
+        lobbyLeave("tournament-rounds", label: "More", item: "Leave Tournament…")
     }
 
     /// Regular width (the iPad, the open Duo): the lobby chat is the right-hand

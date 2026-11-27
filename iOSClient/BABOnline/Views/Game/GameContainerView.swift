@@ -1608,7 +1608,7 @@ private struct GameScreen: View {
         if isPureSpectator { return leave() }
         // an alert already up (a Leave opened before the trouble) sits above this view and asks the same
         leaveAlert.present(message: UnreadableTableLeave.message(inTournament: gameState.tournamentId != nil)) { answer in
-            if answer == .leave { leave() }
+            if answer == .confirm { leave() }
         }
     }
 
@@ -1624,7 +1624,7 @@ private struct GameScreen: View {
             // the server's outcome: a bot keeps my seat, or (no other owner) the game ends;
             // hedged until Leave's snapshot settles owners who may have left unannounced
             let shown = leaveAlert.present(message: outcome.alertMessage) { answer in
-                if answer == .leave { ChatEmitter.sendMessage("/leave") }
+                if answer == .confirm { ChatEmitter.sendMessage("/leave") }
                 leaveAlertGone()
             }
             guard shown else { leaveAlertGone(); return }
