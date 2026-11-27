@@ -5604,13 +5604,13 @@
         ],
         "additionalProperties": true
       },
-      "status": "unsent",
+      "status": "active",
       "joi": null,
       "joiInHandler": "sfuSession",
       "rateLimit": null,
       "sentBy": {
         "web": false,
-        "ios": false
+        "ios": true
       },
       "examples": [
         {
@@ -5674,13 +5674,13 @@
         ],
         "additionalProperties": true
       },
-      "status": "unsent",
+      "status": "active",
       "joi": null,
       "joiInHandler": "sfuPush",
       "rateLimit": null,
       "sentBy": {
         "web": false,
-        "ios": false
+        "ios": true
       },
       "examples": [
         {
@@ -5768,13 +5768,13 @@
         ],
         "additionalProperties": true
       },
-      "status": "unsent",
+      "status": "active",
       "joi": null,
       "joiInHandler": "sfuPull",
       "rateLimit": null,
       "sentBy": {
         "web": false,
-        "ios": false
+        "ios": true
       },
       "examples": [
         {
@@ -5854,13 +5854,13 @@
         ],
         "additionalProperties": true
       },
-      "status": "unsent",
+      "status": "active",
       "joi": null,
       "joiInHandler": "sfuRenegotiate",
       "rateLimit": null,
       "sentBy": {
         "web": false,
-        "ios": false
+        "ios": true
       },
       "examples": [
         {
@@ -5945,13 +5945,13 @@
         ],
         "additionalProperties": true
       },
-      "status": "unsent",
+      "status": "active",
       "joi": null,
       "joiInHandler": "sfuClose",
       "rateLimit": null,
       "sentBy": {
         "web": false,
-        "ios": false
+        "ios": true
       },
       "examples": [
         {
@@ -6039,13 +6039,13 @@
         ],
         "additionalProperties": true
       },
-      "status": "unsent",
+      "status": "active",
       "joi": null,
       "joiInHandler": "sfuIceRestart",
       "rateLimit": null,
       "sentBy": {
         "web": false,
-        "ios": false
+        "ios": true
       },
       "examples": [
         {
@@ -6143,13 +6143,13 @@
         ],
         "additionalProperties": true
       },
-      "status": "unsent",
+      "status": "active",
       "joi": null,
       "joiInHandler": "sfuResume",
       "rateLimit": null,
       "sentBy": {
         "web": false,
-        "ios": false
+        "ios": true
       },
       "examples": [
         {
@@ -6222,13 +6222,13 @@
         ],
         "additionalProperties": true
       },
-      "status": "unsent",
+      "status": "active",
       "joi": null,
       "joiInHandler": "sfuLeave",
       "rateLimit": null,
       "sentBy": {
         "web": false,
-        "ios": false
+        "ios": true
       },
       "examples": [
         {
