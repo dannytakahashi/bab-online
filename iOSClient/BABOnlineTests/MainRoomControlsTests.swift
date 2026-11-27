@@ -54,4 +54,13 @@ final class MainRoomControlsTests: XCTestCase {
         XCTAssertTrue(C.waitsForSession(.newGame))
         XCTAssertFalse(C.waitsForSession(.leaderboard))
     }
+
+    /// The vertical bar's pills (owner 2026-11-27): New Game alone on top, the trophy with the
+    /// things you look at or manage below.
+    func testNewGameHasTheTopPillAndTheTrophyTheBottom() {
+        typealias C = MainRoomControls
+        XCTAssertEqual(C.barItems(.play), [.newGame])
+        XCTAssertEqual(C.barItems(.browse), [.leaderboard])
+        XCTAssertEqual(Set(C.barItems(.play) + C.barItems(.browse)), Set(C.items), "every control is in one pill")
+    }
 }

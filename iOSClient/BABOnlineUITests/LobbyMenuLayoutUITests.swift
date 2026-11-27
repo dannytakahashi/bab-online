@@ -635,6 +635,30 @@ final class LobbyMenuLayoutUITests: XCTestCase {
         app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "mainRoom.leaderboard", "Leaderboard")).firstMatch
     }
 
+    /// The open Duo's bar (owner 2026-11-27): New Game alone in the top pill; the trophy starts the
+    /// bottom pill, above Players and the settings. A pill break is a wider gap than the spacing
+    /// inside a pill.
+    func testTheBarPutsTheTrophyInTheBottomPill() {
+        let app = mainRoom()
+        let pose = Fixture.probe(app, "ui.pose")
+        guard pose.contains(" vbar ") else { app.terminate(); return }  // only where the bar shows
+        let newGame = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "New Game")).firstMatch
+        let cup = trophy(app)
+        let players = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "online")).firstMatch
+        let settings = app.buttons.matching(NSPredicate(format: "label == %@", "Account settings")).firstMatch
+        for (e, name) in [(newGame, "New Game"), (cup, "trophy"), (players, "Players"), (settings, "settings")] {
+            XCTAssertTrue(e.waitForExistence(timeout: 5), name)
+        }
+        let n = newGame.frame, t = cup.frame, p = players.frame, s = settings.frame
+        XCTAssertLessThan(n.midY, t.midY, "New Game above the trophy")
+        XCTAssertLessThan(t.midY, p.midY, "the trophy above Players")
+        XCTAssertLessThan(p.midY, s.midY, "Players above the settings")
+        let pillBreak = t.minY - n.maxY, inside = p.minY - t.maxY
+        XCTAssertGreaterThan(pillBreak, inside + 4, "New Game and the trophy in different pills (gap \(pillBreak) vs \(inside))")
+        shot("bar-trophy-bottom-pill")
+        app.terminate()
+    }
+
     /// The trophy opens the leaderboard and records (the Stats sheet); there is no Stats icon and
     /// no Tournament button any more (header and the Duo's bar).
     func testTheTrophyOpensTheLeaderboardAndThereIsNoStatsIcon() {
