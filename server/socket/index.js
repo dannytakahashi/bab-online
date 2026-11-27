@@ -13,6 +13,7 @@ const reconnectHandlers = require('./reconnectHandlers');
 const profileHandlers = require('./profileHandlers');
 const tournamentHandlers = require('./tournamentHandlers');
 const voiceHandlers = require('./voiceHandlers');
+const sfuHandlers = require('./sfuHandlers');
 const playAgain = require('./playAgain');
 const safetyHandlers = require('./safetyHandlers');
 const snapshotHandlers = require('./snapshotHandlers');
@@ -252,6 +253,33 @@ function setupSocketHandlers(io) {
         // ICE servers (Cloudflare TURN credentials, else STUN) for voice peers
         socket.on('getVoiceIceServers', (data) =>
             asyncHandler('getVoiceIceServers', voiceHandlers.getVoiceIceServers)(socket, io, data)
+        );
+        // Cloudflare SFU voice, a tournament's SFU room (VOICE_SFU=tournament):
+        // the relayed API. Limit, Joi, membership and session checks run
+        // inside sfuHandlers, and every refusal is an sfuReply (no serverError)
+        socket.on('sfuSession', (data) =>
+            safeHandler(sfuHandlers.sfuSession)(socket, io, data)
+        );
+        socket.on('sfuPush', (data) =>
+            safeHandler(sfuHandlers.sfuPush)(socket, io, data)
+        );
+        socket.on('sfuPull', (data) =>
+            safeHandler(sfuHandlers.sfuPull)(socket, io, data)
+        );
+        socket.on('sfuRenegotiate', (data) =>
+            safeHandler(sfuHandlers.sfuRenegotiate)(socket, io, data)
+        );
+        socket.on('sfuClose', (data) =>
+            safeHandler(sfuHandlers.sfuClose)(socket, io, data)
+        );
+        socket.on('sfuIceRestart', (data) =>
+            safeHandler(sfuHandlers.sfuIceRestart)(socket, io, data)
+        );
+        socket.on('sfuResume', (data) =>
+            safeHandler(sfuHandlers.sfuResume)(socket, io, data)
+        );
+        socket.on('sfuLeave', (data) =>
+            safeHandler(sfuHandlers.sfuLeave)(socket, io, data)
         );
         // "Spectators can talk": the lobby host, or a casual game's controller
         socket.on('setSpectatorsCanTalk', (data) =>

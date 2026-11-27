@@ -1228,6 +1228,64 @@ const s2c = {
         notes: 'The reply to getVoiceIceServers. iceServers is an RTCPeerConnection iceServers list: turn true = Cloudflare TURN (username / credential on the turn: / turns: entry, valid expiresInSec more seconds; port-53 URLs dropped), false = the public STUN servers both clients used before (expiresInSec null). requestId echoes the request\'s. Never the API token.',
     },
 
+    // ==================== Cloudflare SFU voice (2026-11-26) ====================
+    // server/socket/sfuHandlers.js, server/voice/sfu/sfuRoom.js; the client
+    // protocol is docs/claude/voice.md "SFU voice (server)". Nothing reads
+    // them yet (web PR 2, iOS PR 3), and only a socket with the cap sfuVoice
+    // in a tournament's SFU room (VOICE_SFU=tournament) ever gets one
+    sfuReply: {
+        payload: anyOf(
+            variant('session', obj({ requestId: str(), op: konst('session'), ok: konst(true), sessionId: ref('sfuSessionId'), sessionToken: str({ pattern: '^[A-Za-z0-9_-]{43}$' }) })),
+            variant('push', obj({ requestId: str(), op: konst('push'), ok: konst(true), sessionId: str(), answer: ref('sfuAnswer'), tracks: arr(ref('sfuTrackResult')) })),
+            variant('pull', obj({ requestId: str(), op: konst('pull'), ok: konst(true), sessionId: str(), requiresImmediateRenegotiation: bool(), offer: orNull(ref('sfuOffer')), tracks: arr(ref('sfuPulledTrack')) })),
+            variant('renegotiate', obj({ requestId: str(), op: konst('renegotiate'), ok: konst(true), sessionId: str() })),
+            variant('close', obj({ requestId: str(), op: konst('close'), ok: konst(true), sessionId: str(), answer: orNull(ref('sfuAnswer')), tracks: arr(ref('sfuTrackResult')) })),
+            variant('iceRestart', obj({ requestId: str(), op: konst('iceRestart'), ok: konst(true), sessionId: str(), answer: ref('sfuAnswer'), tracks: arr(ref('sfuTrackResult')) })),
+            variant('resume', obj({ requestId: str(), op: konst('resume'), ok: konst(true), sessionId: str() })),
+            variant('leave', obj({ requestId: str(), op: konst('leave'), ok: konst(true) })),
+            variant('error', obj({
+                requestId: str(),
+                op: enm('session', 'push', 'pull', 'renegotiate', 'close', 'iceRestart', 'resume', 'leave'),
+                ok: konst(false),
+                sessionId: orNull(str()),
+                error: ref('sfuError'),
+            })),
+        ),
+        status: 'active', to: 'self',
+        clientReads: reads([], []),
+        emittedFrom: ['server/socket/sfuHandlers.js:handle'],
+        notes: 'New (2026-11-26; private, unsequenced): the one answer to each c2s sfu* request, matched by requestId (op names the request). ok true carries the op\'s result; ok false the error: code (invalid, rate_limited, not_in_room, not_your_session, already_published, no_local_track, bad_token, busy, superseded, session_gone, timeout, cloudflare_unreachable, cloudflare_error, unavailable, server_error), retryable and retryAfterMs (when to try again), and for cloudflare_error the HTTP status and Cloudflare\'s errorCode. session_gone (Cloudflare 410: the session is dead, about 35 s after its peer lost connectivity): never retry on it, make a new session (sfuSession). superseded: the session was replaced or ended while the request waited. A pull answer is ok true even when tracks failed: read every tracks[i].errorCode (Cloudflare\'s empty_track_error / not_found_track_error: retry that track every 1 s up to 10 times; the server\'s not_in_room / own_track / blocked / duplicate / no_result: do not retry until the roster changes), and answer its offer whenever there is one. sessionToken (op session) proves the session is this member\'s in this tournament across a server restart (sfuResume); never log it.',
+    },
+    sfuRoster: {
+        payload: obj({
+            tournamentId: str(),
+            bootId: str({ description: 'the server process; a new one means it restarted: re-register with sfuResume and hold every pull for 10 s' }),
+            rev: int({ minimum: 0 }),
+            status: enm('admitted', 'waiting', 'out'),
+            cap: int({ minimum: 2, description: 'the SFU room\'s safety ceiling (VOICE_SFU_ROOM_MAX)' }),
+            graceMs: int({ minimum: 0, description: 'how long a dropped member stays listed as reconnecting' }),
+            self: orNull(obj({ sessionId: orNull(str()), trackName: orNull(str()), state: enm('live', 'reconnecting') })),
+            members: arr(ref('sfuMemberEntry')),
+        }),
+        status: 'active', to: 'socket',
+        clientReads: reads([], []),
+        emittedFrom: ['server/voice/sfu/sfuRoom.js:sendRoster'],
+        notes: 'New (2026-11-26; private, unsequenced): a tournament\'s SFU room as one member sees it, to a socket with the cap sfuVoice: when it enters (tournamentCreated / tournamentJoined), comes back on a new socket, draws its lobby screen again, is let in from the line, or leaves. status admitted: self is my record as the server knows it (sessionId null after a server restart until I resume; state reconnecting: resume my session with sfuResume or make a new one), members every other member (a blocked pair is never listed); waiting: the room is at its ceiling (cap), I am in line with no voice ("Voice is full (N people)"); out: I am not in an SFU room now: end my session. An SFU room never sends voicePeerList / voicePeerJoined / voicePeerLeft or tournamentVoiceStatus.',
+    },
+    sfuMember: {
+        payload: obj({
+            tournamentId: str(),
+            bootId: str(),
+            rev: int({ minimum: 1 }),
+            event: enm('joined', 'session', 'published', 'unpublished', 'reconnecting', 'resumed', 'left'),
+            member: ref('sfuMemberEntry'),
+        }),
+        status: 'active', to: 'socket',
+        clientReads: reads([], []),
+        emittedFrom: ['server/voice/sfu/sfuRoom.js:announce', 'server/voice/sfu/sfuRoom.js:blockedPairFound'],
+        notes: 'New (2026-11-26; private, unsequenced): one member\'s new record to every other admitted member of the SFU room (a blocked pair never hears of each other; a block mid-call sends each a left for the other and the server force-closes any pull still open between them 5 s later). member is the whole record, so applying it is an upsert (left: remove), and a record for a member I do not know is a join. What to do: a new (sessionId, trackName) pair: pull it (after closing a pull of the same member\'s older track); trackName null or a new sessionId: close my pull of the old one; reconnecting: keep its pull (it may come back on the same session within graceMs); left: close its pull. rev grows per room; within one socket the events arrive in order after its sfuRoster.',
+    },
+
     // ==================== Connection ====================
     serverShutdown: {
         payload: obj({ message: str() }),

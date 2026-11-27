@@ -36,6 +36,11 @@ const statsScope = () => enm('human', 'bots', 'all');
 // by the examples and notes rather than as a schema property
 const scopePayload = noPayload;
 const SCOPE_NOTE = 'Optional {scope: human | bots | all} (additive 2026-11-13): human = games with no bot or resign-bot seat at the end (users.stats, today\'s reply), bots = games with one (users.botStats, gameRecords withBots), all = both summed field by field. Missing, non-object or unknown = human, never refused. The reply echoes `scope` only when the request carried the key. iOS sends no payload (human).';
+// Cloudflare SFU voice (2026-11-26)
+const sfuReq = () => str({ minLength: 1, maxLength: 64 });
+const sfuSdp = () => str({ minLength: 1, maxLength: 262144 });
+const konstStr = (v) => ({ const: v });
+const SFU_NOTE = 'Cloudflare SFU voice (2026-11-26, server PR 1; no client sends it yet: web PR 2, iOS PR 3). Only from an admitted member of a tournament\'s SFU room (VOICE_SFU=tournament; the clientHello cap sfuVoice, on the tournament lobby screen, inside the room\'s ceiling), on its own current session. Each is answered by exactly one sfuReply with the same requestId (a payload without a usable requestId is dropped silently); a refusal is sfuReply ok false {error: {code, retryable, retryAfterMs}}, never serverError. Per-socket limit rateLimiter.sfuCall (300 / 10 s, every op but sfuSession together), checked in the handler like the Joi schema (joiInHandler). Every Cloudflare call of a session runs on its serial queue. docs/claude/voice.md "SFU voice (server)".';
 const both = { web: true, ios: true };
 const webOnly = { web: true, ios: false };
 const iosOnly = { web: false, ios: true };
@@ -207,6 +212,65 @@ const c2s = {
         examples: [{}, { requestId: 'ice-1' }],
         invalid: [{ requestId: '' }, { requestId: 'x'.repeat(65) }, { requestId: 7 }],
         notes: 'Answered by voiceIceServers to this socket only (requestId echoed). Web asks before its first peer connection of a voice session and again before the credentials expire. TURN credentials (Cloudflare Realtime, minted server-side, cached per user) only for a signed-in socket that is a voice peer now (in a lobby, or an entrant / seat owner of a game); everyone else, and every failure (env unset, Cloudflare timeout or error), gets the public STUN servers. iOS 1.1.0 does not send it (it hard-codes STUN); iOS 1.2.0 asks on every voice start and before its restart (Voice/IceServerStore.swift; V1_REMOVALS "iOS TURN").',
+    },
+
+    // Cloudflare SFU voice (2026-11-26; server/socket/sfuHandlers.js, the
+    // client protocol in docs/claude/voice.md "SFU voice (server)"). Joi in
+    // the handler (joiInHandler): every refusal is an sfuReply, never error
+    sfuSession: {
+        payload: open({ requestId: sfuReq() }), status: 'unsent', joi: null, joiInHandler: 'sfuSession', rateLimit: null, sentBy: nobody,
+        examples: [{ requestId: 'sfu-1' }],
+        invalid: [{}, { requestId: '' }, { requestId: 'x'.repeat(65) }],
+        notes: SFU_NOTE + ' A new Cloudflare session for this member (replaces any it had: the old one\'s queued work answers superseded, and the room hears sfuMember session). Answered sfuReply op session {sessionId, sessionToken}; keep the token for sfuResume. Make one only when there is something to pull or to push (a muted listener in a room where nobody publishes needs none). Limit rateLimiter.sfuSession (6 / min).',
+    },
+    sfuPush: {
+        payload: open({ requestId: sfuReq(), sessionId: ref('sfuSessionId'), offer: open({ type: konstStr('offer'), sdp: sfuSdp() }), mid: ref('sfuMid'), trackName: ref('sfuTrackName') }),
+        status: 'unsent', joi: null, joiInHandler: 'sfuPush', rateLimit: null, sentBy: nobody,
+        examples: [{ requestId: 'sfu-2', sessionId: 'abc123', offer: { type: 'offer', sdp: 'v=0' }, mid: '0', trackName: 'mic' }],
+        invalid: [{ requestId: 'sfu-2', sessionId: 'abc123', offer: { type: 'answer', sdp: 'v=0' }, mid: '0', trackName: 'mic' }, { requestId: 'sfu-2', sessionId: 'a b', offer: { type: 'offer', sdp: 'v=0' }, mid: '0', trackName: 'mic' }, { requestId: 'sfu-2', sessionId: 'abc123', offer: { type: 'offer', sdp: 'v=0' }, mid: '0' }],
+        notes: SFU_NOTE + ' Publish my one audio track (on my first unmute; a muted-at-start member pushes nothing): my offer with the sendonly transceiver\'s mid and a trackName ("mic"). Answered sfuReply op push {answer, tracks}; when my track has no errorCode the room hears sfuMember published. Another trackName / mid while one is published: already_published.',
+    },
+    sfuPull: {
+        payload: open({ requestId: sfuReq(), sessionId: ref('sfuSessionId'), tracks: arr(obj({ sessionId: ref('sfuSessionId'), trackName: ref('sfuTrackName') }, { open: true }), { minItems: 1, maxItems: 64 }) }),
+        status: 'unsent', joi: null, joiInHandler: 'sfuPull', rateLimit: null, sentBy: nobody,
+        examples: [{ requestId: 'sfu-3', sessionId: 'abc123', tracks: [{ sessionId: 'def456', trackName: 'mic' }] }],
+        invalid: [{ requestId: 'sfu-3', sessionId: 'abc123', tracks: [] }, { requestId: 'sfu-3', sessionId: 'abc123', tracks: [{ sessionId: 'def456', trackName: 'a b' }] }, { requestId: 'sfu-3', sessionId: 'abc123', tracks: [{ sessionId: 'def456' }] }],
+        notes: SFU_NOTE + ' Pull other members\' published tracks (their roster sessionId + trackName), at most 64 per ask (Cloudflare\'s per-request limit). Only another member\'s CURRENT published track in my room is pulled, never one of a blocked pair; each track of the answer (sfuReply op pull) carries its mid or an errorCode, and a pull with failed tracks may still carry the SFU\'s offer, which must be answered (sfuRenegotiate).',
+    },
+    sfuRenegotiate: {
+        payload: open({ requestId: sfuReq(), sessionId: ref('sfuSessionId'), answer: open({ type: konstStr('answer'), sdp: sfuSdp() }) }),
+        status: 'unsent', joi: null, joiInHandler: 'sfuRenegotiate', rateLimit: null, sentBy: nobody,
+        examples: [{ requestId: 'sfu-4', sessionId: 'abc123', answer: { type: 'answer', sdp: 'v=0' } }],
+        invalid: [{ requestId: 'sfu-4', sessionId: 'abc123', answer: { type: 'offer', sdp: 'v=0' } }, { requestId: 'sfu-4', sessionId: 'abc123', answer: { type: 'answer', sdp: '' } }, { requestId: 'sfu-4', sessionId: 'abc123' }],
+        notes: SFU_NOTE + ' My answer to the SFU\'s offer (from a pull, or a close that renegotiates). Answered sfuReply op renegotiate.',
+    },
+    sfuClose: {
+        payload: open({ requestId: sfuReq(), sessionId: ref('sfuSessionId'), mids: arr(ref('sfuMid'), { minItems: 1, maxItems: 64 }), force: bool(), offer: open({ type: konstStr('offer'), sdp: sfuSdp() }) }, { optional: ['force', 'offer'] }),
+        status: 'unsent', joi: null, joiInHandler: 'sfuClose', rateLimit: null, sentBy: nobody,
+        examples: [{ requestId: 'sfu-5', sessionId: 'abc123', mids: ['1'], offer: { type: 'offer', sdp: 'v=0' } }, { requestId: 'sfu-5', sessionId: 'abc123', mids: ['1', '2'], force: true }],
+        invalid: [{ requestId: 'sfu-5', sessionId: 'abc123', mids: [], force: true }, { requestId: 'sfu-5', sessionId: 'abc123', mids: ['a b'], force: true }, { requestId: 'sfu-5', sessionId: 'abc123', mids: ['1'], force: 'yes' }],
+        notes: SFU_NOTE + ' Close tracks on my session by mid: negotiated (stop the transceivers, my offer; the answer comes back in sfuReply op close) or force: true (no SDP). Joi also requires the offer unless force is true. Closing my own published track unpublishes it (the room hears sfuMember unpublished).',
+    },
+    sfuIceRestart: {
+        payload: open({ requestId: sfuReq(), sessionId: ref('sfuSessionId'), offer: open({ type: konstStr('offer'), sdp: sfuSdp() }) }),
+        status: 'unsent', joi: null, joiInHandler: 'sfuIceRestart', rateLimit: null, sentBy: nobody,
+        examples: [{ requestId: 'sfu-6', sessionId: 'abc123', offer: { type: 'offer', sdp: 'v=0' } }],
+        invalid: [{ requestId: 'sfu-6', sessionId: 'abc123' }, { requestId: 'sfu-6', sessionId: 'abc123', offer: { type: 'answer', sdp: 'v=0' } }],
+        notes: SFU_NOTE + ' An ICE restart on the same session (createOffer({iceRestart: true})): the server sends it through tracks/new re-declaring my published track (the undocumented form the 2026-11-26 spike found; PUT renegotiate with an offer answers 406). Answered sfuReply op iceRestart {answer}. A session that published nothing has no track to re-declare: no_local_track, make a new session instead.',
+    },
+    sfuResume: {
+        payload: open({ requestId: sfuReq(), sessionId: ref('sfuSessionId'), sessionToken: str({ pattern: '^[A-Za-z0-9_-]{43}$' }), trackName: orNull(ref('sfuTrackName')), mid: orNull(ref('sfuMid')), pulls: arr(obj({ mid: ref('sfuMid'), sessionId: ref('sfuSessionId'), trackName: ref('sfuTrackName') }, { open: true }), { maxItems: 512 }) }, { optional: ['pulls'] }),
+        status: 'unsent', joi: null, joiInHandler: 'sfuResume', rateLimit: null, sentBy: nobody,
+        examples: [{ requestId: 'sfu-7', sessionId: 'abc123', sessionToken: 'a'.repeat(43), trackName: 'mic', mid: '0', pulls: [{ mid: '1', sessionId: 'def456', trackName: 'mic' }] }, { requestId: 'sfu-7', sessionId: 'abc123', sessionToken: 'a'.repeat(43), trackName: null, mid: null }],
+        invalid: [{ requestId: 'sfu-7', sessionId: 'abc123', sessionToken: 'short', trackName: null, mid: null }, { requestId: 'sfu-7', sessionId: 'abc123', trackName: null, mid: null }, { requestId: 'sfu-7', sessionId: 'abc123', sessionToken: 'a'.repeat(43), mid: null }],
+        notes: SFU_NOTE + ' Re-register a session I still hold (its PeerConnection alive) after my socket reconnected or the server restarted (a new bootId): the sessionToken sfuSession gave, my published track (both null when none; one null alone is invalid) and what I pull (so the server can enforce a later block). A token that does not prove the session is mine: bad_token. Answered sfuReply op resume; the room hears sfuMember resumed (same session and track) or session.',
+    },
+    sfuLeave: {
+        payload: open({ requestId: sfuReq(), sessionId: orNull(ref('sfuSessionId')) }, { optional: ['sessionId'] }),
+        status: 'unsent', joi: null, joiInHandler: 'sfuLeave', rateLimit: null, sentBy: nobody,
+        examples: [{ requestId: 'sfu-8', sessionId: 'abc123' }, { requestId: 'sfu-8' }],
+        invalid: [{ requestId: 'sfu-8', sessionId: 'a b' }, { sessionId: 'abc123' }],
+        notes: SFU_NOTE + ' I am done with my session (voice stops on this screen: no company, a page hide): the room hears sfuMember session (null) at once, instead of waiting for the reconnect grace. Idempotent (a session that is not mine is ignored). Answered sfuReply op leave. Then close the PeerConnection; Cloudflare drops the session.',
     },
 
     // Admin panel (web; iOS from 1.2.2 build 10)

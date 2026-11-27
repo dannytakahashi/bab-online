@@ -109,6 +109,9 @@ function authorize(socket, io, event, targetSocketId) {
     if (!from || !to) return refuse('not_signed_in');
 
     const room = gameVoice.voiceRoomOf(socket.id);
+    // A tournament's SFU room: audio goes through Cloudflare, never peer to
+    // peer, so no mesh signal is relayed there (server/voice/sfu/)
+    if (typeof room === 'string' && room.startsWith('sfu:')) return refuse('sfu_room');
     if (room === null || room !== gameVoice.voiceRoomOf(targetSocketId)) return refuse('not_peers');
 
     // Both lists are consulted (no short circuit), so a missing one starts loading either way

@@ -158,6 +158,22 @@ class RateLimiter {
             voiceOffer: { max: 120, windowMs: 10000 },
             voiceAnswer: { max: 120, windowMs: 10000 },
             voiceIceCandidate: { max: 1200, windowMs: 10000 },
+            // Cloudflare SFU voice (server/socket/sfuHandlers.js; checked in
+            // the handler: over the limit the reply is sfuReply {error:
+            // rate_limited, retryAfterMs}, never serverError). sfuSession:
+            // one per voice start, per reconnect that needs a new session
+            // and per 410; 6 a minute holds a bad network's retries.
+            // sfuCall: every other SFU op of one socket together (push,
+            // pull, renegotiate, close, ICE restart, resume, leave).
+            // Cloudflare allows 50 calls per second per session; a join to
+            // a room costs each member 2 (one batched pull + renegotiate),
+            // and a burst of 100 publishers at most ~2 per publisher if the
+            // client batches nothing (pull + renegotiate each) = 200, plus a
+            // close per leaver: 300 per 10 s (30 a second on average, under
+            // Cloudflare's per-session limit) is a DoS guard that a big
+            // room's churn never meets (docs/claude/voice.md "SFU voice (server)")
+            sfuSession: { max: 6, windowMs: 60000 },
+            sfuCall: { max: 300, windowMs: 10000 },
             // "Spectators can talk" (lobby host / in-game controller): one per
             // tap; the game coalesces changes to one per 3 s anyway
             setSpectatorsCanTalk: { max: 4, windowMs: 30000 },

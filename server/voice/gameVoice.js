@@ -105,7 +105,9 @@ const isMember = (game, sid) => gameVoiceMembers(game).some((m) => m.socketId ==
  * tournament table's too), `game:<id>` for an admitted voice spectator, or
  * `tournament:<id>` for an admitted member of a tournament's voice room
  * (on its lobby screen with the cap tournamentVoice:
- * server/voice/tournamentVoice.js); null otherwise.
+ * server/voice/tournamentVoice.js), `sfu:<id>` for an admitted member of a
+ * tournament's SFU room (server/voice/sfu/sfuRoom.js: no mesh signal is
+ * relayed there); null otherwise.
  */
 function voiceRoomOf(socketId) {
     const lobbyId = gameManager.playerLobbies.get(socketId);
@@ -323,6 +325,11 @@ function answerSpectatorsCanTalk(io, game, sid) {
 function endBlockedCall(io, aSid, bSid) {
     if (!io || !aSid || !bSid || aSid === bSid) return false;
     const room = voiceRoomOf(aSid);
+    // A tournament's SFU room (server/voice/sfu/sfuRoom.js): no mesh call to
+    // end; each is told the other left, and their pulls are closed
+    if (typeof room === 'string' && room.startsWith('sfu:')) {
+        return require('./sfu/sfuRoom').blockedPairFound(io, aSid, bSid);
+    }
     // A legacy client still on the score screen shares no room with the
     // players back in the lobby, but its call with them lingers (play again)
     const shared = (room !== null && room === voiceRoomOf(bSid)) ||

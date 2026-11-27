@@ -464,6 +464,57 @@ const defs = {
     // 'round_active' during a cut and is drawn for every round
     // (contract/README.md "Cut for a buck")
     clientCapCutForABuck: konst('cutForABuck'),
+    // Another, its own const (2026-11-26, Cloudflare SFU voice): the client
+    // speaks the SFU protocol (c2s sfu*, s2c sfuReply / sfuRoster /
+    // sfuMember); in a tournament's SFU room (VOICE_SFU=tournament) only such
+    // a member gets voice, and nobody there is ever a mesh peer
+    // (docs/claude/voice.md "SFU voice (server)")
+    clientCapSfuVoice: konst('sfuVoice'),
+    // ---------- Cloudflare SFU voice (2026-11-26; server/voice/sfu/) ----------
+    // Ids as Cloudflare hands them out (session ids 64 hex chars live, mids decimal)
+    sfuSessionId: str({ pattern: '^[A-Za-z0-9_-]{1,128}$' }),
+    sfuTrackName: str({ pattern: '^[A-Za-z0-9_.:-]{1,64}$' }),
+    sfuMid: str({ pattern: '^[A-Za-z0-9_-]{1,32}$' }),
+    // A session description as Cloudflare answers or offers it (to a client)
+    sfuOffer: obj({ type: konst('offer'), sdp: str() }),
+    sfuAnswer: obj({ type: konst('answer'), sdp: str() }),
+    // One member of a tournament's SFU room: its session (null until it
+    // needs one), its published track (null until its first unmute), and
+    // reconnecting while that session has not been resumed by its current
+    // socket (dropped, a new socket, a server restart; kept for the grace)
+    sfuMemberEntry: obj({
+        username: str(),
+        sessionId: orNull(str()),
+        trackName: orNull(str()),
+        state: enm('live', 'reconnecting'),
+    }),
+    // One track of a push / close / ICE restart answer (Cloudflare's
+    // per-track errorCode with HTTP 200: check every one)
+    sfuTrackResult: obj({
+        mid: orNull(str()),
+        trackName: orNull(str()),
+        errorCode: orNull(str()),
+        errorDescription: orNull(str()),
+    }),
+    // One track of a pull answer: Cloudflare's result (mid, or its errorCode:
+    // empty_track_error / not_found_track_error retry) or the server's
+    // refusal (not_in_room, own_track, blocked, duplicate, no_result)
+    sfuPulledTrack: obj({
+        username: orNull(str()),
+        sessionId: str(),
+        trackName: str(),
+        mid: orNull(str()),
+        errorCode: orNull(str()),
+        errorDescription: orNull(str()),
+    }),
+    sfuError: obj({
+        code: enm('invalid', 'rate_limited', 'not_in_room', 'not_your_session', 'already_published', 'no_local_track', 'bad_token',
+            'busy', 'superseded', 'session_gone', 'timeout', 'cloudflare_unreachable', 'cloudflare_error', 'unavailable', 'server_error'),
+        retryable: bool(),
+        retryAfterMs: orNull(int({ minimum: 0 })),
+        status: orNull(int()),
+        cfCode: orNull(str()),
+    }),
     // Cut for a buck's pieces (server/socket/cutForABuck.js)
     cutDraw: obj({ username: str(), slot: int({ minimum: 0 }), card: ref('card') }),
     cutResult: obj({ winner: str(), participants: arr(str()), rounds: int({ minimum: 1 }) }),

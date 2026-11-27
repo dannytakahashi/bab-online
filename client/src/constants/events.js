@@ -228,6 +228,9 @@ export const SERVER_EVENTS = {
   VOICE_ICE_SERVERS: 'voiceIceServers',
   VOICE_SETTINGS: 'voiceSettings',
   TOURNAMENT_VOICE_STATUS: 'tournamentVoiceStatus',
+  SFU_REPLY: 'sfuReply',
+  SFU_ROSTER: 'sfuRoster',
+  SFU_MEMBER: 'sfuMember',
 
   // Admin
   ADMIN_RESPONSE: 'adminResponse',
