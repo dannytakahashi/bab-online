@@ -557,10 +557,15 @@ private struct TournamentLobbyScreen: View {
                         .accessibilityIdentifier("tournament.confirm")
                     } header: {
                         Text(TournamentLobbyMenu.confirmMessage(item, phase: tournamentState.phase, isCreator: isCreator,
-                                                                othersConnected: othersConnected))
+                                                                othersConnected: othersConnected,
+                                                                othersPresent: othersPresent))
                     }
                 } label: {
-                    Label(TournamentLobbyMenu.title(item), systemImage: TournamentLobbyMenu.icon(item))
+                    // the title alone: the submenu repeats it as its bold title row beside a
+                    // chevron, and with the icon too "Cancel Tournament" broke over two lines there
+                    // at the default size on the closed Duo and the iPhone 17 (review of PR #430);
+                    // the confirm button keeps the icon
+                    Text(TournamentLobbyMenu.title(item))
                 }
                 .disabled(item == .cancel && !canSendTournamentActions)
                 .accessibilityIdentifier("tournament.menu.\(item)")
@@ -578,6 +583,12 @@ private struct TournamentLobbyScreen: View {
     /// Connected members besides me (a host alone closes the tournament by leaving).
     private var othersConnected: Int {
         tournamentState.players.filter { $0.connected && $0.username != authState.username }.count
+    }
+
+    /// Every member besides me, connected or not (a lobby restored after a deploy holds its
+    /// disconnected members, so leaving it does not close it).
+    private var othersPresent: Int {
+        tournamentState.players.filter { $0.username != authState.username }.count
     }
 
     /// `oneLine`: the one-row header's title stays on one line (shrunk to 0.8, then cut at its
@@ -629,7 +640,7 @@ private struct TournamentLobbyScreen: View {
     }
 
     private var countText: some View {
-        Text("\(tournamentState.players.count) players")
+        Text(TournamentLobbySlot.Copy.players(tournamentState.players.count))
             .font(.caption)
             .foregroundColor(Theme.textSecondary)
     }
@@ -693,6 +704,9 @@ private struct TournamentLobbyScreen: View {
                 if let caption = slot.caption {
                     Text(caption)
                         .font(.caption)
+                        // capped (review of PR #430): at AX5 on the closed Duo three lines of it
+                        // left the players' region room for the title only, once Ready was tapped
+                        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
                         .foregroundColor(Theme.textSecondary)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)

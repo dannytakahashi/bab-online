@@ -168,7 +168,7 @@ final class TournamentLobbySlotTests: XCTestCase {
     func testTheConfirmationsSayWhatHappens() {
         typealias M = TournamentLobbyMenu
         func msg(_ item: M.Item, _ phase: String, host: Bool = false, others: Int = 2) -> String {
-            M.confirmMessage(item, phase: phase, isCreator: host, othersConnected: others)
+            M.confirmMessage(item, phase: phase, isCreator: host, othersConnected: others, othersPresent: others)
         }
         XCTAssertEqual(M.confirmButton(.cancel), "Cancel Tournament")
         XCTAssertEqual(M.confirmButton(.leave), "Leave Tournament")
@@ -194,7 +194,7 @@ final class TournamentLobbySlotTests: XCTestCase {
         typealias M = TournamentLobbyMenu
         for phase in ["between_rounds", "round_active"] {
             for host in [false, true] {
-                let words = M.confirmMessage(.leave, phase: phase, isCreator: host, othersConnected: 2)
+                let words = M.confirmMessage(.leave, phase: phase, isCreator: host, othersConnected: 2, othersPresent: 2)
                 XCTAssertTrue(words.hasPrefix("You can't come back to this tournament, and you won't be among the winners."), words)
                 XCTAssertFalse(words.contains("lowest"), words)
                 XCTAssertFalse(words.contains("join again"), words)
@@ -205,7 +205,8 @@ final class TournamentLobbySlotTests: XCTestCase {
 
     /// The cut: leaving takes me out of it (cutForABuck.memberLeft); no "rounds still to come".
     func testLeavingDuringTheCut() {
-        let words = TournamentLobbyMenu.confirmMessage(.leave, phase: CutForABuck.phase, isCreator: false, othersConnected: 3)
+        let words = TournamentLobbyMenu.confirmMessage(.leave, phase: CutForABuck.phase, isCreator: false, othersConnected: 3,
+                                                         othersPresent: 3)
         XCTAssertEqual(words, "You'll be out of cut for a buck.", "lowercase mid-sentence (the owner's rule)")
         XCTAssertFalse(words.contains("round"))
     }
@@ -214,16 +215,46 @@ final class TournamentLobbySlotTests: XCTestCase {
     /// deleteTournamentIfAbandoned before transferCreator), so no rejoin and no new host.
     func testAHostAloneClosesTheTournamentByLeaving() {
         typealias M = TournamentLobbyMenu
-        let alone = M.confirmMessage(.leave, phase: "lobby", isCreator: true, othersConnected: 0)
+        func leave(_ phase: String, host: Bool = true, connected: Int, present: Int) -> String {
+            M.confirmMessage(.leave, phase: phase, isCreator: host, othersConnected: connected, othersPresent: present)
+        }
+        let alone = leave("lobby", connected: 0, present: 0)
         XCTAssertEqual(alone, "The tournament closes, since nobody else has joined.")
         XCTAssertFalse(alone.contains("join again"))
         XCTAssertFalse(alone.contains("host"))
         // with someone else there the role passes on
-        XCTAssertTrue(M.confirmMessage(.leave, phase: "lobby", isCreator: true, othersConnected: 1).contains("Another player becomes the host."))
+        XCTAssertTrue(leave("lobby", connected: 1, present: 1).contains("Another player becomes the host."))
         // anyone alone in the lobby (a lone member is handed the role): the same
-        XCTAssertEqual(M.confirmMessage(.leave, phase: "lobby", isCreator: false, othersConnected: 0), alone)
-        // once begun, a host alone has no one to hand the role to
-        XCTAssertFalse(M.confirmMessage(.leave, phase: "between_rounds", isCreator: true, othersConnected: 0).contains("host"))
+        XCTAssertEqual(leave("lobby", host: false, connected: 0, present: 0), alone)
+    }
+
+    /// A lobby restored after a deploy: its members come back disconnected and hold it open
+    /// (restoreHolds), so leaving does not close it and one of them takes the role (transferCreator
+    /// falls back to a disconnected member); they joined before the deploy, so never "nobody else
+    /// has joined" (review of PR #430).
+    func testLeavingARestoredLobbyWithOnlyDisconnectedMembersDoesNotCloseIt() {
+        typealias M = TournamentLobbyMenu
+        XCTAssertEqual(M.confirmMessage(.leave, phase: "lobby", isCreator: true, othersConnected: 0, othersPresent: 3),
+                       "You can join again while it's waiting to start. Another player becomes the host.")
+        XCTAssertEqual(M.confirmMessage(.leave, phase: "lobby", isCreator: false, othersConnected: 0, othersPresent: 2),
+                       "You can join again while it's waiting to start.")
+    }
+
+    /// Between rounds the last connected member's leave deletes the tournament
+    /// (deleteTournamentIfAbandoned: nobody connected and no round game running), whether the
+    /// others left or only dropped (review of PR #430); with someone connected it goes on.
+    func testTheLastConnectedMemberBetweenRoundsClosesTheTournament() {
+        typealias M = TournamentLobbyMenu
+        for (host, present) in [(true, 0), (true, 3), (false, 0), (false, 2)] {
+            let words = M.confirmMessage(.leave, phase: "between_rounds", isCreator: host, othersConnected: 0, othersPresent: present)
+            XCTAssertEqual(words, "The tournament closes, since nobody else is connected.")
+            XCTAssertFalse(words.contains("host"), "nobody takes the role of a closed tournament")
+        }
+        XCTAssertEqual(M.confirmMessage(.leave, phase: "between_rounds", isCreator: false, othersConnected: 1, othersPresent: 1),
+                       "You can't come back to this tournament, and you won't be among the winners.")
+        // in a round the running tables keep it alive (hasRunningGames): no "closes"
+        XCTAssertFalse(M.confirmMessage(.leave, phase: "round_active", isCreator: true, othersConnected: 0, othersPresent: 3)
+            .contains("closes"))
     }
 
     /// The dropped-choice rule: a confirm opened before a host hand-off, the cut or the results

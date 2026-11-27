@@ -130,32 +130,39 @@ enum TournamentLobbyMenu {
     /// What happens, in plain words, as the server does it (review of PR #430): the header of the
     /// item's confirm submenu.
     /// - the lobby phase: a member may join again while it waits to start; the host's role passes
-    ///   to another member; with nobody else connected the tournament is deleted
-    ///   (`GameManager.leaveTournament`: deleteTournamentIfAbandoned before transferCreator);
+    ///   to another member; with nobody else in it the tournament is deleted
+    ///   (`GameManager.leaveTournament`: deleteTournamentIfAbandoned before transferCreator). In the
+    ///   lobby a disconnect is a leave, so the other rows are connected members, except in a lobby
+    ///   restored after a deploy: its members come back disconnected and hold it open
+    ///   (restoreTournament's restoreHolds), and one of them takes the role (transferCreator falls
+    ///   back to a disconnected member). So the lobby counts every other row (`othersPresent`);
     /// - once it has begun a member who leaves is gone: no score for later rounds (scoreMissedRound
     ///   covers members only), no way back (joinTournament refuses non-members after the lobby
     ///   phase), never a winner (getWinners takes members only);
+    /// - between rounds with nobody else connected the tournament is deleted (no round game runs
+    ///   then: deleteTournamentIfAbandoned). Not right away in a tournament restored after a deploy
+    ///   while its abandon window holds it; the app cannot tell, and that window is short and rare;
     /// - the cut: leaving takes me out of it (cutForABuck.memberLeft).
-    /// `othersConnected`: connected members besides me.
-    static func confirmMessage(_ item: Item, phase: String, isCreator: Bool, othersConnected: Int) -> String {
+    /// `othersConnected`: connected members besides me; `othersPresent`: every member besides me.
+    static func confirmMessage(_ item: Item, phase: String, isCreator: Bool, othersConnected: Int,
+                               othersPresent: Int) -> String {
         switch item {
         case .cancel:
             return phase == "lobby"
                 ? "The tournament ends for everyone before it starts."
                 : "The tournament ends for everyone, and any games still in play stop now."
         case .leave:
-            // alone in the lobby (the host, in practice: a lone member is handed the role)
-            if phase == "lobby" && othersConnected == 0 {
-                return Copy.closesAlone
-            }
-            var lines: [String] = []
             switch phase {
-            case "lobby": lines.append(Copy.rejoinWhileWaiting)
-            case CutForABuck.phase: lines.append(Copy.outOfTheCut)
-            default: lines.append(Copy.noWayBack)
+            case "lobby":
+                // alone in the lobby (the host, in practice: a lone member is handed the role)
+                if othersPresent == 0 { return Copy.closesAlone }
+                return isCreator ? "\(Copy.rejoinWhileWaiting) \(Copy.newHost)" : Copy.rejoinWhileWaiting
+            case CutForABuck.phase:
+                return isCreator && othersConnected > 0 ? "\(Copy.outOfTheCut) \(Copy.newHost)" : Copy.outOfTheCut
+            default:
+                if phase == "between_rounds" && othersConnected == 0 { return Copy.closesNobodyConnected }
+                return isCreator && othersConnected > 0 ? "\(Copy.noWayBack) \(Copy.newHost)" : Copy.noWayBack
             }
-            if isCreator && othersConnected > 0 { lines.append(Copy.newHost) }
-            return lines.joined(separator: " ")
         case .stopWatching:
             return "You go back to the main room."
         }
@@ -164,6 +171,7 @@ enum TournamentLobbyMenu {
     enum Copy {
         static let rejoinWhileWaiting = "You can join again while it's waiting to start."
         static let closesAlone = "The tournament closes, since nobody else has joined."
+        static let closesNobodyConnected = "The tournament closes, since nobody else is connected."
         static let noWayBack = "You can't come back to this tournament, and you won't be among the winners."
         /// Lowercase mid-sentence (the owner's rule, CutCopy).
         static let outOfTheCut = "You'll be out of cut for a buck."
