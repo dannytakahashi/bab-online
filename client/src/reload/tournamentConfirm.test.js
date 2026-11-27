@@ -66,6 +66,7 @@ describe('the tournament lobby\'s confirms on the page', () => {
     await tick();
     expect(page.session.screen).toBe('mainRoom');
     expect(dialog()).toBeNull();
+    expect(document.body.textContent).toContain('The host ended the tournament');
     ok.click();
     expect(sentDestructive()).toEqual([]);
   });

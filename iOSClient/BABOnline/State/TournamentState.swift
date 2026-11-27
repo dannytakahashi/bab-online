@@ -187,7 +187,7 @@ enum TournamentBegin {
 /// The toasts the web shows for a host change and a cancellation (client/src/main.js
 /// onTournamentPlayerLeft / onTournamentCancelled).
 enum TournamentNotice {
-    static let cancelled = "Tournament has been cancelled by the host"
+    static let cancelled = "The host ended the tournament"
 
     /// tournamentPlayerLeft's newCreator (the host left, or was idle: reason 'hostIdle').
     static func hostChanged(to newCreator: String, me: String?) -> String {

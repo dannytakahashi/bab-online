@@ -213,7 +213,7 @@ final class LobbyParityTests: XCTestCase {
         handler(state, app).handleCancelled()
         XCTAssertEqual(app.screen, .mainRoom)
         XCTAssertEqual(state.tournamentId, "")
-        XCTAssertEqual(service.serverError?.message, "Tournament has been cancelled by the host")
+        XCTAssertEqual(service.serverError?.message, "The host ended the tournament")
         XCTAssertEqual(service.serverError?.kind, .info)
         // a stray event with no tournament on this device says nothing
         service.serverError = nil
