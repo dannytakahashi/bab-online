@@ -46,9 +46,9 @@ final class MainRoomControlsTests: XCTestCase {
         XCTAssertNil(C.identifier(.newGame))
         XCTAssertEqual(C.hint(.newGame), "Choose which game to start")
         XCTAssertEqual(C.hint(.leaderboard), "Shows the leaderboard and records")
-        // the trophy is not orange: orange is the tournaments' section and rows right under it
+        // the trophy stays gold (owner 2026-11-27), New Game the brand's green
         XCTAssertEqual(C.tint(.newGame), .primary)
-        XCTAssertEqual(C.tint(.leaderboard), .plain)
+        XCTAssertEqual(C.tint(.leaderboard), .gold)
         // New Game sends, so it waits for the session; the trophy opens a sheet (MainRoomView's
         // header and bar build both from `items` and gate each with this)
         XCTAssertTrue(C.waitsForSession(.newGame))

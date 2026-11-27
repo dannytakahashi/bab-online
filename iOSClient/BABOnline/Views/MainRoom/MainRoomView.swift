@@ -226,7 +226,7 @@ private struct MainRoomScreen: View {
     private func color(_ item: MainRoomControls.Item) -> Color {
         switch MainRoomControls.tint(item) {
         case .primary: return Theme.primary
-        case .plain: return Theme.textPrimary
+        case .gold: return Theme.warning
         }
     }
 
