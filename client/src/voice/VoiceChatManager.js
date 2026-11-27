@@ -223,6 +223,12 @@ export class VoiceChatManager {
   /** The socket the voice handlers listen on (handlers/voiceHandlers.js). */
   setSignalSocket(socketManager) {
     this._signalSocket = socketManager || null;
+    // A drop fails the SFU requests still open (their replies went with
+    // the socket), so the next socket's resume goes at once (step 11)
+    this._unsubSignalState?.();
+    this._unsubSignalState = typeof socketManager?.onStateChange === 'function'
+      ? socketManager.onStateChange((event) => { if (event === 'disconnect') this.sfu.onSocketDisconnect(); })
+      : null;
   }
 
   /**

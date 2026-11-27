@@ -328,3 +328,35 @@ describe('the mesh is unchanged', () => {
     expect(vm.sfu.hasCompany()).toBe(false);
   });
 });
+
+describe('the signaling socket drops (review of #434)', () => {
+  it('the SocketManager\'s disconnect fails the SFU requests still open, so the next socket resumes at once', async () => {
+    const { vm, sm, server } = setup();
+    const listeners = new Set();
+    sm.onStateChange = (cb) => { listeners.add(cb); return () => listeners.delete(cb); };
+    vm.setSignalSocket(sm);
+    sm.fire(SERVER_EVENTS.SFU_ROSTER, server.roster([A]));
+    await startVoice(vm, sm);
+    await settle();
+    const sid = vm.sfu.session.sessionId;
+    server.autoReply = false;
+    sm.fire(SERVER_EVENTS.SFU_MEMBER, server.member('joined', B, { rev: 2 }));
+    await settle();
+    expect(server.held.map((h) => h.event)).toEqual(['sfuPull']);
+    sm.isConnected = false;
+    expect(vm.sfu._req.openCount).toBe(1);
+    for (const cb of listeners) cb('disconnect', { reason: 'transport close' });
+    expect(vm.sfu._req.openCount).toBe(0);
+    await settle(300);
+    sm.id = 'sock-2';
+    sm.isConnected = true;
+    server.autoReply = true;
+    sm.fire(SERVER_EVENTS.SFU_ROSTER, server.roster([A, B], { rev: 3, self: { sessionId: sid, trackName: null, state: 'reconnecting' } }));
+    await settle();
+    expect(server.sent('sfuResume')).toHaveLength(1);
+    // a later socket manager replaces the subscription
+    vm.setSignalSocket(null);
+    expect(listeners.size).toBe(0);
+    vm.shutdown();
+  });
+});

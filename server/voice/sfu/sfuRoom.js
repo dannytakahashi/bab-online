@@ -104,7 +104,7 @@ function sfuState(t) {
 }
 
 function newStats() {
-    return { calls: 0, errors: 0, sessionGone: 0, timeouts: 0, byOp: {}, sessions: 0, pushed: 0, pulled: 0, pullErrors: 0, refused: 0, dirty: false };
+    return { calls: 0, errors: 0, sessionGone: 0, timeouts: 0, byOp: {}, sessions: 0, pushed: 0, pulled: 0, pullErrors: 0, refused: 0, tracksLost: 0, dirty: false };
 }
 
 const isSfuRoom = (t) => t?.voiceRoom?.mode === 'sfu';
@@ -383,6 +383,13 @@ function removeEntry(io, t, entry, { tell = true } = {}) {
         retire(t, entry, entry.sessionId, 'left', known);
     }
     queues.drop(`member:${t.tournamentId}:${entry.username}`, 'not_in_room');
+    // The removed record owns nothing any more: a late Cloudflare answer on
+    // its old session (a 410 after ~5 s) finds no session to end on it, so
+    // it can never announce the member's NEXT record away (review of #434)
+    entry.sessionId = null;
+    entry.sessionSocket = null;
+    entry.trackName = null;
+    entry.localMid = null;
     s.entries.delete(entry.username);
     if (tell) announce(io, t, entry, 'left');
     if (liveSocket(io, entry.socketId)) sendRoster(io, t, entry.socketId, null, 'out');
@@ -523,6 +530,9 @@ function resume(io, t, entry, { sessionId, trackName, mid, pulls = [] }) {
     entry.sessionSocket = entry.socketId;
     entry.trackName = trackName;
     entry.localMid = trackName ? mid : null;
+    // the track-lost check counts from here (a resume after a restart: the
+    // server never saw this track's push)
+    entry.publishedAt = trackName ? Date.now() : null;
     if (!same) entry.pulls.clear();
     if (old && !same) retire(t, entry, old, 'superseded', known);
     // A pull it says it holds of someone it is blocked with (a block made
@@ -567,6 +577,7 @@ function ownerOfSession(t, sessionId) {
 function published(io, t, entry, trackName, mid) {
     entry.trackName = trackName;
     entry.localMid = mid;
+    entry.publishedAt = Date.now();
     sfuState(t).stats.pushed++;
     announce(io, t, entry, 'published');
 }
@@ -580,6 +591,91 @@ function closed(io, t, entry, mids) {
         entry.localMid = null;
         announce(io, t, entry, 'unpublished');
     }
+}
+
+/** Is `entry` still the room's record for its username (not one removed since)? */
+function isCurrentEntry(t, entry) {
+    return isSfuRoom(t) && !!t.voiceRoom.sfu && sfuState(t).entries.get(entry.username) === entry;
+}
+
+/**
+ * A publisher Cloudflare never lists (review of #434, seen live in about 3
+ * of 105 first publishes when several members unmuted within a second): its
+ * push answered fine and it sends media, yet every pull of its track answers
+ * not_found_track_error, for good. Only the server sees every listener's
+ * answers, so a not_found on a member's CURRENT track published more than
+ * TRACK_CHECK_AFTER_MS ago is a strike: the server looks (GET
+ * sessions/{sid}, on that session's queue, at most once per
+ * TRACK_CHECK_EVERY_MS). The track missing or not active there, or
+ * TRACK_STRIKES strikes in a row (measured live 2026-11-26: Cloudflare's GET
+ * lists such a track as `active` while every pull of it answers not_found,
+ * so the GET alone never finds it), ends the publisher's session: the room
+ * hears session null, the publisher an sfuRoster with self.sessionId null and
+ * the same bootId, which makes it pc.close() and publish again on a new
+ * session (step 11), so every listener pulls the new track. No healthy live
+ * publisher ever answered not_found 5 s after its push (it connects in
+ * 0.4-2.4 s, and a client replaces a session not connected 5 s after its
+ * first negotiation).
+ */
+const TRACK_CHECK_AFTER_MS = 5000;
+const TRACK_CHECK_EVERY_MS = 5000;
+const TRACK_STRIKES = 2;
+
+function pullsNotFound(io, t, results) {
+    const s = sfuState(t);
+    const now = Date.now();
+    for (const r of results) {
+        const owner = [...s.entries.values()].find((e) => e.trackName && e.sessionId === r.sessionId && e.trackName === r.trackName);
+        // a pull of it that works clears the strikes (they count in a row)
+        if (r.mid && !r.errorCode) {
+            if (owner?.trackCheck && owner.trackCheck.sessionId === r.sessionId && !owner.trackCheck.running) owner.trackCheck = null;
+            continue;
+        }
+        if (r.errorCode !== 'not_found_track_error') continue;
+        if (!owner || !owner.publishedAt || now - owner.publishedAt < TRACK_CHECK_AFTER_MS) continue;
+        checkPublishedTrack(io, t, owner);
+    }
+}
+
+function checkPublishedTrack(io, t, owner) {
+    const sessionId = owner.sessionId;
+    const last = owner.trackCheck && owner.trackCheck.sessionId === sessionId ? owner.trackCheck : null;
+    if (last && (last.running || Date.now() - last.at < TRACK_CHECK_EVERY_MS)) return;
+    const strikes = (last ? last.strikes : 0) + 1;
+    owner.trackCheck = { sessionId, running: true, at: Date.now(), strikes };
+    queues.run(sessionId, async () => {
+        const g = await cf.getSession(sessionId);
+        countCall(t, 'get(track)', g);
+        owner.trackCheck = { sessionId, running: false, at: Date.now(), strikes };
+        if (!registered(t) || !isCurrentEntry(t, owner) || owner.sessionId !== sessionId || !owner.trackName) return null;
+        let lost;
+        let status;
+        if (!g.ok) {
+            // a 410: the session is gone (the room is told as for any 410);
+            // any other failure: nothing known, the next not_found looks again
+            lost = g.error?.code === 'session_gone';
+            status = g.error?.code ?? null;
+        } else {
+            const mine = g.body.tracks.filter((tr) => tr.location === 'local');
+            const tr = mine.find((x) => x.trackName === owner.trackName && (!owner.localMid || x.mid === String(owner.localMid)));
+            status = tr ? tr.status : 'missing';
+            lost = !tr || tr.status !== 'active' || strikes >= TRACK_STRIKES;
+            socketLogger.info('Voice SFU: published track checked', {
+                tournamentId: t.tournamentId, username: owner.username, status, strikes, lost, local: mine.map((x) => [x.mid, x.status]),
+            });
+        }
+        if (lost) trackLost(io || sfuState(t).io, t, owner, status, strikes);
+        return null;
+    }, { internal: true });
+}
+
+function trackLost(io, t, owner, status, strikes) {
+    socketLogger.warn('Voice SFU: published track lost, session ended', { tournamentId: t.tournamentId, username: owner.username, status, strikes });
+    sfuState(t).stats.tracksLost++;
+    dropSession(t, owner, 'session_gone', status === 'session_gone' ? 'session_gone' : 'track_lost');
+    clearGrace(owner);
+    announce(io, t, owner, 'session');
+    if (liveSocket(io, owner.socketId)) sendRoster(io, t, owner.socketId, owner, 'admitted');
 }
 
 /** The member said it is done with its session (sfuLeave), or Cloudflare answered 410 on it. */
@@ -763,6 +859,10 @@ module.exports = {
     published,
     closed,
     endSession,
+    isCurrentEntry,
+    pullsNotFound,
+    TRACK_CHECK_AFTER_MS,
+    TRACK_CHECK_EVERY_MS,
     checkPulls,
     releasePulls,
     pulledOk,

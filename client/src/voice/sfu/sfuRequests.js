@@ -80,6 +80,16 @@ export function createSfuRequester({
       for (const id of [...open.keys()]) settle(id, localError('cancelled', { retryable: false }));
     },
 
+    /**
+     * Every open request resolves `code` now (retryable): the socket
+     * dropped, so their replies went with it (a reply is sent on the
+     * asking socket only). The loop goes on at once instead of waiting out
+     * the 12 s timeout, so a resume on the next socket is sent at once.
+     */
+    failAll(code = 'disconnected') {
+      for (const id of [...open.keys()]) settle(id, localError(code));
+    },
+
     get openCount() {
       return open.size;
     },

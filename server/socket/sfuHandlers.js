@@ -148,7 +148,10 @@ async function onSession(ctx, opName, call) {
         const r = await call(sessionId);
         sfuRoom.countCall(t, opName, r);
         logCall(t, opName, r);
-        if (!r.ok && r.error?.code === 'session_gone' && entry.sessionId === sessionId) {
+        // Only the room's CURRENT record of that member, still owning the
+        // session: a 410 that lands after the member left and came back (a
+        // new entry, a new session) must never announce the new one away
+        if (!r.ok && r.error?.code === 'session_gone' && sfuRoom.isCurrentEntry(t, entry) && entry.sessionId === sessionId) {
             sfuRoom.endSession(io, t, entry, 'session_gone');
         }
         return { r };
@@ -246,6 +249,8 @@ const sfuPull = op('pull', 'sfuPull', 'sfuCall', async (ctx) => {
         };
     });
     sfuRoom.pulledOk(t, entry, results);
+    // A publisher Cloudflare lost (its push answered, its pulls never do): checked and its session ended
+    sfuRoom.pullsNotFound(io, t, results);
     const offer = body.sessionDescription && body.sessionDescription.type === 'offer' ? body.sessionDescription : null;
     return { sessionId: data.sessionId, requiresImmediateRenegotiation: body.requiresImmediateRenegotiation && !!offer, offer, tracks: [...results, ...notAllowed] };
 });

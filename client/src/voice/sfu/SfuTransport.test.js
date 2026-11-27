@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
-  SfuTransport, PULL_BATCH, PULL_RETRY_MAX, BOOT_HOLD_MS, ICE_RESTART_MAX_AWAY_MS, STALL_COOLDOWN_MS, CONNECT_TIMEOUT_MS, classifyError,
+  SfuTransport, PULL_BATCH, PULL_RETRY_MAX, PULL_SLOW_RETRY_MS, BOOT_HOLD_MS, BUSY_STUCK_MS, ICE_RESTART_MAX_AWAY_MS, STALL_COOLDOWN_MS, CONNECT_TIMEOUT_MS, classifyError,
 } from './SfuTransport.js';
 import { REPLY_TIMEOUT_MS } from './sfuRequests.js';
 import { FakeSfuPC, createFakeSfuServer } from '../../testing/fakeSfu.js';
@@ -258,8 +258,8 @@ describe('step 5: batched pulls', () => {
     expect(server.sent('sfuPull').map((r) => r.data.tracks.length)).toEqual([64, 6]);
   });
 
-  it('empty_track_error / not_found_track_error: retried every 1 s, at most 10 times; the offer is still answered', async () => {
-    const { t, server, audio } = setup();
+  it(`empty_track_error / not_found_track_error: retried every 1 s ${PULL_RETRY_MAX} times, then every ${PULL_SLOW_RETRY_MS / 1000} s while the member is live; the offer is still answered`, async () => {
+    const { t, server, audio, pc } = setup();
     server.script('sfuPull', (data, def) => {
       const r = def();
       r.tracks = r.tracks.map((x) => (x.sessionId === 'sa' ? { ...x, mid: null, errorCode: 'empty_track_error' } : x));
@@ -268,11 +268,23 @@ describe('step 5: batched pulls', () => {
     t.start();
     t.onRoster(server.roster([A, B]));
     await settle();
+    pc().setState('connected');
     expect(server.sent('sfuRenegotiate')).toHaveLength(1);
     expect(audio.add.mock.calls.map((c) => c[0])).toEqual(['bob']);
-    for (let i = 0; i < 15; i++) await settle(1000);
-    const asksForA = server.sent('sfuPull').filter((r) => r.data.tracks.some((x) => x.sessionId === 'sa'));
-    expect(asksForA).toHaveLength(PULL_RETRY_MAX);
+    const asksForA = () => server.sent('sfuPull').filter((r) => r.data.tracks.some((x) => x.sessionId === 'sa')).length;
+    for (let i = 0; i < PULL_RETRY_MAX + 2; i++) await settle(1000);
+    expect(asksForA()).toBe(PULL_RETRY_MAX);
+    // never given up (review of #434: a publisher Cloudflare lost is made
+    // pullable again by a new session; the slow tries catch a late heal)
+    await settle(PULL_SLOW_RETRY_MS * 3);
+    expect(asksForA()).toBe(PULL_RETRY_MAX + 3);
+    // not while the member is reconnecting
+    t.onMember(server.member('reconnecting', { ...A, state: 'reconnecting' }, { rev: 2 }));
+    await settle(PULL_SLOW_RETRY_MS * 3);
+    expect(asksForA()).toBe(PULL_RETRY_MAX + 3);
+    t.onMember(server.member('resumed', A, { rev: 3 }));
+    await settle();
+    expect(asksForA()).toBe(PULL_RETRY_MAX + 4);
   });
 
   it('blocked / not_in_room / own_track / too_many_pulls / no_result: no retry until the roster changes', async () => {
@@ -391,13 +403,17 @@ describe('step 7: roster events', () => {
 
 describe('step 8: errors', () => {
   it('session_gone: the PeerConnection closes, a new session, pushed again, everyone pulled again', async () => {
-    const { t, server, state } = setup({ mic: micTrack() });
+    const { t, server, state, pc } = setup({ mic: micTrack() });
     t.start();
     t.onRoster(server.roster([A, B]));
+    await settle();
+    pc().setState('connected');
     await settle();
     const first = t.session;
     server.fail('sfuClose', 'session_gone', { status: 410 });
     t.onMember(server.member('left', B, { rev: 2 }));
+    await settle();
+    pc().setState('connected');
     await settle();
     expect(first.pc.connectionState).toBe('closed');
     expect(t.session).not.toBe(first);
@@ -539,6 +555,7 @@ describe('step 9: media drops', () => {
     env.t.onRoster(env.server.roster([A]));
     await settle();
     env.pc().setState('connected');
+    await settle();
     return env;
   }
 
@@ -688,6 +705,7 @@ describe('step 10: the downlink stall detector', () => {
     t.onRoster(server.roster([A, B]));
     await settle();
     pc().setState('connected');
+    await settle();
     const [ma, mb] = ['alice', 'bob'].map((u) => t.session.pulls.get(u).mid);
     let n = 0;
     const flow = setInterval(() => { n += 100; pc().bytes[ma] = n; pc().bytes[mb] = n; }, 200);
@@ -710,6 +728,7 @@ describe('step 10: the downlink stall detector', () => {
     t.onRoster(server.roster([A, B]));
     await settle();
     pc().setState('connected');
+    await settle();
     const [ma, mb] = ['alice', 'bob'].map((u) => t.session.pulls.get(u).mid);
     pc().bytes[ma] = 100;
     pc().bytes[mb] = 100;
@@ -733,6 +752,7 @@ describe('step 11: a socket reconnect resumes the session', () => {
     t.onRoster(server.roster([A]));
     await settle();
     pc().setState('connected');
+    await settle();
     const s = t.session;
     server.socket.isConnected = false;
     server.socket.id = null;
@@ -870,5 +890,197 @@ describe('step 13: leaving', () => {
     expect(t.mode).toBe(null);
     expect(t.hasCompany()).toBe(false);
     expect(t.members()).toEqual([]);
+  });
+});
+
+describe('review of #434', () => {
+  async function connectedPublisher(members = [A]) {
+    const env = setup({ mic: micTrack() });
+    env.t.start();
+    env.t.onRoster(env.server.roster(members));
+    await settle();
+    env.pc().setState('connected');
+    await settle();
+    return env;
+  }
+
+  it('stop() while an ICE restart waits for connected frees the loop: the next tournament makes a session', async () => {
+    const { t, server, pc } = await connectedPublisher();
+    pc().setState('failed');
+    await settle();
+    expect(server.sent('sfuIceRestart')).toHaveLength(1);
+    // waiting up to 6 s for connected: the screen is left
+    t.stop();
+    t.exitRoom();
+    await settle(20000);
+    expect(t._busy).toBe(false);
+    const before = server.sent('sfuSession').length;
+    t.enterRoom();
+    t.start();
+    t.onRoster(server.roster([B], { tournamentId: 't2', rev: 1 }));
+    await settle();
+    expect(server.sent('sfuSession').length - before).toBe(1);
+    pc().setState('connected');
+    await settle();
+    expect(server.last('sfuPull').data.tracks).toEqual([{ sessionId: 'sb', trackName: 'mic' }]);
+  });
+
+  it(`a loop step stuck past ${BUSY_STUCK_MS / 1000} s is freed (logged), never SFU voice dead for the page`, async () => {
+    const { t, server } = setup();
+    const step = t._step.bind(t);
+    let hung = true;
+    t._step = () => (hung ? new Promise(() => {}) : step());
+    t.start();
+    t.onRoster(server.roster([A]));
+    await settle(BUSY_STUCK_MS - 1000);
+    hung = false;
+    t.onMember(server.member('joined', B, { rev: 2 }));
+    await settle();
+    expect(server.sent('sfuSession')).toHaveLength(0);
+    await settle(2000);
+    t.onMember(server.member('joined', { username: 'dan', sessionId: 'sd', trackName: 'mic' }, { rev: 3 }));
+    await settle();
+    expect(server.sent('sfuSession')).toHaveLength(1);
+    expect(server.sent('sfuPull')).toHaveLength(1);
+  });
+
+  it('a pull offer the browser refuses: no member left asking; its mids closed by force and pulled again', async () => {
+    const { t, server, audio } = setup();
+    t.start();
+    FakeSfuPC.failRemote = true;
+    t.onRoster(server.roster([A]));
+    await settle();
+    expect(server.sent('sfuPull')).toHaveLength(1);
+    const firstMid = server.requests.length && t.session.byMid.size === 0;
+    expect(firstMid).toBe(true);
+    expect(t.session.pulls.has('alice')).toBe(false);
+    await settle(1000);
+    const force = server.sent('sfuClose').find((r) => r.data.force);
+    expect(force.data.mids).toEqual(['100']);
+    expect(server.sent('sfuPull')).toHaveLength(2);
+    expect(t.session.pulls.get('alice')).toMatchObject({ mid: '101', asking: false });
+    expect(audio.add).toHaveBeenCalledWith('alice', expect.anything(), { mid: '101' });
+  });
+
+  it('a step that throws leaves no pull asking (the loop catch)', async () => {
+    const { t, server } = setup();
+    t.start();
+    t.onRoster(server.roster([A]));
+    await settle();
+    const s = t.session;
+    s.pulls.set('bob', { sessionId: 'sb', trackName: 'mic', mid: null, asking: true });
+    s.byMid.set('42', 'bob');
+    t._abandonAsks();
+    expect(s.pulls.has('bob')).toBe(false);
+    expect(s.byMid.has('42')).toBe(false);
+    expect(s.closeBacklog).toEqual(['42']);
+    expect(s.pulls.get('alice').mid).toBeTruthy();
+  });
+
+  it('a request in flight when the socket drops: the resume goes within one tick of the new roster (disconnect hook)', async () => {
+    const { t, server } = await connectedPublisher();
+    const sid = t.session.sessionId;
+    server.autoReply = false;
+    t.onMember(server.member('joined', B, { rev: 2 }));
+    await settle();
+    expect(server.held.map((h) => h.event)).toEqual(['sfuPull']);
+    server.socket.isConnected = false;
+    t.onSocketDisconnect();
+    await settle(500);
+    server.socket.id = 'sock-2';
+    server.socket.isConnected = true;
+    server.autoReply = true;
+    t.onRoster(server.roster([A, B], { rev: 3, self: { sessionId: sid, trackName: 'mic', state: 'reconnecting' } }));
+    await settle();
+    expect(server.sent('sfuResume')).toHaveLength(1);
+    expect(t.session.sessionId).toBe(sid);
+  });
+
+  it('... and with no disconnect hook: the new socket\'s roster fails the old requests itself', async () => {
+    const { t, server } = await connectedPublisher();
+    const sid = t.session.sessionId;
+    server.autoReply = false;
+    t.onMember(server.member('joined', B, { rev: 2 }));
+    await settle();
+    server.socket.isConnected = false;
+    await settle(500);
+    server.socket.id = 'sock-2';
+    server.socket.isConnected = true;
+    server.autoReply = true;
+    t.onRoster(server.roster([A, B], { rev: 3, self: { sessionId: sid, trackName: 'mic', state: 'reconnecting' } }));
+    await settle();
+    expect(server.sent('sfuResume')).toHaveLength(1);
+  });
+
+  it('a pull refused for good (too_many_pulls) does not outlive its session: a new session pulls that member again', async () => {
+    const { t, server } = setup();
+    t.start();
+    server.once('sfuPull', (data, def) => { const d = def(); d.tracks = d.tracks.map((x) => ({ ...x, mid: null, errorCode: 'too_many_pulls' })); d.offer = null; return d; });
+    t.onRoster(server.roster([A]));
+    await settle(1000);
+    const s1 = t.session;
+    expect(server.sent('sfuPull')).toHaveLength(1);
+    t._closeSession(s1, { leave: false });
+    await settle(1000);
+    expect(t.session).not.toBe(s1);
+    expect(t.session).toBeTruthy();
+    expect(server.sent('sfuPull')).toHaveLength(2);
+    expect(t.session.pulls.get('alice').mid).toBeTruthy();
+  });
+
+  it('an sfuSession answered after the room became a mesh: no PeerConnection, the session let go', async () => {
+    const { t, server } = setup();
+    t.start();
+    server.autoReply = false;
+    t.onRoster(server.roster([A]));
+    await settle();
+    expect(server.held.map((h) => h.event)).toEqual(['sfuSession']);
+    t.onMeshEvent();
+    server.autoReply = true;
+    server.release(0);
+    await settle(100);
+    expect(t.mode).toBe('mesh');
+    expect(t.session).toBe(null);
+    expect(FakeSfuPC.all).toHaveLength(0);
+    expect(server.last('sfuLeave').data.sessionId).toBe('sess1');
+  });
+
+  it('the same socket and bootId list my session as gone (the server ended it): pc.close, a new session, pushed again', async () => {
+    const { t, server, pc } = await connectedPublisher([A]);
+    const s = t.session;
+    expect(server.sent('sfuPush')).toHaveLength(1);
+    t.onRoster(server.roster([A], { rev: 7, self: { sessionId: null, trackName: null, state: 'live' } }));
+    await settle();
+    expect(s.pc.connectionState).toBe('closed');
+    expect(t.session).not.toBe(s);
+    expect(server.sent('sfuResume')).toHaveLength(0);
+    expect(server.sent('sfuSession')).toHaveLength(2);
+    expect(server.sent('sfuPush')).toHaveLength(2);
+    pc().setState('connected');
+    await settle();
+    expect(server.last('sfuPull').data.sessionId).toBe(t.session.sessionId);
+    // a relisted roster that still names my session changes nothing
+    const s2 = t.session;
+    t.onRoster(server.roster([A], { rev: 8, self: { sessionId: s2.sessionId, trackName: 'mic', state: 'live' } }));
+    await settle();
+    expect(t.session).toBe(s2);
+  });
+
+  it('a pull Cloudflare did not answer in time (timeout), or a 406 invalid_session_description: a new session at once, everyone pulled again', async () => {
+    for (const [code, extra] of [['timeout', { retryable: true, retryAfterMs: 1000 }], ['cloudflare_error', { retryable: true, retryAfterMs: 1000, status: 406, cfCode: 'invalid_session_description' }]]) {
+      const { t, server } = setup();
+      server.fail('sfuPull', code, extra);
+      t.start();
+      t.onRoster(server.roster([A]));
+      await settle();
+      const first = FakeSfuPC.all.at(-2);
+      expect(first.connectionState).toBe('closed');
+      expect(server.sent('sfuSession')).toHaveLength(2);
+      expect(server.sent('sfuPull')).toHaveLength(2);
+      expect(server.last('sfuPull').data.sessionId).toBe(t.session.sessionId);
+      expect(t.session.pulls.get('alice').mid).toBeTruthy();
+      t.stop();
+      FakeSfuPC.reset();
+    }
   });
 });

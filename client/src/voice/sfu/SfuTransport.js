@@ -33,6 +33,13 @@ export const PULL_BATCH = 64;
 /** empty_track_error / not_found_track_error: retried this often, this many times. */
 export const PULL_RETRY_MS = 1000;
 export const PULL_RETRY_MAX = 10;
+/**
+ * ... and after those, slowly while the member is live and publishing (a
+ * publisher Cloudflare never lists, seen live when several members unmute
+ * at once: the server ends that session and the publisher makes a new one;
+ * this side keeps asking meanwhile instead of giving up on the pair).
+ */
+export const PULL_SLOW_RETRY_MS = 5000;
 /** Retryable errors: retryAfterMs, at least these, growing per failure in a row. */
 export const BACKOFF_MS = Object.freeze([500, 1000, 2000, 4000]);
 /** Step 9: never act on the first `disconnected`; recover when still down after this. */
@@ -54,11 +61,19 @@ export const STALL_COOLDOWN_MS = 10000;
 /** Step 12: after a new bootId, close no pull of a member who is missing or has no session yet. */
 export const BOOT_HOLD_MS = 20000;
 /**
- * Opus through the SFU runs ~32 kbps a stream against ~24 in the mesh
- * (step 14). null: Chromium's default. A number caps my sender
+ * Opus through the SFU measured 21-26 kbps of payload a stream at 2, 6 and
+ * 12 members (step 14; 2026-11-26), the mesh's ~24 already, so no cap:
+ * null = Chromium's default. A number caps my sender
  * (RTCRtpSender.setParameters maxBitrate, bits per second).
  */
 export const OPUS_MAX_BITRATE = null;
+/**
+ * The loop's one step running longer than this is stuck (a bug: every
+ * await in a step settles, the longest a pull with its three renegotiate
+ * tries, ~52 s): logged and the loop freed, so SFU voice never dies for
+ * the rest of the page.
+ */
+export const BUSY_STUCK_MS = 60000;
 
 /** Per-track pull errors worth a retry (Cloudflare's: the publisher has no media yet, or not yet everywhere). */
 const PULL_RETRY_CODES = new Set(['empty_track_error', 'not_found_track_error']);
@@ -120,6 +135,8 @@ export class SfuTransport {
     this._holdUntil = 0;       // step 12
     this._pullFail = new Map(); // pairKey -> {attempts, retryAt, permanent}
     this._busy = false;
+    this._busySince = 0;
+    this._loopGen = 0;
     this._dirty = false;
     this._wake = null;         // the timer that re-runs the loop (backoff, retries, the hold's end)
     this._wakeAt = 0;
@@ -255,6 +272,9 @@ export class SfuTransport {
     if (!d || typeof d !== 'object' || !Array.isArray(d.members)) return;
     const prev = this._room;
     const sock = this._getSocket()?.id ?? null;
+    // A roster on a new socket: replies to the old one's open requests are
+    // lost with it (the disconnect hook fails them already when it fired)
+    if (prev.socketId && sock && prev.socketId !== sock) this._req.failAll('disconnected');
     const members = new Map();
     for (const m of d.members) {
       if (m && typeof m.username === 'string') members.set(m.username, { sessionId: m.sessionId ?? null, trackName: m.trackName ?? null, state: m.state || 'live' });
@@ -280,6 +300,12 @@ export class SfuTransport {
     if (d.status !== 'admitted') {
       // waiting in line or out of the room: no voice here (no sfuLeave)
       if (s) this._closeSession(s, { leave: false });
+    } else if (s && s.socketId && s.socketId === sock && d.bootId && d.bootId === s.bootId && (d.self?.sessionId ?? null) !== s.sessionId) {
+      // the same socket and process no longer list my session: the server
+      // ended it (a published track Cloudflare lost, step 11's "same
+      // bootId with null"): pc.close() and a new one when needed, never a resume
+      this._log('the server ended my session: a new one');
+      this._closeSession(s, { leave: false });
     } else if (s && prev.bootId && d.bootId && prev.bootId !== d.bootId) {
       // a server restart: media never stopped; resume the same session and
       // hold every pull while the others re-register (step 12)
@@ -313,32 +339,70 @@ export class SfuTransport {
     return this._req.onReply(d);
   }
 
+  /**
+   * The signaling socket dropped (SocketManager 'disconnect'): a reply to
+   * any request still open went with it, so they fail now (retryable) and
+   * the loop is free when the next socket's roster comes (step 11: resume
+   * AT ONCE, not after the 12 s reply timeout).
+   */
+  onSocketDisconnect() {
+    this._req.failAll('disconnected');
+  }
+
   // ------------------------------------------------------------ the loop
 
   _kick() {
+    if (this._busy && Date.now() - this._busySince > BUSY_STUCK_MS) {
+      // never expected (every await of a step settles): free the loop
+      // rather than leave SFU voice dead for the rest of the page
+      this._log('loop stuck for', Date.now() - this._busySince, 'ms: freed');
+      this._busy = false;
+    }
     if (this._busy) {
       this._dirty = true;
       return;
     }
+    const gen = ++this._loopGen;
     this._busy = true;
+    this._busySince = Date.now();
     this._dirty = true;
     (async () => {
       try {
         let guard = 0;
-        while (this._dirty && guard++ < 200) {
+        while (this._dirty && guard++ < 200 && gen === this._loopGen) {
           this._dirty = false;
           // one step at a time; a step that did something runs the loop again
           // eslint-disable-next-line no-await-in-loop
           if (await this._step()) this._dirty = true;
+          this._busySince = Date.now();
         }
       } catch (err) {
         this._log('loop error:', err?.message);
+        this._abandonAsks();
         this._backoff(null);
       } finally {
-        this._busy = false;
-        if (this._dirty) this._kick();
+        if (gen === this._loopGen) {
+          this._busy = false;
+          if (this._dirty) this._kick();
+        }
       }
     })();
+  }
+
+  /**
+   * A step threw (a bug or a browser refusal no step expected): no pull of
+   * the session may stay `asking` (it would never be asked again or
+   * closed), and a mid mapped for it is closed by force next.
+   */
+  _abandonAsks() {
+    const s = this.session;
+    if (!s) return;
+    for (const [u, p] of [...s.pulls]) if (p.asking) s.pulls.delete(u);
+    for (const [mid, u] of [...s.byMid]) {
+      if (s.pulls.get(u)?.mid === mid) continue;
+      s.byMid.delete(mid);
+      s.closeBacklog.push(mid);
+    }
   }
 
   _sock() {
@@ -442,6 +506,10 @@ export class SfuTransport {
       this._backoff(null);
     } else if (kind === 'pause') {
       this._paused = true;
+    } else if (kind === 'retry' && r?.error?.code === 'disconnected') {
+      // no backoff: nothing is sent until the next socket's roster (_ready),
+      // and that roster's work (a resume) goes at once (step 11)
+      this._dirty = true;
     } else if (kind === 'retry') {
       this._backoff(r?.error?.retryAfterMs ?? null);
     }
@@ -455,12 +523,23 @@ export class SfuTransport {
     const sock = this._sock();
     const r = await this._req.request(CLIENT_EVENTS.SFU_SESSION, {});
     if (!this._running || this.session || this._sock() !== sock) return false;
+    if (r.ok && (this.mode !== 'sfu' || this._room.status !== 'admitted')) {
+      // the room stopped being my admitted SFU room while it was asked (a
+      // mesh event, waiting, out, a new lobby entry): no PeerConnection; the
+      // server may still hold it as mine, so it is let go (best effort)
+      this._log('session answered after the room changed: not used');
+      this._req.request(CLIENT_EVENTS.SFU_LEAVE, { sessionId: r.sessionId });
+      return false;
+    }
     if (!r.ok) {
       const kind = this._failed(null, 'session', r);
       if (kind === 'fatal') this._paused = true; // unavailable / invalid: until the next roster
       return false;
     }
     this._ok();
+    // pull failures were facts about the old session (too_many_pulls, a
+    // duplicate, the tries): a new session asks every member again
+    this._pullFail.clear();
     const pc = this._createPc({ bundlePolicy: 'max-bundle', iceServers: SFU_ICE_SERVERS.map((x) => ({ ...x })) });
     const s = {
       sessionId: r.sessionId,
@@ -688,6 +767,8 @@ export class SfuTransport {
       if (s && (s.pulls.has(username))) continue;
       const f = this._pullFail.get(pairKey(username, m.sessionId, m.trackName));
       if (f?.permanent) continue;
+      // the slow tries only while the member is here and live
+      if (f?.slow && m.state !== 'live') continue;
       if (f && f.retryAt > now) {
         soonest = soonest ? Math.min(soonest, f.retryAt) : f.retryAt;
         continue;
@@ -743,12 +824,20 @@ export class SfuTransport {
       let reneg = null;
       if (reply.offer) {
         const pc = s.pc;
-        await pc.setRemoteDescription(reply.offer);
-        for (const tx of pc.getTransceivers?.() || []) {
-          const u = tx.mid !== null ? s.byMid.get(tx.mid) : null;
-          if (u && s.pulls.get(u) && !s.pulls.get(u).transceiver && fresh.includes(tx.mid)) s.pulls.get(u).transceiver = tx;
+        try {
+          await pc.setRemoteDescription(reply.offer);
+          for (const tx of pc.getTransceivers?.() || []) {
+            const u = tx.mid !== null ? s.byMid.get(tx.mid) : null;
+            if (u && s.pulls.get(u) && !s.pulls.get(u).transceiver && fresh.includes(tx.mid)) s.pulls.get(u).transceiver = tx;
+          }
+          await pc.setLocalDescription(await pc.createAnswer());
+        } catch (err) {
+          // the browser refused the SFU's offer: nothing of it is answered,
+          // so its new mids are closed by force and the pulls asked again
+          this._log('pull offer failed:', err?.message);
+          await pc.setLocalDescription({ type: 'rollback' }).catch(() => {});
+          return { ok: false, error: { code: 'local_error', retryable: true }, fresh };
         }
-        await pc.setLocalDescription(await pc.createAnswer());
         if (!this._alive(s)) return { superseded: true };
         reneg = await this._renegotiate(s);
       }
@@ -757,6 +846,24 @@ export class SfuTransport {
     if (r.superseded || !this._alive(s)) {
       if (this.session === s) for (const t of list) if (s.pulls.get(t.username)?.asking) s.pulls.delete(t.username);
       return false;
+    }
+    if (!r.ok && r.error?.code === 'local_error') {
+      for (const t of list) if (s.pulls.get(t.username)?.asking) s.pulls.delete(t.username);
+      for (const mid of r.fresh || []) s.byMid.delete(mid);
+      s.closeBacklog.push(...(r.fresh || []));
+      this.stats.errors++;
+      this._backoff(null);
+      return false;
+    }
+    if (!r.ok && (r.error?.code === 'timeout' || (r.error?.code === 'cloudflare_error' && r.error?.cfCode === 'invalid_session_description'))) {
+      // Cloudflare did not answer the pull in time: it may still have opened
+      // the tracks with an offer this side never answers, and every later
+      // pull of the session then answered 406 invalid_session_description
+      // until a 410 about 20 s on (seen live 2026-11-26): a new session now
+      this._log('pull', r.error.code, ': a new session');
+      this.stats.errors++;
+      this._closeSession(s, { leave: false });
+      return true;
     }
     if (!r.ok) {
       for (const t of list) if (s.pulls.get(t.username)?.asking) s.pulls.delete(t.username);
@@ -782,10 +889,13 @@ export class SfuTransport {
       if (PULL_RETRY_CODES.has(code)) {
         const f = this._pullFail.get(key) || { attempts: 0, retryAt: 0, permanent: false };
         f.attempts++;
-        f.retryAt = Date.now() + PULL_RETRY_MS;
-        f.permanent = f.attempts >= PULL_RETRY_MAX;
+        // fast tries first, then slowly (never given up: _pullsWanted asks
+        // again only while that member is live and publishing)
+        f.slow = f.attempts >= PULL_RETRY_MAX;
+        f.retryAt = Date.now() + (f.slow ? PULL_SLOW_RETRY_MS : PULL_RETRY_MS);
+        f.permanent = false;
         this._pullFail.set(key, f);
-        if (!f.permanent) this._wakeAt0(f.retryAt);
+        this._wakeAt0(f.retryAt);
       } else if (code === 'duplicate') {
         // this session pulls it already (a pull whose reply came too late
         // to be read): close the mid I do not use, then pull again once
@@ -828,7 +938,8 @@ export class SfuTransport {
     let reply = null;
     for (let i = 0; i < 3; i++) {
       reply = await this._req.request(CLIENT_EVENTS.SFU_RENEGOTIATE, { sessionId: s.sessionId, answer: sdpOf(s.pc.localDescription) });
-      if (reply.ok || !this._alive(s) || classifyError(reply) !== 'retry') return reply;
+      // a dropped socket: no wait here (the next socket's roster re-registers first)
+      if (reply.ok || !this._alive(s) || classifyError(reply) !== 'retry' || reply.error?.code === 'disconnected') return reply;
       // eslint-disable-next-line no-await-in-loop
       await new Promise((res) => setTimeout(res, Math.max(reply.error?.retryAfterMs || 0, BACKOFF_MS[i])));
       if (!this._alive(s)) return reply;
@@ -1019,7 +1130,7 @@ export class SfuTransport {
         this._clearTimer(s, 'iceWait');
         resolve(v);
       };
-      s.waitConnected = () => done(true);
+      s.waitConnected = (v = true) => done(v);
       this._setTimer(s, 'iceWait', ms, () => done(isUp()));
     });
   }
@@ -1098,12 +1209,16 @@ export class SfuTransport {
       this._req.request(CLIENT_EVENTS.SFU_LEAVE, { sessionId: s.sessionId });
     }
     s.queue.drop();
+    // an ICE restart waiting for connected (the queue's running job) ends
+    // now: its timer goes below, and nothing else would settle it
+    const waiter = s.waitConnected;
+    s.waitConnected = null;
+    waiter?.(false);
     for (const t of s.timers) {
       clearTimeout(t);
       clearInterval(t);
     }
     s.timers.clear();
-    s.waitConnected = null;
     try {
       s.pc.ontrack = null;
       s.pc.onconnectionstatechange = null;
@@ -1115,6 +1230,9 @@ export class SfuTransport {
     s.byMid.clear();
     if (this.session === s) {
       this.session = null;
+      // its pull failures go with it (a listener with only a refused pair
+      // would otherwise never make a new session: _needsSession)
+      this._pullFail.clear();
       this._notify();
       if (this._running) this._kick();
     }
