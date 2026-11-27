@@ -58,14 +58,15 @@ enum MainRoomControls {
 
     static let items: [Item] = Item.allCases
 
-    /// A control's colour: New Game the brand's, the trophy the plain text colour (review of PR
-    /// #438: orange is the tournaments' colour, their section and rows' trophies, right under it).
-    enum Tint: Equatable { case primary, plain }
+    /// A control's colour: New Game the brand's, the trophy gold (Theme.warning), as it always was
+    /// (owner 2026-11-27: "It was gold before which was nice"; #438's review had made it the plain
+    /// text colour, since the tournaments' section and rows below are the same gold).
+    enum Tint: Equatable { case primary, gold }
 
     static func tint(_ item: Item) -> Tint {
         switch item {
         case .newGame: return .primary
-        case .leaderboard: return .plain
+        case .leaderboard: return .gold
         }
     }
 
