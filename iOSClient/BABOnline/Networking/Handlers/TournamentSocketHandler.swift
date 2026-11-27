@@ -72,8 +72,9 @@ final class TournamentSocketHandler {
         tournamentState.loadFromServerState(dict)
         tournamentState.messages.removeAll { safetyState.isBlocked($0.username) }
         // the server put this socket in the tournament voice room: the old room's calls end
-        // before its announcements (which follow this event) arrive
-        voice().changeRoom()
+        // before its announcements (which follow this event) arrive; an SFU session in this
+        // tournament's room waits for the roster that follows (a reconnect resumes it)
+        voice().changeRoom(keepSfuFor: dict["tournamentId"] as? String)
         if rejoined {
             // joined again as a new member (not ready), or reattached: the server's flag
             let me = socket.authState?.username
@@ -146,6 +147,7 @@ final class TournamentSocketHandler {
     /// goes. Only on the tournament lobby screen (the web's rule).
     @MainActor
     func handleVoiceStatus(_ dict: [String: Any]) {
+        voice().meshRoomSeen()  // only a mesh room sends it (SFU step 1)
         guard appState.screen == .tournamentLobby, !tournamentState.tournamentId.isEmpty,
               let admitted = dict["admitted"] as? Bool else { return }
         if admitted {
@@ -155,6 +157,29 @@ final class TournamentSocketHandler {
             // a cap outside 2...20 still says "Voice is full" (TournamentVoice.fullNote)
             tournamentState.voiceFullCap = TournamentVoice.roomCap(dict["cap"]) ?? 0
             if !wasWaiting { A11y.announce(TournamentVoice.fullNote(cap: tournamentState.voiceFullCap)) }
+        }
+    }
+
+    /// sfuRoster (VOICE_SFU=tournament; SFU step 1): this tournament room is an SFU room. The
+    /// transport takes it (SfuVoice), and its line is the over-cap notice's: "Voice is full
+    /// (N people)" while waiting (N = the roster's cap), gone once admitted or out. Only for this
+    /// app's tournament, the notice only on its lobby screen (the web's rule).
+    @MainActor
+    func handleSfuRoster(_ dict: [String: Any]) {
+        guard let roster = SfuRoster.from(dict) else { return }
+        guard roster.tournamentId == tournamentState.tournamentId else {
+            voice().sfuRoomGone(why: "a roster for another tournament")
+            return
+        }
+        voice().applySfuRoster(roster)
+        switch roster.status {
+        case .waiting:
+            guard appState.screen == .tournamentLobby else { return }
+            let wasWaiting = tournamentState.voiceFullCap != nil
+            tournamentState.voiceFullCap = roster.cap.flatMap { $0 > 0 ? $0 : nil } ?? 0
+            if !wasWaiting { A11y.announce(TournamentVoice.fullNote(cap: tournamentState.voiceFullCap)) }
+        case .admitted, .out:
+            tournamentState.voiceFullCap = nil
         }
     }
 
@@ -203,7 +228,10 @@ final class TournamentSocketHandler {
 
         // an abandoned re-entry's answer came before this (one ordered stream)
         socket.on(SocketEvents.Server.mainRoomJoined) { [weak self] _, _ in
-            DispatchQueue.main.async { self?.tournamentState.abandonedRejoinTournamentId = nil }
+            DispatchQueue.main.async {
+                self?.tournamentState.abandonedRejoinTournamentId = nil
+                self?.voice().sfuRoomGone(why: "the main room")  // no SFU room there (no sfuLeave)
+            }
         }
 
         // MARK: - Tournament Created / Joined
@@ -249,6 +277,11 @@ final class TournamentSocketHandler {
         socket.on(SocketEvents.Server.tournamentVoiceStatus) { [weak self] data, _ in
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async { self.handleVoiceStatus(dict) }
+        }
+
+        socket.on(SocketEvents.Server.sfuRoster) { [weak self] data, _ in
+            guard let self, let dict = data.first as? [String: Any] else { return }
+            DispatchQueue.main.async { self.handleSfuRoster(dict) }
         }
 
         // MARK: - Chat
@@ -357,6 +390,7 @@ final class TournamentSocketHandler {
         socket.on(SocketEvents.Server.tournamentLeft) { [weak self] _, _ in
             guard let self else { return }
             DispatchQueue.main.async {
+                self.voice().sfuRoomGone(why: "tournamentLeft")  // the room is gone (no sfuLeave)
                 self.tournamentState.reset()
                 self.appState.screen = .mainRoom
                 LobbyEmitter.joinMainRoom()
