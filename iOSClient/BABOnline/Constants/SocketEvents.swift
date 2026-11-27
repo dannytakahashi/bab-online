@@ -84,6 +84,16 @@ enum SocketEvents {
         static let voiceIceCandidate = "voiceIceCandidate"
         static let getVoiceIceServers = "getVoiceIceServers"
 
+        // Voice SFU (tournament room)
+        static let sfuSession = "sfuSession"
+        static let sfuPush = "sfuPush"
+        static let sfuPull = "sfuPull"
+        static let sfuRenegotiate = "sfuRenegotiate"
+        static let sfuClose = "sfuClose"
+        static let sfuIceRestart = "sfuIceRestart"
+        static let sfuResume = "sfuResume"
+        static let sfuLeave = "sfuLeave"
+
         // Snapshot v2
         static let requestSnapshot = "requestSnapshot"
 
@@ -215,6 +225,11 @@ enum SocketEvents {
         static let voiceIceServers = "voiceIceServers"
         static let voiceSettings = "voiceSettings"
         static let tournamentVoiceStatus = "tournamentVoiceStatus"
+
+        // Voice SFU (tournament room)
+        static let sfuReply = "sfuReply"
+        static let sfuRoster = "sfuRoster"
+        static let sfuMember = "sfuMember"
 
         // Connection
         static let connect = "connect"
