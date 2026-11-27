@@ -43,7 +43,7 @@ describe('tournament host handoff', () => {
     expect(cancel()).toBeNull();
 
     updateTournamentPlayers(afterBobLeft('me'), 'me', 'me');
-    expect(buttonLabels()).toEqual(['Ready', 'Begin Tournament', 'Cancel Tournament', 'Leave']);
+    expect(buttonLabels()).toEqual(['Ready', 'Begin Tournament', 'End Tournament', 'Leave']);
     expect(begin().hidden).toBe(false);
     expect(begin().disabled).toBe(true);
     expect(document.getElementById('tournamentLobbyContainer').dataset.isCreator).toBe('true');
@@ -61,6 +61,9 @@ describe('tournament host handoff', () => {
     expect(socket.emitted('beginNextRound')).toHaveLength(0);
     expect(begin().disabled).toBe(true);
     cancel().click();
+    // End Tournament asks first (owner 2026-11-26)
+    expect(socket.emitted('cancelTournament')).toHaveLength(0);
+    document.getElementById('tournamentConfirmOk').click();
     expect(socket.emitted('cancelTournament')).toHaveLength(1);
   });
 

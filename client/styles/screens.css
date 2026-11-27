@@ -133,7 +133,7 @@
     justify-content: flex-start;
 }
 
-/* main room: the create buttons side by side, the lobby cards in a grid
+/* main room: the New Game button across the column, the lobby cards in a grid
    that fills the column (one column when it is narrow) */
 .screen--main-room .room-create {
     flex-direction: row;
@@ -525,7 +525,7 @@
 /* a Get Your Bid lobby or table in the list: its mode chip */
 .room-card__mode { margin-bottom: var(--space-2); }
 
-/* "+ Create Game": the two games to choose from (MainRoom.showCreateGameDialog) */
+/* "New Game": the games and a tournament to choose from (MainRoom.showCreateGameDialog) */
 .mode-pick { display: grid; gap: var(--space-3); min-width: min(360px, 80vw); }
 .mode-pick__option {
     display: flex;

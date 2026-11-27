@@ -7,7 +7,7 @@
  */
 
 import { generateDistinctColor } from '../../utils/colors.js';
-import { el, createButton, createPanel } from '../kit/index.js';
+import { el, createButton, createPanel, openModal } from '../kit/index.js';
 import { createTournamentScoreboard } from '../components/TournamentScoreboard.js';
 import { chatLine, chatForm, setButtonVariant, appendChatLine, scrollChatToEnd, followChatOnResize } from './common.js';
 import { LOBBY_VOICE_SLOT_ID } from './GameLobby.js';
@@ -17,6 +17,7 @@ import { createCutView } from '../cut/CutForABuck.js';
 import { getCutState } from '../cut/cutStore.js';
 import { STAGE as CUT_STAGE } from '../../state/cutForABuck.js';
 import { createFinalResultsCard } from '../components/FinalResultsCard.js';
+import { CHOICE, CHOICE_EVENT, stillOffers, confirmWords, confirmMessage, otherMembers } from './tournamentConfirm.js';
 
 /**
  * Module state
@@ -128,7 +129,7 @@ function isHost(players, username, creatorUsername) {
 }
 
 /**
- * The host's Begin Tournament / Begin Next Round and Cancel Tournament,
+ * The host's Begin Tournament / Begin Next Round and End Tournament,
  * right after the Ready button. Built at first render and when the host
  * role passes to me (the creator left), labelled for the current phase.
  */
@@ -153,7 +154,9 @@ function addCreatorControls(readyBtn, socket, players) {
     renderBegin(beginBtn, false);
   });
 
-  const cancelBtn = createButton({ label: 'Cancel Tournament', variant: 'danger', onClick: () => socket.emit('cancelTournament') });
+  // End Tournament (owner 2026-11-26, iOS's word; the event stays
+  // cancelTournament) asks first: openTournamentConfirm
+  const cancelBtn = createButton({ label: 'End Tournament', variant: 'danger', onClick: () => openTournamentConfirm(CHOICE.END) });
   cancelBtn.id = 'tournamentCancelBtn';
   readyBtn.after(beginBtn, cancelBtn);
 }
@@ -361,12 +364,15 @@ export function showTournamentLobby(data, socket, username) {
     if (isCreator) addCreatorControls(readyBtn, socket, data.players);
   }
 
-  // Leave (players and spectators)
-  buttonRow.appendChild(createButton({
-    label: 'Leave',
+  // Leave (players) / Stop Watching (spectators, iOS's word); both ask first
+  const leaveChoice = isSpectator ? CHOICE.STOP_WATCHING : CHOICE.LEAVE;
+  const leaveBtn = createButton({
+    label: isSpectator ? 'Stop Watching' : 'Leave',
     variant: 'secondary',
-    onClick: () => socket.emit('leaveTournament'),
-  }));
+    onClick: () => openTournamentConfirm(leaveChoice),
+  });
+  leaveBtn.id = 'tournamentLeaveBtn';
+  buttonRow.appendChild(leaveBtn);
 
   mainColumn.appendChild(buttonRow);
   container.appendChild(chatPanel);
@@ -414,12 +420,16 @@ function enterCut({ intro = false } = {}) {
       socket: lobbySocket,
       players: lobbyPlayers,
       onViewProfile: hooks.onViewProfile,
+      // the cut's Leave / Stop Watching asks first, as the lobby's
+      onLeave: () => openTournamentConfirm(lobbySpectator ? CHOICE.STOP_WATCHING : CHOICE.LEAVE),
     });
     main.replaceChildren(cutView.element);
     main.classList.add('has-cut');
   }
   updateTournamentRoundIndicator(rounds.currentRound, rounds.totalRounds);
   cutView.update(state, { intro });
+  // End is not offered in the cut (Leave is, in the cut's view)
+  syncTournamentConfirm();
 }
 
 /**
@@ -479,6 +489,8 @@ export function showTournamentFinal({ scoreboard = lobbyScoreboard, winners = []
   const note = el('p', { className: 'muted-note final-results__note', text: 'This lobby stays open for about 10 minutes' });
   main.replaceChildren(card, actions, note);
   updateTournamentRoundIndicator(rounds.currentRound, totalRounds);
+  // nothing to leave or end once it is over
+  syncTournamentConfirm();
 }
 
 // Track current phase at module level for begin button handler
@@ -614,6 +626,8 @@ export function updateTournamentPlayers(players, currentUsername, newCreator = n
   updateTournamentPlayersList(container, players, currentUsername, isCreator);
   updateBeginButton(players);
   if (players) cutView?.setPlayers(players);
+  // a host hand-off drops an open End; a Leave's words follow who is here
+  syncTournamentConfirm();
 }
 
 /** The server named another host (newCreator, or another isCreator entry). */
@@ -729,6 +743,7 @@ export function setTournamentPhase(phase) {
       renderBegin(beginBtn, false);
     }
   }
+  syncTournamentConfirm();
 }
 
 /**
@@ -739,6 +754,9 @@ export function removeTournamentLobby() {
   cutView = null;
   const lobby = document.getElementById('tournamentLobbyContainer');
   if (lobby) lobby.remove();
+  // the screen went (the tournament cancelled, left, a table, a redraw):
+  // an open confirm goes with it, as if kept
+  closeTournamentConfirm();
   currentTournamentId = null;
   isPlayerReady = false;
   lobbySocket = null;
@@ -758,4 +776,126 @@ export function removeTournamentLobby() {
  */
 export function getCurrentTournamentId() {
   return currentTournamentId;
+}
+
+/** The confirm on screen: {choice, modal, message, tournamentId, socket}, or null. */
+let confirmDialog = null;
+const CONFIRM_ID = 'tournamentConfirmDialog';
+
+/** What the lobby offers right now (tournamentConfirm.tournamentChoices' input). */
+function choiceState() {
+  const container = document.getElementById('tournamentLobbyContainer');
+  return {
+    phase: currentPhase,
+    isHost: !lobbySpectator && container?.dataset.isCreator === 'true',
+    isSpectator: lobbySpectator,
+  };
+}
+
+/** The lobby is up and still offers the choice. */
+function offered(choice) {
+  return !!document.getElementById('tournamentLobbyContainer') && stillOffers(choice, choiceState());
+}
+
+/** The dialog's message for the lobby as it is now. */
+function messageNow(choice) {
+  return confirmMessage(choice, { ...choiceState(), ...otherMembers(lobbyPlayers, lobbyUsername) });
+}
+
+/**
+ * The button that opens the choice where it is on screen now, else Leave
+ * (End went with a hand-off), else Return to Main Room: focus after a close.
+ */
+function triggerFor(choice) {
+  const leaveId = cutView ? 'cutLeaveBtn' : 'tournamentLeaveBtn';
+  const ids = choice === CHOICE.END ? ['tournamentCancelBtn', leaveId] : [leaveId];
+  for (const id of [...ids, 'tournamentReturnBtn']) {
+    const btn = document.getElementById(id);
+    if (btn && !btn.hidden && btn.isConnected) return btn;
+  }
+  return null;
+}
+
+/**
+ * Leave, Stop Watching or End Tournament asks first (owner 2026-11-26, iOS's
+ * words: tournamentConfirm.js): the kit's modal with the message, a danger
+ * confirm and a keep button (initial focus: these are destructive). Escape,
+ * the backdrop and the keep button send nothing. The dialog closes by
+ * itself, as if kept, once its choice stops applying while it is open (the
+ * host role passes on, the cut starts for End, the results show, the screen
+ * goes: syncTournamentConfirm / removeTournamentLobby), and its message
+ * follows the lobby while it is open (who is still here, the phase), as
+ * iOS's menu header is drawn from the live state: the words read are the
+ * outcome of a click now. The confirm checks again before it sends.
+ * @param {string} choice - CHOICE
+ * @returns {Object|null} the modal
+ */
+export function openTournamentConfirm(choice) {
+  closeTournamentConfirm();
+  if (!offered(choice)) return null;
+  const words = confirmWords(choice);
+  const tournamentId = currentTournamentId;
+  const socket = lobbySocket;
+  const message = el('p', { className: 'dialog-copy', attrs: { id: 'tournamentConfirmMessage' }, text: messageNow(choice) });
+  const keep = createButton({ label: words.keep, variant: 'secondary' });
+  keep.id = 'tournamentConfirmKeep';
+  const ok = createButton({ label: words.confirm, variant: 'danger', attrs: { 'data-confirm': 'yes' } });
+  ok.id = 'tournamentConfirmOk';
+  let modal = null;
+  modal = openModal({
+    title: words.title,
+    id: CONFIRM_ID,
+    className: 'page-modal tournament-confirm',
+    body: message,
+    actions: [keep, ok],
+    initialFocus: keep,
+    onClose: () => {
+      if (confirmDialog?.modal === modal) confirmDialog = null;
+      // the button it came from may have gone (the cut's view took the
+      // column): focus goes to where the choice is now, never the page
+      if (!document.activeElement || document.activeElement === document.body) triggerFor(choice)?.focus({ preventScroll: true });
+    },
+  });
+  modal.dialog.setAttribute('aria-describedby', 'tournamentConfirmMessage');
+  modal.dialog.dataset.choice = choice;
+  keep.addEventListener('click', () => modal.close('button'));
+  ok.addEventListener('click', () => {
+    // checked again: still this tournament, still offered (a late click
+    // after a hand-off or the results sends nothing)
+    const go = currentTournamentId === tournamentId && lobbySocket === socket && offered(choice);
+    modal.close('action');
+    if (go) socket?.emit(CHOICE_EVENT[choice]);
+  });
+  confirmDialog = { choice, modal, message };
+  return modal;
+}
+
+/** Take the confirm down, nothing sent. */
+export function closeTournamentConfirm() {
+  const open = confirmDialog;
+  confirmDialog = null;
+  open?.modal.close('api');
+}
+
+/** Is a confirm up (and which choice)? */
+export function tournamentConfirmChoice() {
+  return confirmDialog?.modal.isOpen() ? confirmDialog.choice : null;
+}
+
+/**
+ * The lobby changed under an open confirm: dropped when its choice is no
+ * longer offered, else its message follows the lobby.
+ */
+function syncTournamentConfirm() {
+  if (!confirmDialog) return;
+  if (!confirmDialog.modal.isOpen()) {
+    confirmDialog = null;
+    return;
+  }
+  if (!offered(confirmDialog.choice)) {
+    closeTournamentConfirm();
+    return;
+  }
+  const text = messageNow(confirmDialog.choice);
+  if (confirmDialog.message.textContent !== text) confirmDialog.message.textContent = text;
 }
