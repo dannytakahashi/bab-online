@@ -60,8 +60,9 @@ final class ReleaseMetadataTests: XCTestCase {
     /// the list too; 1.2.7 (42) was released, so build 43 is 1.2.8 and brings the simpler tournament
     /// lobby, the native New Game menu and the turn vibration; builds 43 and 44 went only to TestFlight,
     /// build 45 (still 1.2.8) adds the review nits and goes to review, and build 46 (still 1.2.8)
-    /// replaces it in review: the host's Leave and End Tournament icons, Tournament in New Game).
-    static let minimumBuild = 46
+    /// replaces it in review: the host's Leave and End Tournament icons, Tournament in New Game; build 47
+    /// (still 1.2.8, cut from 46's commit) adds only the "The host ended the tournament" toast).
+    static let minimumBuild = 47
 
     private func info(_ key: String) -> Any? { Bundle.main.object(forInfoDictionaryKey: key) }
 
@@ -74,12 +75,12 @@ final class ReleaseMetadataTests: XCTestCase {
     }
 
     /// server/socket/upgradeGate.js answers builds below MIN_IOS_BUILD (41: 1.0.0 (1) to
-    /// 1.2.6 (40)) with an update message only; 1.2.7 (41) to (42) and 1.2.8 (43) to (46) are current, pinned
+    /// 1.2.6 (40)) with an update message only; 1.2.7 (41) to (42) and 1.2.8 (43) to (47) are current, pinned
     /// server-side by upgradeGate.test.js. The build number only grows:
     /// builds 3 to 6 went to App Store Connect and 1.2.0 (6) was released, so build 7 is 1.2.1.
     func testBuildIsNeverGatedByTheServer() throws {
         let build = try XCTUnwrap(Int(try XCTUnwrap(info("CFBundleVersion") as? String)))
-        XCTAssertGreaterThanOrEqual(build, Self.minimumBuild, "1.2.0 (6), 1.2.1 (9) and 1.2.2 (13) were released; 1.2.8 ships as build 46 or later and builds never go back")
+        XCTAssertGreaterThanOrEqual(build, Self.minimumBuild, "1.2.0 (6), 1.2.1 (9) and 1.2.2 (13) were released; 1.2.8 ships as build 47 or later and builds never go back")
         XCTAssertEqual(info("CFBundleShortVersionString") as? String, "1.2.8", "1.2.7 (42) was released, so build 43 is 1.2.8")
     }
 
