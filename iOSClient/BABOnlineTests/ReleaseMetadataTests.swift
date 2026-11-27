@@ -72,8 +72,8 @@ final class ReleaseMetadataTests: XCTestCase {
         XCTAssertNotEqual(version, "1.0", "Info.plist must use $(MARKETING_VERSION)")
     }
 
-    /// server/socket/upgradeGate.js answers builds below MIN_IOS_BUILD (3: 1.0.0 (1) and
-    /// 1.1.0 (2)) with an update message only; 1.2.0 (3) to (6) and 1.2.1 (7) to (9), 1.2.2 (10) to (13) and 1.2.3 (14) to (31) and 1.2.4 (32) to (38) and 1.2.5 (39) and 1.2.6 (40) and 1.2.7 (41) to (42) and 1.2.8 (43) to (45) are current, pinned
+    /// server/socket/upgradeGate.js answers builds below MIN_IOS_BUILD (41: 1.0.0 (1) to
+    /// 1.2.6 (40)) with an update message only; 1.2.7 (41) to (42) and 1.2.8 (43) to (45) are current, pinned
     /// server-side by upgradeGate.test.js. The build number only grows:
     /// builds 3 to 6 went to App Store Connect and 1.2.0 (6) was released, so build 7 is 1.2.1.
     func testBuildIsNeverGatedByTheServer() throws {
