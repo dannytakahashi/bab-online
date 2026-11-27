@@ -2,9 +2,10 @@ import XCTest
 
 /// The tournament lobby's layout (owner 2026-11-26): one action slot at the bottom (Ready ->
 /// Unready; the host's Begin once allowed, with Unready under it), the host's Rounds picker in the
-/// header, Leave / Cancel Tournament in a "…" menu ("More") with a confirmation; and New Game as a
-/// native menu with each game's rules under its name. Fixture mode; run on the iPhone 18 Pro,
-/// the iPad and the closed iPhone Duo (where the menu is a vertical bar item).
+/// header, Leave / Stop Watching as a button (a member, a spectator) or the host's "…" menu ("More")
+/// of Leave Tournament… / Cancel Tournament…, one level, each confirmed by a centred alert; and New
+/// Game as a native menu with each game's rules under its name. Fixture mode; run on the iPhone 18
+/// Pro, the iPad and the iPhone Duo closed and open (where the entry point is a vertical bar item).
 /// `TEST_RUNNER_BAB_SHOTS=<folder>` (+ `TEST_RUNNER_BAB_DEVICE=<tag>`) saves PNGs.
 final class LobbyMenuLayoutUITests: XCTestCase {
     override func setUp() {
@@ -59,7 +60,9 @@ final class LobbyMenuLayoutUITests: XCTestCase {
         static let cancelInTheLobby = "The tournament ends for everyone before it starts."
         static let cancelOnceBegun = "The tournament ends for everyone, and any games still in play stop now."
         static let hostLeavesTheLobby = "You can join again while it's waiting to start. Another player becomes the host."
+        static let memberLeavesTheLobby = "You can join again while it's waiting to start."
         static let noWayBack = "You can't come back to this tournament, and you won't be among the winners."
+        static let stopWatching = "You go back to the main room."
     }
 
     private var more: (XCUIApplication) -> XCUIElement {
@@ -151,148 +154,300 @@ final class LobbyMenuLayoutUITests: XCTestCase {
             app = lobby("tournament-round", ["-uiHost", host])
             XCTAssertFalse(element(app, "tournament.ready").exists, "no Ready during a round (\(host))")
             XCTAssertFalse(element(app, "tournament.begin").exists, "no Begin during a round (\(host))")
-            XCTAssertTrue(more(app).exists, "the menu stays (\(host))")
+            // the host keeps the "…" (Leave and Cancel), a member the Leave button
+            XCTAssertTrue(host == "ivy" ? more(app).exists : leaveButton(app).exists, "Leave stays (\(host))")
             app.terminate()
         }
     }
 
     // MARK: - The menu
 
-    private static let ax3 = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"]
-
-    /// Opens an item of the "…" menu (a submenu) and returns its consequence (the submenu's
-    /// header) and its one confirm button: the button with the item's title BELOW the header (the
-    /// submenu's own title row above it carries the same words).
-    private func openConfirm(_ app: XCUIApplication, _ title: String, _ message: String,
-                             file: StaticString = #filePath, line: UInt = #line) -> (header: XCUIElement, confirm: XCUIElement) {
-        let item = app.buttons.matching(NSPredicate(format: "label == %@", title)).firstMatch
-        XCTAssertTrue(item.waitForExistence(timeout: 3), "\(title) in the menu", file: file, line: line)
-        item.tap()
-        let header = app.staticTexts[message].firstMatch
-        XCTAssertTrue(header.waitForExistence(timeout: 3), "the consequence heads the confirm: \(message)", file: file, line: line)
-        let below = app.buttons.matching(NSPredicate(format: "label == %@", title)).allElementsBoundByIndex
-            .filter { $0.exists && $0.frame.minY >= header.frame.maxY - 1 }
-        XCTAssertEqual(below.count, 1, "one confirm under the consequence", file: file, line: line)
-        return (header, below.first ?? item)
+    /// The member's / spectator's button (before any alert is up: the alert has a "Leave
+    /// Tournament" button too), by its identifier or its VoiceOver label (the vertical bar's item).
+    private func entryButton(_ app: XCUIApplication, _ id: String, _ label: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", id, label)).firstMatch
     }
 
-    /// The confirm is in the menu: no alert, no popover, no dialog title floating over the chat.
-    private func assertNothingFloats(_ app: XCUIApplication, _ question: String, file: StaticString = #filePath, line: UInt = #line) {
-        XCTAssertEqual(app.alerts.count, 0, "no alert", file: file, line: line)
-        XCTAssertEqual(app.popovers.count, 0, "no popover", file: file, line: line)
-        XCTAssertFalse(app.staticTexts[question].exists, "no dialog question (\(question))", file: file, line: line)
+    private func leaveButton(_ app: XCUIApplication) -> XCUIElement {
+        entryButton(app, "tournament.leave", "Leave Tournament")
     }
 
-    /// The consequence on screen: the header carries the whole message and sits inside the window
-    /// (whether a long one wraps rather than ending in an ellipsis is read from the screenshots).
-    private func assertWhole(_ app: XCUIApplication, _ header: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
-        let window = app.windows.firstMatch.frame
-        XCTAssertTrue(window.insetBy(dx: -1, dy: -1).contains(header.frame), "header \(header.frame) inside \(window)", file: file, line: line)
+    /// Brings the entry point into reach (at AX5 the header can sit above a scrolled list).
+    private func reach(_ app: XCUIApplication, _ e: XCUIElement) {
+        XCTAssertTrue(e.waitForExistence(timeout: 5), "the entry point")
+        for _ in 0..<4 where !e.isHittable { app.swipeDown(velocity: .slow) }
     }
 
-    /// Closes the open menu by a tap beside it (the screen's leading edge, clear of the menu on every device), the "keep" choice.
-    private func dismissMenu(_ app: XCUIApplication) {
-        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.45)).tap()
-    }
-
-    /// Cancel Tournament confirms IN the menu (owner 2026-11-26: the confirmationDialog showed as a
-    /// popover pointing at the chat): its submenu says what happens in full and its one button
-    /// sends cancelTournament; closing the menu sends nothing.
-    func testCancelConfirmsInTheMenuAndDismissingSendsNothing() {
-        let app = lobby("tournament-rounds")
+    /// The host's "…" menu: one level of plain items with a trailing ellipsis, nothing nested.
+    private func openHostMenu(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         let button = more(app)
-        XCTAssertTrue(button.waitForExistence(timeout: 5))
-        XCTAssertTrue(button.isHittable, "More is reachable (the vertical bar on the closed Duo)")
-        let message = TournamentCopy.cancelInTheLobby
+        reach(app, button)
+        XCTAssertTrue(button.isHittable, "More is reachable (the vertical bar on the Duo)", file: file, line: line)
         button.tap()
-        let first = openConfirm(app, "Cancel Tournament", message)
-        assertWhole(app, first.header)
-        assertNothingFloats(app, "Cancel the tournament?")
-        XCTAssertTrue(first.confirm.isHittable)
+        XCTAssertTrue(app.buttons["Cancel Tournament…"].firstMatch.waitForExistence(timeout: 3), "Cancel in the menu", file: file, line: line)
+        XCTAssertTrue(app.buttons["Leave Tournament…"].firstMatch.exists, "Leave in the menu", file: file, line: line)
+        XCTAssertEqual(app.alerts.count, 0, "nothing asked yet", file: file, line: line)
+    }
+
+    /// The alert a choice opens: centred (no popover), its question and the consequence.
+    private func openedAlert(_ app: XCUIApplication, _ question: String, _ message: String,
+                             file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+        let alert = app.alerts[question]
+        XCTAssertTrue(alert.waitForExistence(timeout: 4), "the alert \(question)", file: file, line: line)
+        XCTAssertTrue(alert.staticTexts[message].exists, "it says what happens: \(message)", file: file, line: line)
+        XCTAssertEqual(app.popovers.count, 0, "no popover", file: file, line: line)
+        XCTAssertEqual(app.alerts.count, 1, "one alert", file: file, line: line)
+        // never a submenu: the menu went away when its item opened the alert
+        XCTAssertFalse(app.buttons["Cancel Tournament…"].exists, "no menu behind the alert", file: file, line: line)
+        // UIKit lays the alert out: at AX5 on the closed Duo it is centred in the content beside the
+        // vertical bar and overhangs the leading edge by about 10 pt (its message and buttons
+        // scroll inside it); it is never wider than the window and its centre is on screen
+        let window = app.windows.firstMatch.frame
+        XCTAssertLessThanOrEqual(alert.frame.width, window.width, "the alert \(alert.frame) fits \(window)", file: file, line: line)
+        XCTAssertTrue(window.contains(CGPoint(x: alert.frame.midX, y: alert.frame.midY)), "the alert \(alert.frame) on \(window)", file: file, line: line)
+        return alert
+    }
+
+    /// The alert's destructive button (`tournament.confirm`) and keep button (`tournament.keep`):
+    /// UIAlertAction's accessibilityIdentifier, which XCUITest reads (the alert's tree lists each
+    /// button twice, so the first match).
+    private func confirm(_ alert: XCUIElement) -> XCUIElement { alert.buttons["tournament.confirm"].firstMatch }
+    private func keep(_ alert: XCUIElement) -> XCUIElement { alert.buttons["tournament.keep"].firstMatch }
+
+    private func waitGone(_ alert: XCUIElement, _ what: String) {
+        waitFor(what) { !alert.exists }
+    }
+
+    /// Cancel Tournament: the host's "…" then Cancel Tournament…, a centred alert "Cancel
+    /// tournament?" with the consequence; Keep Tournament sends nothing; Cancel Tournament sends
+    /// cancelTournament.
+    func testCancelAsksInAnAlertAndKeepSendsNothing() {
+        let app = lobby("tournament-rounds")
+        openHostMenu(app)
+        // each row on one line at the default size (review of PR #437: with the icon "Cancel
+        // Tournament…" broke over two on the Duo, open and closed, and the iPhone 18 Pro)
+        let cancelRow = app.buttons["Cancel Tournament…"].firstMatch, leaveRow = app.buttons["Leave Tournament…"].firstMatch
+        XCTAssertEqual(cancelRow.frame.height, leaveRow.frame.height, accuracy: 2,
+                       "Cancel Tournament… \(cancelRow.frame) as tall as Leave Tournament… \(leaveRow.frame)")
+        XCTAssertLessThan(cancelRow.frame.height, 56, "one line: \(cancelRow.frame)")
+        shot("menu-host")
+        app.buttons["Cancel Tournament…"].firstMatch.tap()
+        var alert = openedAlert(app, "Cancel tournament?", TournamentCopy.cancelInTheLobby)
+        XCTAssertEqual(confirm(alert).label, "Cancel Tournament")
+        XCTAssertEqual(keep(alert).label, "Keep Tournament", "never a bare Cancel beside Cancel Tournament")
         XCTAssertEqual(sent(app), "-", "nothing sent before the confirmation")
-        dismissMenu(app)
-        waitFor("the menu closed") { !app.staticTexts[message].exists }
+        shot("alert-host-cancel")
+        keep(alert).tap()
+        waitGone(alert, "Keep Tournament closed the alert")
         RunLoop.current.run(until: Date().addingTimeInterval(1))
-        XCTAssertEqual(sent(app), "-", "closing the menu keeps the tournament")
+        XCTAssertEqual(sent(app), "-", "Keep Tournament keeps the tournament")
         XCTAssertTrue(element(app, "tournament.ready").exists, "still in the lobby")
 
-        more(app).tap()
-        let second = openConfirm(app, "Cancel Tournament", message)
-        shot("menu-host-confirm")
-        second.confirm.tap()
+        openHostMenu(app)
+        app.buttons["Cancel Tournament…"].firstMatch.tap()
+        alert = openedAlert(app, "Cancel tournament?", TournamentCopy.cancelInTheLobby)
+        confirm(alert).tap()
         waitFor("cancelTournament sent") { sent(app) == "cancelTournament" }
         app.terminate()
     }
 
-    /// The host's menu: Leave Tournament and Cancel Tournament, each a submenu; Leave says the role
-    /// passes on and sends leaveTournament.
-    func testTheHostsMenuLeavesAfterAConfirmation() {
+    /// The host's Leave: "…" then Leave Tournament…, the alert says the role passes on; Stay
+    /// keeps me there, Leave Tournament sends leaveTournament.
+    func testTheHostsLeaveAsksInAnAlert() {
         let app = lobby("tournament-rounds")
-        more(app).tap()
-        XCTAssertTrue(app.buttons["Cancel Tournament"].firstMatch.waitForExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["Leave Tournament"].exists)
-        shot("menu-host")
-        let (header, confirm) = openConfirm(app, "Leave Tournament", TournamentCopy.hostLeavesTheLobby)
-        assertWhole(app, header)
-        assertNothingFloats(app, "Leave the tournament?")
-        XCTAssertEqual(sent(app), "-")
-        confirm.tap()
+        openHostMenu(app)
+        app.buttons["Leave Tournament…"].firstMatch.tap()
+        var alert = openedAlert(app, "Leave tournament?", TournamentCopy.hostLeavesTheLobby)
+        XCTAssertEqual(keep(alert).label, "Stay")
+        keep(alert).tap()
+        waitGone(alert, "Stay closed the alert")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertEqual(sent(app), "-", "Stay keeps me in the tournament")
+        openHostMenu(app)
+        app.buttons["Leave Tournament…"].firstMatch.tap()
+        alert = openedAlert(app, "Leave tournament?", TournamentCopy.hostLeavesTheLobby)
+        shot("alert-host-leave")
+        confirm(alert).tap()
         waitFor("leaveTournament sent") { sent(app) == "leaveTournament" }
         app.terminate()
     }
 
-    /// A member's menu: Leave Tournament only, confirmed in its submenu, then leaveTournament.
-    func testAMembersMenuLeavesAfterAConfirmation() {
+    /// A member has ONE choice: Leave is a button (no "…", no menu), straight to its alert; Stay
+    /// keeps me there, Leave Tournament sends leaveTournament.
+    func testAMembersLeaveIsAButtonThatAsksFirst() {
         let app = lobby("tournament-between")
-        XCTAssertTrue(more(app).waitForExistence(timeout: 5))
-        more(app).tap()
-        XCTAssertTrue(app.buttons["Leave Tournament"].firstMatch.waitForExistence(timeout: 3))
+        let button = leaveButton(app)
+        reach(app, button)
+        XCTAssertFalse(more(app).exists, "no menu for one choice")
+        XCTAssertEqual(button.label, "Leave Tournament", "VoiceOver hears the whole choice")
         XCTAssertFalse(app.buttons["Cancel Tournament"].exists, "only the host cancels")
-        shot("menu-member")
+        shot("member-button")
+        button.tap()
         // between rounds a member who leaves is gone for good, never "a missed round scores..."
-        let (header, confirm) = openConfirm(app, "Leave Tournament", TournamentCopy.noWayBack)
-        assertWhole(app, header)
-        assertNothingFloats(app, "Leave the tournament?")
-        XCTAssertEqual(sent(app), "-")
-        shot("menu-member-confirm")
-        confirm.tap()
+        var alert = openedAlert(app, "Leave tournament?", TournamentCopy.noWayBack)
+        XCTAssertEqual(confirm(alert).label, "Leave Tournament")
+        XCTAssertEqual(keep(alert).label, "Stay")
+        shot("alert-member-leave")
+        keep(alert).tap()
+        waitGone(alert, "Stay closed the alert")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertEqual(sent(app), "-", "Stay keeps me in the tournament")
+        XCTAssertTrue(leaveButton(app).exists, "still in the lobby")
+        leaveButton(app).tap()
+        alert = openedAlert(app, "Leave tournament?", TournamentCopy.noWayBack)
+        confirm(alert).tap()
         waitFor("leaveTournament sent") { sent(app) == "leaveTournament" }
         app.terminate()
     }
 
-    /// Screenshots of the menu and each confirm, at the default size and AX3 (`TEST_RUNNER_BAB_SHOTS`):
-    /// the host in the lobby (Cancel, Leave), the host between rounds (Cancel), a member between
-    /// rounds (Leave). Each consequence must read whole in the picture.
+    /// A spectator's Stop Watching is a button; its alert's Keep Watching keeps watching.
+    func testASpectatorsStopWatchingIsAButtonThatAsksFirst() {
+        let app = lobby("tournament-pairings", ["-uiSpectator", "YES"])
+        let button = entryButton(app, "tournament.stopWatching", "Stop Watching")
+        reach(app, button)
+        XCTAssertFalse(more(app).exists, "no menu for one choice")
+        XCTAssertFalse(leaveButton(app).exists)
+        button.tap()
+        var alert = openedAlert(app, "Stop watching?", TournamentCopy.stopWatching)
+        XCTAssertEqual(confirm(alert).label, "Stop Watching")
+        XCTAssertEqual(keep(alert).label, "Keep Watching")
+        shot("alert-spectator")
+        keep(alert).tap()
+        waitGone(alert, "Keep Watching closed the alert")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertEqual(sent(app), "-")
+        entryButton(app, "tournament.stopWatching", "Stop Watching").tap()
+        alert = openedAlert(app, "Stop watching?", TournamentCopy.stopWatching)
+        confirm(alert).tap()
+        waitFor("leaveTournament sent") { sent(app) == "leaveTournament" }
+        app.terminate()
+    }
+
+    /// A host hand-off while Cancel's alert is up (`-uiHandOffOnAlert kim`, 3 s after it opens):
+    /// Cancel is no longer mine, so its alert goes with nothing sent, and the entry point becomes
+    /// the member's Leave button.
+    func testAHostHandOffRemovesCancelsAlert() {
+        let app = lobby("tournament-rounds", ["-uiHandOffOnAlert", "kim"])
+        openHostMenu(app)
+        app.buttons["Cancel Tournament…"].firstMatch.tap()
+        let alert = openedAlert(app, "Cancel tournament?", TournamentCopy.cancelInTheLobby)
+        waitFor("the hand-off took Cancel's alert away", timeout: 6) { !alert.exists }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertEqual(app.alerts.count, 0, "no other alert in its place")
+        XCTAssertEqual(sent(app), "-", "nothing sent")
+        XCTAssertTrue(leaveButton(app).waitForExistence(timeout: 3), "a member now: the Leave button")
+        XCTAssertFalse(more(app).exists)
+        app.terminate()
+    }
+
+    /// The role coming to me while Leave's alert is up (`-uiHost kim -uiHandOffOnAlert ivy`): the
+    /// same alert stays and its consequence gains "Another player becomes the host." in place.
+    func testAHandOffChangesLeavesWordsInPlace() {
+        let app = lobby("tournament-rounds", ["-uiHost", "kim", "-uiHandOffOnAlert", "ivy"])
+        let button = leaveButton(app)
+        reach(app, button)
+        button.tap()
+        let alert = openedAlert(app, "Leave tournament?", TournamentCopy.memberLeavesTheLobby)
+        let frame = alert.frame
+        var seenGone = false
+        let end = Date().addingTimeInterval(6)
+        while !alert.staticTexts[TournamentCopy.hostLeavesTheLobby].exists && Date() < end {
+            if app.alerts.count == 0 { seenGone = true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        XCTAssertTrue(alert.staticTexts[TournamentCopy.hostLeavesTheLobby].exists, "the host's consequence")
+        XCTAssertFalse(seenGone, "never closed and opened again")
+        XCTAssertEqual(app.alerts.count, 1)
+        XCTAssertEqual(alert.frame.midX, frame.midX, accuracy: 1, "the same alert, where it was")
+        shot("alert-handoff-in-place")
+        confirm(alert).tap()
+        waitFor("leaveTournament sent") { sent(app) == "leaveTournament" }
+        app.terminate()
+    }
+
+    /// The tournament gone under Leave's alert with no screen change (`-uiResetOnAlert`: the state
+    /// is reset 3 s after it opens): the alert goes with nothing sent, never "The tournament ends,
+    /// since nobody else has joined." in place (review of PR #437).
+    func testTheTournamentGoneRemovesTheAlert() {
+        let app = lobby("tournament-between", ["-uiResetOnAlert", "YES"])
+        let button = leaveButton(app)
+        reach(app, button)
+        button.tap()
+        let alert = openedAlert(app, "Leave tournament?", TournamentCopy.noWayBack)
+        waitFor("the tournament going took the alert away", timeout: 6) { !alert.exists }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertEqual(app.alerts.count, 0, "no alert with new words in its place")
+        XCTAssertEqual(sent(app), "-", "nothing sent")
+        app.terminate()
+    }
+
+    /// A re-entry under Cancel's alert (`-uiRejoinOnAlert`: 3 s after it opens, for 3 s): the
+    /// same alert stays, its Cancel Tournament disabled while the re-entry waits (as the menu
+    /// item is), then enabled again; it sends cancelTournament once tapped (review of PR #437: it
+    /// closed the alert and sent nothing).
+    func testCancelsConfirmWaitsForTheReentry() {
+        let app = lobby("tournament-rounds", ["-uiRejoinOnAlert", "YES"])
+        openHostMenu(app)
+        app.buttons["Cancel Tournament…"].firstMatch.tap()
+        let alert = openedAlert(app, "Cancel tournament?", TournamentCopy.cancelInTheLobby)
+        XCTAssertTrue(confirm(alert).isEnabled, "enabled while the session is up")
+        XCTAssertTrue(keep(alert).isEnabled)
+        waitFor("disabled during the re-entry", timeout: 6) { !confirm(alert).isEnabled }
+        XCTAssertTrue(alert.exists, "the same alert stays")
+        XCTAssertTrue(keep(alert).isEnabled, "Keep Tournament never waits")
+        shot("alert-cancel-waits")
+        waitFor("enabled once the re-entry is answered", timeout: 6) { confirm(alert).isEnabled }
+        XCTAssertEqual(sent(app), "-")
+        confirm(alert).tap()
+        waitFor("cancelTournament sent") { sent(app) == "cancelTournament" }
+        app.terminate()
+    }
+
+    /// Screenshots of the entry point, the menu and each alert at the default size and AX5
+    /// (`TEST_RUNNER_BAB_SHOTS`): the host in the lobby (the menu, Cancel, Leave), the host between
+    /// rounds (Cancel), a member between rounds (the Leave button), a spectator. Each alert must
+    /// read whole in the picture.
     func testConfirmScreenshots() {
-        let cases: [(String, [String], String, String, String)] = [
-            ("host-lobby", [], "tournament-rounds", "Cancel Tournament", TournamentCopy.cancelInTheLobby),
-            ("host-lobby", [], "tournament-rounds", "Leave Tournament", TournamentCopy.hostLeavesTheLobby),
-            ("host-between", ["-uiHost", "ivy"], "tournament-between", "Cancel Tournament", TournamentCopy.cancelOnceBegun),
-            ("member-between", [], "tournament-between", "Leave Tournament", TournamentCopy.noWayBack),
+        // (who, launch, fixture, the menu item or nil for the button, question, message, file tag)
+        let cases: [(String, [String], String, String?, String, String, String)] = [
+            ("host-lobby", [], "tournament-rounds", "Cancel Tournament…", "Cancel tournament?", TournamentCopy.cancelInTheLobby, "cancel"),
+            ("host-lobby", [], "tournament-rounds", "Leave Tournament…", "Leave tournament?", TournamentCopy.hostLeavesTheLobby, "leave"),
+            ("host-between", ["-uiHost", "ivy"], "tournament-between", "Cancel Tournament…", "Cancel tournament?", TournamentCopy.cancelOnceBegun, "cancel"),
+            ("member-between", [], "tournament-between", nil, "Leave tournament?", TournamentCopy.noWayBack, "leave"),
+            ("spectator", ["-uiSpectator", "YES"], "tournament-pairings", nil, "Stop watching?", TournamentCopy.stopWatching, "stop"),
         ]
-        for (size, args) in [("default", [String]()), ("ax3", Self.ax3)] {
-            var menuShot = Set<String>()
-            for (who, extra, fixture, title, message) in cases {
+        for (size, args) in [("default", [String]()), ("ax5", Self.ax5)] {
+            var entryShot = Set<String>()
+            for (who, extra, fixture, item, question, message, tag) in cases {
                 let app = lobby(fixture, extra + args)
-                let button = more(app)
-                for _ in 0..<4 where !button.isHittable { app.swipeDown(velocity: .slow) }
-                button.tap()
-                XCTAssertTrue(app.buttons[title].firstMatch.waitForExistence(timeout: 3))
-                if !menuShot.contains(who) { shot("\(size)-\(who)-menu"); menuShot.insert(who) }
-                let (header, confirm) = openConfirm(app, title, message)
-                assertWhole(app, header)
-                XCTAssertTrue(confirm.isHittable, "\(size) \(who) \(title): the confirm")
-                shot("\(size)-\(who)-\(title == "Cancel Tournament" ? "cancel" : "leave")-confirm")
+                if let item {
+                    openHostMenu(app)
+                    if !entryShot.contains(who) { shot("\(size)-\(who)-menu"); entryShot.insert(who) }
+                    app.buttons[item].firstMatch.tap()
+                } else {
+                    let button = who == "spectator" ? entryButton(app, "tournament.stopWatching", "Stop Watching") : leaveButton(app)
+                    reach(app, button)
+                    XCTAssertTrue(button.isHittable, "\(size) \(who): the button")
+                    // one line in the AX controls row (review of PR #437: "Stop / Watching" was 132 pt)
+                    XCTAssertLessThan(button.frame.height, 100, "\(size) \(who): one line, \(button.frame)")
+                    shot("\(size)-\(who)-button")
+                    button.tap()
+                }
+                let alert = openedAlert(app, question, message)
+                XCTAssertTrue(confirm(alert).isHittable, "\(size) \(who): the confirm")
+                XCTAssertTrue(keep(alert).isHittable, "\(size) \(who): the keep button")
+                shot("\(size)-\(who)-\(tag)-alert")
                 app.terminate()
             }
         }
     }
 
-    /// The results: no menu and no slot; the back control reads Main Room.
+    /// The results: no menu, no Leave and no slot; the back control reads Main Room.
     func testNoMenuOnTheResults() {
         let app = lobby("tournament-results", ["-uiPlainResults", "YES"])
         XCTAssertTrue(app.buttons["Main Room"].firstMatch.waitForExistence(timeout: 5))
         XCTAssertFalse(more(app).exists)
+        XCTAssertFalse(leaveButton(app).exists)
         XCTAssertFalse(element(app, "tournament.ready").exists)
         app.terminate()
     }
