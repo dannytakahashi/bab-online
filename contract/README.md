@@ -591,14 +591,15 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   far") and, at a tournament table, `startDraw.teams` / snapshot v2
   `draw.teams` as a draw for first deal ("Partners are set for this round.
   The highest card deals first." with the teams on one line). Every planned
-  table (two or more members) sends the teams; the draw is honest (each
+  table (two or more members) sends the teams, and its draw is honest (each
   player the card they picked; the draw decides only seats and the first
-  deal) only when every human there and every spectator present at its
-  startDraw has the cap, otherwise it is staged as before (invisible on the
-  wire), so a client without it (iOS 1.2.6 (40) and older, cached web tabs)
-  keeps its "The two highest cards are partners" and it stays true. An
-  honest table also gets one stored system `gameLogEntry` "Partners this
-  round: A & B vs C & D. The draw decides who deals first." The web sends
+  deal) whoever is there: the staged draw that kept a client without the
+  cap truthful was removed once the upgrade gate required iOS build 41.
+  The one client left without it, a cached web tab from before 2026-11-25,
+  shows its old "The two highest cards are partners" over the honest draw;
+  the table's one stored system `gameLogEntry` "Partners this round: A & B
+  vs C & D. The draw decides who deals first." (sent to everyone) and
+  teamsAnnounced name the real partners. The web sends
   it from 2026-11-25; iOS from build 41 (server/CLAUDE.md "Tournament
   partners"). Additive keys: `startDraw.teams` and `draw.teams` (both 2 x 2
   `$defs.plannedTeamPlayer {username, isBot}`, both keys always present:

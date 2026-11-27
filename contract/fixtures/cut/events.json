@@ -6,10 +6,10 @@
       "to": "tournament",
       "data": {
         "candidates": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "startsInMs": 15000,
         "deckCount": 54
@@ -21,16 +21,16 @@
       "data": {
         "round": 1,
         "participants": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "deckCount": 54,
         "reshuffled": false,
@@ -42,7 +42,7 @@
       "to": "tournament",
       "data": {
         "round": 1,
-        "username": "T13_u4",
+        "username": "T8_u4",
         "slot": 0,
         "auto": true
       }
@@ -52,7 +52,7 @@
       "to": "tournament",
       "data": {
         "round": 1,
-        "username": "T13_u1",
+        "username": "T8_u1",
         "slot": 1,
         "auto": false
       }
@@ -62,7 +62,7 @@
       "to": "tournament",
       "data": {
         "round": 1,
-        "username": "T13_u2",
+        "username": "T8_u2",
         "slot": 2,
         "auto": false
       }
@@ -72,7 +72,7 @@
       "to": "tournament",
       "data": {
         "round": 1,
-        "username": "T13_u3",
+        "username": "T8_u3",
         "slot": 3,
         "auto": false
       }
@@ -84,7 +84,7 @@
         "round": 1,
         "draws": [
           {
-            "username": "T13_u1",
+            "username": "T8_u1",
             "slot": 1,
             "card": {
               "suit": "hearts",
@@ -92,7 +92,7 @@
             }
           },
           {
-            "username": "T13_u2",
+            "username": "T8_u2",
             "slot": 2,
             "card": {
               "suit": "diamonds",
@@ -100,7 +100,7 @@
             }
           },
           {
-            "username": "T13_u3",
+            "username": "T8_u3",
             "slot": 3,
             "card": {
               "suit": "clubs",
@@ -108,7 +108,7 @@
             }
           },
           {
-            "username": "T13_u4",
+            "username": "T8_u4",
             "slot": 0,
             "card": {
               "suit": "spades",
@@ -119,10 +119,10 @@
         "eliminated": [],
         "redraw": true,
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "nextInMs": 4000
       }
@@ -133,16 +133,16 @@
       "data": {
         "round": 2,
         "participants": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "deckCount": 50,
         "reshuffled": false,
@@ -154,7 +154,7 @@
       "to": "tournament",
       "data": {
         "round": 2,
-        "username": "T13_u4",
+        "username": "T8_u4",
         "slot": 0,
         "auto": true
       }
@@ -164,7 +164,7 @@
       "to": "tournament",
       "data": {
         "round": 2,
-        "username": "T13_u1",
+        "username": "T8_u1",
         "slot": 1,
         "auto": false
       }
@@ -174,7 +174,7 @@
       "to": "tournament",
       "data": {
         "round": 2,
-        "username": "T13_u2",
+        "username": "T8_u2",
         "slot": 2,
         "auto": false
       }
@@ -184,7 +184,7 @@
       "to": "tournament",
       "data": {
         "round": 2,
-        "username": "T13_u3",
+        "username": "T8_u3",
         "slot": 3,
         "auto": false
       }
@@ -196,7 +196,7 @@
         "round": 2,
         "draws": [
           {
-            "username": "T13_u1",
+            "username": "T8_u1",
             "slot": 1,
             "card": {
               "suit": "hearts",
@@ -204,7 +204,7 @@
             }
           },
           {
-            "username": "T13_u2",
+            "username": "T8_u2",
             "slot": 2,
             "card": {
               "suit": "diamonds",
@@ -212,7 +212,7 @@
             }
           },
           {
-            "username": "T13_u3",
+            "username": "T8_u3",
             "slot": 3,
             "card": {
               "suit": "clubs",
@@ -220,7 +220,7 @@
             }
           },
           {
-            "username": "T13_u4",
+            "username": "T8_u4",
             "slot": 0,
             "card": {
               "suit": "spades",
@@ -231,10 +231,10 @@
         "eliminated": [],
         "redraw": true,
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "nextInMs": 4000
       }
@@ -245,16 +245,16 @@
       "data": {
         "round": 3,
         "participants": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "deckCount": 46,
         "reshuffled": false,
@@ -266,7 +266,7 @@
       "to": "tournament",
       "data": {
         "round": 3,
-        "username": "T13_u4",
+        "username": "T8_u4",
         "slot": 0,
         "auto": true
       }
@@ -276,7 +276,7 @@
       "to": "tournament",
       "data": {
         "round": 3,
-        "username": "T13_u1",
+        "username": "T8_u1",
         "slot": 1,
         "auto": false
       }
@@ -286,7 +286,7 @@
       "to": "tournament",
       "data": {
         "round": 3,
-        "username": "T13_u2",
+        "username": "T8_u2",
         "slot": 2,
         "auto": false
       }
@@ -296,7 +296,7 @@
       "to": "tournament",
       "data": {
         "round": 3,
-        "username": "T13_u3",
+        "username": "T8_u3",
         "slot": 3,
         "auto": false
       }
@@ -308,7 +308,7 @@
         "round": 3,
         "draws": [
           {
-            "username": "T13_u1",
+            "username": "T8_u1",
             "slot": 1,
             "card": {
               "suit": "hearts",
@@ -316,7 +316,7 @@
             }
           },
           {
-            "username": "T13_u2",
+            "username": "T8_u2",
             "slot": 2,
             "card": {
               "suit": "diamonds",
@@ -324,7 +324,7 @@
             }
           },
           {
-            "username": "T13_u3",
+            "username": "T8_u3",
             "slot": 3,
             "card": {
               "suit": "clubs",
@@ -332,7 +332,7 @@
             }
           },
           {
-            "username": "T13_u4",
+            "username": "T8_u4",
             "slot": 0,
             "card": {
               "suit": "spades",
@@ -343,10 +343,10 @@
         "eliminated": [],
         "redraw": true,
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "nextInMs": 4000
       }
@@ -357,16 +357,16 @@
       "data": {
         "round": 4,
         "participants": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "deckCount": 42,
         "reshuffled": false,
@@ -378,7 +378,7 @@
       "to": "tournament",
       "data": {
         "round": 4,
-        "username": "T13_u4",
+        "username": "T8_u4",
         "slot": 0,
         "auto": true
       }
@@ -388,7 +388,7 @@
       "to": "tournament",
       "data": {
         "round": 4,
-        "username": "T13_u1",
+        "username": "T8_u1",
         "slot": 1,
         "auto": false
       }
@@ -398,7 +398,7 @@
       "to": "tournament",
       "data": {
         "round": 4,
-        "username": "T13_u2",
+        "username": "T8_u2",
         "slot": 2,
         "auto": false
       }
@@ -408,7 +408,7 @@
       "to": "tournament",
       "data": {
         "round": 4,
-        "username": "T13_u3",
+        "username": "T8_u3",
         "slot": 3,
         "auto": false
       }
@@ -420,7 +420,7 @@
         "round": 4,
         "draws": [
           {
-            "username": "T13_u1",
+            "username": "T8_u1",
             "slot": 1,
             "card": {
               "suit": "hearts",
@@ -428,7 +428,7 @@
             }
           },
           {
-            "username": "T13_u2",
+            "username": "T8_u2",
             "slot": 2,
             "card": {
               "suit": "diamonds",
@@ -436,7 +436,7 @@
             }
           },
           {
-            "username": "T13_u3",
+            "username": "T8_u3",
             "slot": 3,
             "card": {
               "suit": "clubs",
@@ -444,7 +444,7 @@
             }
           },
           {
-            "username": "T13_u4",
+            "username": "T8_u4",
             "slot": 0,
             "card": {
               "suit": "spades",
@@ -455,10 +455,10 @@
         "eliminated": [],
         "redraw": true,
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "nextInMs": 4000
       }
@@ -469,16 +469,16 @@
       "data": {
         "round": 5,
         "participants": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "deckCount": 38,
         "reshuffled": false,
@@ -490,7 +490,7 @@
       "to": "tournament",
       "data": {
         "round": 5,
-        "username": "T13_u4",
+        "username": "T8_u4",
         "slot": 0,
         "auto": true
       }
@@ -500,7 +500,7 @@
       "to": "tournament",
       "data": {
         "round": 5,
-        "username": "T13_u1",
+        "username": "T8_u1",
         "slot": 1,
         "auto": false
       }
@@ -510,7 +510,7 @@
       "to": "tournament",
       "data": {
         "round": 5,
-        "username": "T13_u2",
+        "username": "T8_u2",
         "slot": 2,
         "auto": false
       }
@@ -520,7 +520,7 @@
       "to": "tournament",
       "data": {
         "round": 5,
-        "username": "T13_u3",
+        "username": "T8_u3",
         "slot": 3,
         "auto": false
       }
@@ -532,7 +532,7 @@
         "round": 5,
         "draws": [
           {
-            "username": "T13_u1",
+            "username": "T8_u1",
             "slot": 1,
             "card": {
               "suit": "hearts",
@@ -540,7 +540,7 @@
             }
           },
           {
-            "username": "T13_u2",
+            "username": "T8_u2",
             "slot": 2,
             "card": {
               "suit": "diamonds",
@@ -548,7 +548,7 @@
             }
           },
           {
-            "username": "T13_u3",
+            "username": "T8_u3",
             "slot": 3,
             "card": {
               "suit": "clubs",
@@ -556,7 +556,7 @@
             }
           },
           {
-            "username": "T13_u4",
+            "username": "T8_u4",
             "slot": 0,
             "card": {
               "suit": "spades",
@@ -567,10 +567,10 @@
         "eliminated": [],
         "redraw": true,
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "nextInMs": 4000
       }
@@ -581,16 +581,16 @@
       "data": {
         "round": 6,
         "participants": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "deckCount": 34,
         "reshuffled": false,
@@ -602,7 +602,7 @@
       "to": "tournament",
       "data": {
         "round": 6,
-        "username": "T13_u4",
+        "username": "T8_u4",
         "slot": 0,
         "auto": true
       }
@@ -612,7 +612,7 @@
       "to": "tournament",
       "data": {
         "round": 6,
-        "username": "T13_u1",
+        "username": "T8_u1",
         "slot": 1,
         "auto": false
       }
@@ -622,7 +622,7 @@
       "to": "tournament",
       "data": {
         "round": 6,
-        "username": "T13_u2",
+        "username": "T8_u2",
         "slot": 2,
         "auto": false
       }
@@ -632,7 +632,7 @@
       "to": "tournament",
       "data": {
         "round": 6,
-        "username": "T13_u3",
+        "username": "T8_u3",
         "slot": 3,
         "auto": false
       }
@@ -644,7 +644,7 @@
         "round": 6,
         "draws": [
           {
-            "username": "T13_u1",
+            "username": "T8_u1",
             "slot": 1,
             "card": {
               "suit": "hearts",
@@ -652,7 +652,7 @@
             }
           },
           {
-            "username": "T13_u2",
+            "username": "T8_u2",
             "slot": 2,
             "card": {
               "suit": "diamonds",
@@ -660,7 +660,7 @@
             }
           },
           {
-            "username": "T13_u3",
+            "username": "T8_u3",
             "slot": 3,
             "card": {
               "suit": "clubs",
@@ -668,7 +668,7 @@
             }
           },
           {
-            "username": "T13_u4",
+            "username": "T8_u4",
             "slot": 0,
             "card": {
               "suit": "spades",
@@ -679,10 +679,10 @@
         "eliminated": [],
         "redraw": true,
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "nextInMs": 4000
       }
@@ -693,16 +693,16 @@
       "data": {
         "round": 7,
         "participants": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "deckCount": 30,
         "reshuffled": false,
@@ -714,7 +714,7 @@
       "to": "tournament",
       "data": {
         "round": 7,
-        "username": "T13_u4",
+        "username": "T8_u4",
         "slot": 0,
         "auto": true
       }
@@ -724,7 +724,7 @@
       "to": "tournament",
       "data": {
         "round": 7,
-        "username": "T13_u1",
+        "username": "T8_u1",
         "slot": 1,
         "auto": false
       }
@@ -734,7 +734,7 @@
       "to": "tournament",
       "data": {
         "round": 7,
-        "username": "T13_u2",
+        "username": "T8_u2",
         "slot": 2,
         "auto": false
       }
@@ -744,7 +744,7 @@
       "to": "tournament",
       "data": {
         "round": 7,
-        "username": "T13_u3",
+        "username": "T8_u3",
         "slot": 3,
         "auto": false
       }
@@ -756,7 +756,7 @@
         "round": 7,
         "draws": [
           {
-            "username": "T13_u1",
+            "username": "T8_u1",
             "slot": 1,
             "card": {
               "suit": "hearts",
@@ -764,7 +764,7 @@
             }
           },
           {
-            "username": "T13_u2",
+            "username": "T8_u2",
             "slot": 2,
             "card": {
               "suit": "diamonds",
@@ -772,7 +772,7 @@
             }
           },
           {
-            "username": "T13_u3",
+            "username": "T8_u3",
             "slot": 3,
             "card": {
               "suit": "clubs",
@@ -780,7 +780,7 @@
             }
           },
           {
-            "username": "T13_u4",
+            "username": "T8_u4",
             "slot": 0,
             "card": {
               "suit": "spades",
@@ -791,10 +791,10 @@
         "eliminated": [],
         "redraw": true,
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "nextInMs": 4000
       }
@@ -805,16 +805,16 @@
       "data": {
         "round": 8,
         "participants": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "deckCount": 26,
         "reshuffled": false,
@@ -826,7 +826,7 @@
       "to": "tournament",
       "data": {
         "round": 8,
-        "username": "T13_u4",
+        "username": "T8_u4",
         "slot": 0,
         "auto": true
       }
@@ -836,7 +836,7 @@
       "to": "tournament",
       "data": {
         "round": 8,
-        "username": "T13_u1",
+        "username": "T8_u1",
         "slot": 1,
         "auto": false
       }
@@ -846,7 +846,7 @@
       "to": "tournament",
       "data": {
         "round": 8,
-        "username": "T13_u2",
+        "username": "T8_u2",
         "slot": 2,
         "auto": false
       }
@@ -856,7 +856,7 @@
       "to": "tournament",
       "data": {
         "round": 8,
-        "username": "T13_u3",
+        "username": "T8_u3",
         "slot": 3,
         "auto": false
       }
@@ -868,7 +868,7 @@
         "round": 8,
         "draws": [
           {
-            "username": "T13_u1",
+            "username": "T8_u1",
             "slot": 1,
             "card": {
               "suit": "hearts",
@@ -876,7 +876,7 @@
             }
           },
           {
-            "username": "T13_u2",
+            "username": "T8_u2",
             "slot": 2,
             "card": {
               "suit": "diamonds",
@@ -884,7 +884,7 @@
             }
           },
           {
-            "username": "T13_u3",
+            "username": "T8_u3",
             "slot": 3,
             "card": {
               "suit": "clubs",
@@ -892,7 +892,7 @@
             }
           },
           {
-            "username": "T13_u4",
+            "username": "T8_u4",
             "slot": 0,
             "card": {
               "suit": "spades",
@@ -903,10 +903,10 @@
         "eliminated": [],
         "redraw": true,
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "nextInMs": 4000
       }
@@ -917,16 +917,16 @@
       "data": {
         "round": 9,
         "participants": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "deckCount": 22,
         "reshuffled": false,
@@ -938,7 +938,7 @@
       "to": "tournament",
       "data": {
         "round": 9,
-        "username": "T13_u4",
+        "username": "T8_u4",
         "slot": 0,
         "auto": true
       }
@@ -948,7 +948,7 @@
       "to": "tournament",
       "data": {
         "round": 9,
-        "username": "T13_u1",
+        "username": "T8_u1",
         "slot": 1,
         "auto": false
       }
@@ -958,7 +958,7 @@
       "to": "tournament",
       "data": {
         "round": 9,
-        "username": "T13_u2",
+        "username": "T8_u2",
         "slot": 2,
         "auto": false
       }
@@ -968,7 +968,7 @@
       "to": "tournament",
       "data": {
         "round": 9,
-        "username": "T13_u3",
+        "username": "T8_u3",
         "slot": 3,
         "auto": false
       }
@@ -980,7 +980,7 @@
         "round": 9,
         "draws": [
           {
-            "username": "T13_u1",
+            "username": "T8_u1",
             "slot": 1,
             "card": {
               "suit": "hearts",
@@ -988,7 +988,7 @@
             }
           },
           {
-            "username": "T13_u2",
+            "username": "T8_u2",
             "slot": 2,
             "card": {
               "suit": "diamonds",
@@ -996,7 +996,7 @@
             }
           },
           {
-            "username": "T13_u3",
+            "username": "T8_u3",
             "slot": 3,
             "card": {
               "suit": "clubs",
@@ -1004,7 +1004,7 @@
             }
           },
           {
-            "username": "T13_u4",
+            "username": "T8_u4",
             "slot": 0,
             "card": {
               "suit": "spades",
@@ -1015,10 +1015,10 @@
         "eliminated": [],
         "redraw": true,
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "nextInMs": 4000
       }
@@ -1029,16 +1029,16 @@
       "data": {
         "round": 10,
         "participants": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "deckCount": 18,
         "reshuffled": false,
@@ -1050,7 +1050,7 @@
       "to": "tournament",
       "data": {
         "round": 10,
-        "username": "T13_u4",
+        "username": "T8_u4",
         "slot": 0,
         "auto": true
       }
@@ -1060,7 +1060,7 @@
       "to": "tournament",
       "data": {
         "round": 10,
-        "username": "T13_u1",
+        "username": "T8_u1",
         "slot": 1,
         "auto": false
       }
@@ -1070,7 +1070,7 @@
       "to": "tournament",
       "data": {
         "round": 10,
-        "username": "T13_u2",
+        "username": "T8_u2",
         "slot": 2,
         "auto": false
       }
@@ -1080,7 +1080,7 @@
       "to": "tournament",
       "data": {
         "round": 10,
-        "username": "T13_u3",
+        "username": "T8_u3",
         "slot": 3,
         "auto": false
       }
@@ -1092,7 +1092,7 @@
         "round": 10,
         "draws": [
           {
-            "username": "T13_u1",
+            "username": "T8_u1",
             "slot": 1,
             "card": {
               "suit": "hearts",
@@ -1100,7 +1100,7 @@
             }
           },
           {
-            "username": "T13_u2",
+            "username": "T8_u2",
             "slot": 2,
             "card": {
               "suit": "diamonds",
@@ -1108,7 +1108,7 @@
             }
           },
           {
-            "username": "T13_u3",
+            "username": "T8_u3",
             "slot": 3,
             "card": {
               "suit": "clubs",
@@ -1116,7 +1116,7 @@
             }
           },
           {
-            "username": "T13_u4",
+            "username": "T8_u4",
             "slot": 0,
             "card": {
               "suit": "spades",
@@ -1127,10 +1127,10 @@
         "eliminated": [],
         "redraw": true,
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "nextInMs": 4000
       }
@@ -1141,16 +1141,16 @@
       "data": {
         "round": 11,
         "participants": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "deckCount": 14,
         "reshuffled": false,
@@ -1162,7 +1162,7 @@
       "to": "tournament",
       "data": {
         "round": 11,
-        "username": "T13_u4",
+        "username": "T8_u4",
         "slot": 0,
         "auto": true
       }
@@ -1172,7 +1172,7 @@
       "to": "tournament",
       "data": {
         "round": 11,
-        "username": "T13_u1",
+        "username": "T8_u1",
         "slot": 1,
         "auto": false
       }
@@ -1182,7 +1182,7 @@
       "to": "tournament",
       "data": {
         "round": 11,
-        "username": "T13_u2",
+        "username": "T8_u2",
         "slot": 2,
         "auto": false
       }
@@ -1192,7 +1192,7 @@
       "to": "tournament",
       "data": {
         "round": 11,
-        "username": "T13_u3",
+        "username": "T8_u3",
         "slot": 3,
         "auto": false
       }
@@ -1204,7 +1204,7 @@
         "round": 11,
         "draws": [
           {
-            "username": "T13_u1",
+            "username": "T8_u1",
             "slot": 1,
             "card": {
               "suit": "hearts",
@@ -1212,7 +1212,7 @@
             }
           },
           {
-            "username": "T13_u2",
+            "username": "T8_u2",
             "slot": 2,
             "card": {
               "suit": "diamonds",
@@ -1220,7 +1220,7 @@
             }
           },
           {
-            "username": "T13_u3",
+            "username": "T8_u3",
             "slot": 3,
             "card": {
               "suit": "clubs",
@@ -1228,7 +1228,7 @@
             }
           },
           {
-            "username": "T13_u4",
+            "username": "T8_u4",
             "slot": 0,
             "card": {
               "suit": "spades",
@@ -1239,10 +1239,10 @@
         "eliminated": [],
         "redraw": true,
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "nextInMs": 4000
       }
@@ -1253,16 +1253,16 @@
       "data": {
         "round": 12,
         "participants": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "deckCount": 10,
         "reshuffled": false,
@@ -1274,7 +1274,7 @@
       "to": "tournament",
       "data": {
         "round": 12,
-        "username": "T13_u4",
+        "username": "T8_u4",
         "slot": 0,
         "auto": true
       }
@@ -1284,7 +1284,7 @@
       "to": "tournament",
       "data": {
         "round": 12,
-        "username": "T13_u1",
+        "username": "T8_u1",
         "slot": 1,
         "auto": false
       }
@@ -1294,7 +1294,7 @@
       "to": "tournament",
       "data": {
         "round": 12,
-        "username": "T13_u2",
+        "username": "T8_u2",
         "slot": 2,
         "auto": false
       }
@@ -1304,7 +1304,7 @@
       "to": "tournament",
       "data": {
         "round": 12,
-        "username": "T13_u3",
+        "username": "T8_u3",
         "slot": 3,
         "auto": false
       }
@@ -1316,7 +1316,7 @@
         "round": 12,
         "draws": [
           {
-            "username": "T13_u1",
+            "username": "T8_u1",
             "slot": 1,
             "card": {
               "suit": "hearts",
@@ -1324,7 +1324,7 @@
             }
           },
           {
-            "username": "T13_u2",
+            "username": "T8_u2",
             "slot": 2,
             "card": {
               "suit": "diamonds",
@@ -1332,7 +1332,7 @@
             }
           },
           {
-            "username": "T13_u3",
+            "username": "T8_u3",
             "slot": 3,
             "card": {
               "suit": "clubs",
@@ -1340,7 +1340,7 @@
             }
           },
           {
-            "username": "T13_u4",
+            "username": "T8_u4",
             "slot": 0,
             "card": {
               "suit": "spades",
@@ -1351,10 +1351,10 @@
         "eliminated": [],
         "redraw": true,
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "nextInMs": 4000
       }
@@ -1365,16 +1365,16 @@
       "data": {
         "round": 13,
         "participants": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "deckCount": 6,
         "reshuffled": false,
@@ -1386,7 +1386,7 @@
       "to": "tournament",
       "data": {
         "round": 13,
-        "username": "T13_u4",
+        "username": "T8_u4",
         "slot": 0,
         "auto": true
       }
@@ -1396,7 +1396,7 @@
       "to": "tournament",
       "data": {
         "round": 13,
-        "username": "T13_u1",
+        "username": "T8_u1",
         "slot": 1,
         "auto": false
       }
@@ -1406,7 +1406,7 @@
       "to": "tournament",
       "data": {
         "round": 13,
-        "username": "T13_u2",
+        "username": "T8_u2",
         "slot": 2,
         "auto": false
       }
@@ -1416,7 +1416,7 @@
       "to": "tournament",
       "data": {
         "round": 13,
-        "username": "T13_u3",
+        "username": "T8_u3",
         "slot": 3,
         "auto": false
       }
@@ -1428,7 +1428,7 @@
         "round": 13,
         "draws": [
           {
-            "username": "T13_u1",
+            "username": "T8_u1",
             "slot": 1,
             "card": {
               "suit": "hearts",
@@ -1436,7 +1436,7 @@
             }
           },
           {
-            "username": "T13_u2",
+            "username": "T8_u2",
             "slot": 2,
             "card": {
               "suit": "diamonds",
@@ -1444,7 +1444,7 @@
             }
           },
           {
-            "username": "T13_u3",
+            "username": "T8_u3",
             "slot": 3,
             "card": {
               "suit": "clubs",
@@ -1452,7 +1452,7 @@
             }
           },
           {
-            "username": "T13_u4",
+            "username": "T8_u4",
             "slot": 0,
             "card": {
               "suit": "spades",
@@ -1463,10 +1463,10 @@
         "eliminated": [],
         "redraw": true,
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "nextInMs": 4000
       }
@@ -1477,16 +1477,16 @@
       "data": {
         "round": 14,
         "participants": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "alive": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "deckCount": 54,
         "reshuffled": true,
@@ -1498,7 +1498,7 @@
       "to": "tournament",
       "data": {
         "round": 14,
-        "username": "T13_u4",
+        "username": "T8_u4",
         "slot": 0,
         "auto": true
       }
@@ -1508,7 +1508,7 @@
       "to": "tournament",
       "data": {
         "round": 14,
-        "username": "T13_u1",
+        "username": "T8_u1",
         "slot": 1,
         "auto": false
       }
@@ -1518,7 +1518,7 @@
       "to": "tournament",
       "data": {
         "round": 14,
-        "username": "T13_u2",
+        "username": "T8_u2",
         "slot": 2,
         "auto": false
       }
@@ -1528,7 +1528,7 @@
       "to": "tournament",
       "data": {
         "round": 14,
-        "username": "T13_u3",
+        "username": "T8_u3",
         "slot": 3,
         "auto": false
       }
@@ -1540,7 +1540,7 @@
         "round": 14,
         "draws": [
           {
-            "username": "T13_u1",
+            "username": "T8_u1",
             "slot": 1,
             "card": {
               "suit": "hearts",
@@ -1548,7 +1548,7 @@
             }
           },
           {
-            "username": "T13_u2",
+            "username": "T8_u2",
             "slot": 2,
             "card": {
               "suit": "spades",
@@ -1556,7 +1556,7 @@
             }
           },
           {
-            "username": "T13_u3",
+            "username": "T8_u3",
             "slot": 3,
             "card": {
               "suit": "spades",
@@ -1564,7 +1564,7 @@
             }
           },
           {
-            "username": "T13_u4",
+            "username": "T8_u4",
             "slot": 0,
             "card": {
               "suit": "spades",
@@ -1573,13 +1573,13 @@
           }
         ],
         "eliminated": [
-          "T13_u1",
-          "T13_u4"
+          "T8_u1",
+          "T8_u4"
         ],
         "redraw": false,
         "alive": [
-          "T13_u2",
-          "T13_u3"
+          "T8_u2",
+          "T8_u3"
         ],
         "nextInMs": 4000
       }
@@ -1590,14 +1590,14 @@
       "data": {
         "round": 15,
         "participants": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "alive": [
-          "T13_u2",
-          "T13_u3"
+          "T8_u2",
+          "T8_u3"
         ],
         "deckCount": 50,
         "reshuffled": false,
@@ -1609,7 +1609,7 @@
       "to": "tournament",
       "data": {
         "round": 15,
-        "username": "T13_u2",
+        "username": "T8_u2",
         "slot": 1,
         "auto": false
       }
@@ -1619,7 +1619,7 @@
       "to": "tournament",
       "data": {
         "round": 15,
-        "username": "T13_u3",
+        "username": "T8_u3",
         "slot": 2,
         "auto": false
       }
@@ -1631,7 +1631,7 @@
         "round": 15,
         "draws": [
           {
-            "username": "T13_u2",
+            "username": "T8_u2",
             "slot": 1,
             "card": {
               "suit": "diamonds",
@@ -1639,7 +1639,7 @@
             }
           },
           {
-            "username": "T13_u3",
+            "username": "T8_u3",
             "slot": 2,
             "card": {
               "suit": "spades",
@@ -1648,11 +1648,11 @@
           }
         ],
         "eliminated": [
-          "T13_u3"
+          "T8_u3"
         ],
         "redraw": false,
         "alive": [
-          "T13_u2"
+          "T8_u2"
         ],
         "nextInMs": 6000
       }
@@ -1661,12 +1661,12 @@
       "event": "cutForABuckWinner",
       "to": "tournament",
       "data": {
-        "winner": "T13_u2",
+        "winner": "T8_u2",
         "participants": [
-          "T13_u1",
-          "T13_u2",
-          "T13_u3",
-          "T13_u4"
+          "T8_u1",
+          "T8_u2",
+          "T8_u3",
+          "T8_u4"
         ],
         "rounds": 15
       }
@@ -1677,120 +1677,120 @@
       "data": {
         "scoreboard": [
           {
-            "username": "T13_u3",
-            "totalScore": 784,
+            "username": "T8_u1",
+            "totalScore": 726,
             "roundScores": [
-              364,
-              420
-            ],
-            "roundDetails": [
-              {
-                "roundNumber": 1,
-                "gameId": "00000000-0000-4000-8000-000000000002",
-                "position": 2,
-                "teamScore": 364,
-                "oppScore": 290,
-                "partner": "T13_u2"
-              },
-              {
-                "roundNumber": 2,
-                "gameId": "00000000-0000-4000-8000-000000000007",
-                "position": 3,
-                "teamScore": 420,
-                "oppScore": 320,
-                "partner": "T13_u4"
-              }
-            ]
-          },
-          {
-            "username": "T13_u4",
-            "totalScore": 710,
-            "roundScores": [
-              290,
-              420
-            ],
-            "roundDetails": [
-              {
-                "roundNumber": 1,
-                "gameId": "00000000-0000-4000-8000-000000000002",
-                "position": 1,
-                "teamScore": 290,
-                "oppScore": 364,
-                "partner": "T13_u1"
-              },
-              {
-                "roundNumber": 2,
-                "gameId": "00000000-0000-4000-8000-000000000007",
-                "position": 1,
-                "teamScore": 420,
-                "oppScore": 320,
-                "partner": "T13_u3"
-              }
-            ]
-          },
-          {
-            "username": "T13_u2",
-            "totalScore": 684,
-            "roundScores": [
-              364,
-              320
-            ],
-            "roundDetails": [
-              {
-                "roundNumber": 1,
-                "gameId": "00000000-0000-4000-8000-000000000002",
-                "position": 4,
-                "teamScore": 364,
-                "oppScore": 290,
-                "partner": "T13_u3"
-              },
-              {
-                "roundNumber": 2,
-                "gameId": "00000000-0000-4000-8000-000000000007",
-                "position": 4,
-                "teamScore": 320,
-                "oppScore": 420,
-                "partner": "T13_u1"
-              }
-            ]
-          },
-          {
-            "username": "T13_u1",
-            "totalScore": 610,
-            "roundScores": [
-              290,
-              320
+              412,
+              314
             ],
             "roundDetails": [
               {
                 "roundNumber": 1,
                 "gameId": "00000000-0000-4000-8000-000000000002",
                 "position": 3,
-                "teamScore": 290,
-                "oppScore": 364,
-                "partner": "T13_u4"
+                "teamScore": 412,
+                "oppScore": 286,
+                "partner": "T8_u4"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 3,
+                "teamScore": 314,
+                "oppScore": 262,
+                "partner": "T8_u2"
+              }
+            ]
+          },
+          {
+            "username": "T8_u4",
+            "totalScore": 674,
+            "roundScores": [
+              412,
+              262
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 1,
+                "teamScore": 412,
+                "oppScore": 286,
+                "partner": "T8_u1"
               },
               {
                 "roundNumber": 2,
                 "gameId": "00000000-0000-4000-8000-000000000007",
                 "position": 2,
-                "teamScore": 320,
-                "oppScore": 420,
-                "partner": "T13_u2"
+                "teamScore": 262,
+                "oppScore": 314,
+                "partner": "T8_u3"
+              }
+            ]
+          },
+          {
+            "username": "T8_u2",
+            "totalScore": 600,
+            "roundScores": [
+              286,
+              314
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 4,
+                "teamScore": 286,
+                "oppScore": 412,
+                "partner": "T8_u3"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 1,
+                "teamScore": 314,
+                "oppScore": 262,
+                "partner": "T8_u1"
+              }
+            ]
+          },
+          {
+            "username": "T8_u3",
+            "totalScore": 548,
+            "roundScores": [
+              286,
+              262
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 2,
+                "teamScore": 286,
+                "oppScore": 412,
+                "partner": "T8_u2"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 4,
+                "teamScore": 262,
+                "oppScore": 314,
+                "partner": "T8_u4"
               }
             ]
           }
         ],
         "winners": [
-          "T13_u3"
+          "T8_u1"
         ],
         "cutForABuck": {
-          "winner": "T13_u2",
+          "winner": "T8_u2",
           "participants": [
-            "T13_u1",
-            "T13_u2",
-            "T13_u3",
-            "T13_u4"
+            "T8_u1",
+            "T8_u2",
+            "T8_u3",
+            "T8_u4"
           ],
           "rounds": 15
         },
@@ -1802,12 +1802,12 @@
                 "gameId": "00000000-0000-4000-8000-000000000002",
                 "teams": [
                   [
-                    "T13_u2",
-                    "T13_u3"
+                    "T8_u2",
+                    "T8_u3"
                   ],
                   [
-                    "T13_u1",
-                    "T13_u4"
+                    "T8_u1",
+                    "T8_u4"
                   ]
                 ]
               }
@@ -1820,12 +1820,12 @@
                 "gameId": "00000000-0000-4000-8000-000000000007",
                 "teams": [
                   [
-                    "T13_u2",
-                    "T13_u1"
+                    "T8_u2",
+                    "T8_u1"
                   ],
                   [
-                    "T13_u3",
-                    "T13_u4"
+                    "T8_u4",
+                    "T8_u3"
                   ]
                 ]
               }
@@ -1839,38 +1839,38 @@
       "to": "self",
       "data": {
         "tournamentId": "00000000-0000-4000-8000-000000000001",
-        "name": "T13_u1's Tournament",
+        "name": "T8_u1's Tournament",
         "phase": "cut",
         "currentRound": 2,
         "totalRounds": 2,
         "players": [
           {
-            "socketId": "sock14",
-            "username": "T13_u1",
+            "socketId": "sock9",
+            "username": "T8_u1",
             "pic": null,
             "ready": true,
             "connected": true,
             "isCreator": true
           },
           {
-            "socketId": "sock15",
-            "username": "T13_u2",
+            "socketId": "sock10",
+            "username": "T8_u2",
             "pic": null,
             "ready": true,
             "connected": true,
             "isCreator": false
           },
           {
-            "socketId": "sock16",
-            "username": "T13_u3",
+            "socketId": "sock11",
+            "username": "T8_u3",
             "pic": null,
             "ready": true,
             "connected": true,
             "isCreator": false
           },
           {
-            "socketId": "sock17",
-            "username": "T13_u4",
+            "socketId": "sock12",
+            "username": "T8_u4",
             "pic": null,
             "ready": true,
             "connected": true,
@@ -1880,106 +1880,106 @@
         "messages": [],
         "scoreboard": [
           {
-            "username": "T13_u3",
-            "totalScore": 784,
+            "username": "T8_u1",
+            "totalScore": 726,
             "roundScores": [
-              364,
-              420
-            ],
-            "roundDetails": [
-              {
-                "roundNumber": 1,
-                "gameId": "00000000-0000-4000-8000-000000000002",
-                "position": 2,
-                "teamScore": 364,
-                "oppScore": 290,
-                "partner": "T13_u2"
-              },
-              {
-                "roundNumber": 2,
-                "gameId": "00000000-0000-4000-8000-000000000007",
-                "position": 3,
-                "teamScore": 420,
-                "oppScore": 320,
-                "partner": "T13_u4"
-              }
-            ]
-          },
-          {
-            "username": "T13_u4",
-            "totalScore": 710,
-            "roundScores": [
-              290,
-              420
-            ],
-            "roundDetails": [
-              {
-                "roundNumber": 1,
-                "gameId": "00000000-0000-4000-8000-000000000002",
-                "position": 1,
-                "teamScore": 290,
-                "oppScore": 364,
-                "partner": "T13_u1"
-              },
-              {
-                "roundNumber": 2,
-                "gameId": "00000000-0000-4000-8000-000000000007",
-                "position": 1,
-                "teamScore": 420,
-                "oppScore": 320,
-                "partner": "T13_u3"
-              }
-            ]
-          },
-          {
-            "username": "T13_u2",
-            "totalScore": 684,
-            "roundScores": [
-              364,
-              320
-            ],
-            "roundDetails": [
-              {
-                "roundNumber": 1,
-                "gameId": "00000000-0000-4000-8000-000000000002",
-                "position": 4,
-                "teamScore": 364,
-                "oppScore": 290,
-                "partner": "T13_u3"
-              },
-              {
-                "roundNumber": 2,
-                "gameId": "00000000-0000-4000-8000-000000000007",
-                "position": 4,
-                "teamScore": 320,
-                "oppScore": 420,
-                "partner": "T13_u1"
-              }
-            ]
-          },
-          {
-            "username": "T13_u1",
-            "totalScore": 610,
-            "roundScores": [
-              290,
-              320
+              412,
+              314
             ],
             "roundDetails": [
               {
                 "roundNumber": 1,
                 "gameId": "00000000-0000-4000-8000-000000000002",
                 "position": 3,
-                "teamScore": 290,
-                "oppScore": 364,
-                "partner": "T13_u4"
+                "teamScore": 412,
+                "oppScore": 286,
+                "partner": "T8_u4"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 3,
+                "teamScore": 314,
+                "oppScore": 262,
+                "partner": "T8_u2"
+              }
+            ]
+          },
+          {
+            "username": "T8_u4",
+            "totalScore": 674,
+            "roundScores": [
+              412,
+              262
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 1,
+                "teamScore": 412,
+                "oppScore": 286,
+                "partner": "T8_u1"
               },
               {
                 "roundNumber": 2,
                 "gameId": "00000000-0000-4000-8000-000000000007",
                 "position": 2,
-                "teamScore": 320,
-                "oppScore": 420,
-                "partner": "T13_u2"
+                "teamScore": 262,
+                "oppScore": 314,
+                "partner": "T8_u3"
+              }
+            ]
+          },
+          {
+            "username": "T8_u2",
+            "totalScore": 600,
+            "roundScores": [
+              286,
+              314
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 4,
+                "teamScore": 286,
+                "oppScore": 412,
+                "partner": "T8_u3"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 1,
+                "teamScore": 314,
+                "oppScore": 262,
+                "partner": "T8_u1"
+              }
+            ]
+          },
+          {
+            "username": "T8_u3",
+            "totalScore": 548,
+            "roundScores": [
+              286,
+              262
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 2,
+                "teamScore": 286,
+                "oppScore": 412,
+                "partner": "T8_u2"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 4,
+                "teamScore": 262,
+                "oppScore": 314,
+                "partner": "T8_u4"
               }
             ]
           }
@@ -1988,42 +1988,42 @@
           {
             "gameId": "00000000-0000-4000-8000-000000000007",
             "humanPlayers": [
-              "T13_u2",
-              "T13_u1",
-              "T13_u3",
-              "T13_u4"
+              "T8_u2",
+              "T8_u1",
+              "T8_u4",
+              "T8_u3"
             ],
             "botCount": 0,
             "status": "complete"
           }
         ],
-        "creatorUsername": "T13_u1",
-        "creatorSocketId": "sock14",
+        "creatorUsername": "T8_u1",
+        "creatorSocketId": "sock9",
         "cut": {
           "stage": "drawing",
           "inMs": 15000,
           "round": 14,
           "participants": [
-            "T13_u1",
-            "T13_u2",
-            "T13_u3",
-            "T13_u4"
+            "T8_u1",
+            "T8_u2",
+            "T8_u3",
+            "T8_u4"
           ],
           "alive": [
-            "T13_u1",
-            "T13_u2",
-            "T13_u3",
-            "T13_u4"
+            "T8_u1",
+            "T8_u2",
+            "T8_u3",
+            "T8_u4"
           ],
           "out": [],
           "table": [],
           "drawn": [
             {
-              "username": "T13_u1",
+              "username": "T8_u1",
               "slot": 1
             },
             {
-              "username": "T13_u4",
+              "username": "T8_u4",
               "slot": 0
             }
           ],
@@ -2032,7 +2032,7 @@
             "round": 13,
             "draws": [
               {
-                "username": "T13_u1",
+                "username": "T8_u1",
                 "slot": 1,
                 "card": {
                   "suit": "hearts",
@@ -2040,7 +2040,7 @@
                 }
               },
               {
-                "username": "T13_u2",
+                "username": "T8_u2",
                 "slot": 2,
                 "card": {
                   "suit": "diamonds",
@@ -2048,7 +2048,7 @@
                 }
               },
               {
-                "username": "T13_u3",
+                "username": "T8_u3",
                 "slot": 3,
                 "card": {
                   "suit": "clubs",
@@ -2056,7 +2056,7 @@
                 }
               },
               {
-                "username": "T13_u4",
+                "username": "T8_u4",
                 "slot": 0,
                 "card": {
                   "suit": "spades",
@@ -2076,12 +2076,12 @@
                 "gameId": "00000000-0000-4000-8000-000000000002",
                 "teams": [
                   [
-                    "T13_u2",
-                    "T13_u3"
+                    "T8_u2",
+                    "T8_u3"
                   ],
                   [
-                    "T13_u1",
-                    "T13_u4"
+                    "T8_u1",
+                    "T8_u4"
                   ]
                 ]
               }
@@ -2094,12 +2094,12 @@
                 "gameId": "00000000-0000-4000-8000-000000000007",
                 "teams": [
                   [
-                    "T13_u2",
-                    "T13_u1"
+                    "T8_u2",
+                    "T8_u1"
                   ],
                   [
-                    "T13_u3",
-                    "T13_u4"
+                    "T8_u4",
+                    "T8_u3"
                   ]
                 ]
               }
@@ -2113,38 +2113,38 @@
       "to": "self",
       "data": {
         "tournamentId": "00000000-0000-4000-8000-000000000001",
-        "name": "T13_u1's Tournament",
+        "name": "T8_u1's Tournament",
         "phase": "round_active",
         "currentRound": 2,
         "totalRounds": 2,
         "players": [
           {
-            "socketId": "sock14",
-            "username": "T13_u1",
+            "socketId": "sock9",
+            "username": "T8_u1",
             "pic": null,
             "ready": true,
             "connected": true,
             "isCreator": true
           },
           {
-            "socketId": "sock15",
-            "username": "T13_u2",
+            "socketId": "sock10",
+            "username": "T8_u2",
             "pic": null,
             "ready": true,
             "connected": true,
             "isCreator": false
           },
           {
-            "socketId": "sock16",
-            "username": "T13_u3",
+            "socketId": "sock11",
+            "username": "T8_u3",
             "pic": null,
             "ready": true,
             "connected": true,
             "isCreator": false
           },
           {
-            "socketId": "sock17",
-            "username": "T13_u4",
+            "socketId": "sock12",
+            "username": "T8_u4",
             "pic": null,
             "ready": true,
             "connected": true,
@@ -2154,106 +2154,106 @@
         "messages": [],
         "scoreboard": [
           {
-            "username": "T13_u3",
-            "totalScore": 784,
+            "username": "T8_u1",
+            "totalScore": 726,
             "roundScores": [
-              364,
-              420
-            ],
-            "roundDetails": [
-              {
-                "roundNumber": 1,
-                "gameId": "00000000-0000-4000-8000-000000000002",
-                "position": 2,
-                "teamScore": 364,
-                "oppScore": 290,
-                "partner": "T13_u2"
-              },
-              {
-                "roundNumber": 2,
-                "gameId": "00000000-0000-4000-8000-000000000007",
-                "position": 3,
-                "teamScore": 420,
-                "oppScore": 320,
-                "partner": "T13_u4"
-              }
-            ]
-          },
-          {
-            "username": "T13_u4",
-            "totalScore": 710,
-            "roundScores": [
-              290,
-              420
-            ],
-            "roundDetails": [
-              {
-                "roundNumber": 1,
-                "gameId": "00000000-0000-4000-8000-000000000002",
-                "position": 1,
-                "teamScore": 290,
-                "oppScore": 364,
-                "partner": "T13_u1"
-              },
-              {
-                "roundNumber": 2,
-                "gameId": "00000000-0000-4000-8000-000000000007",
-                "position": 1,
-                "teamScore": 420,
-                "oppScore": 320,
-                "partner": "T13_u3"
-              }
-            ]
-          },
-          {
-            "username": "T13_u2",
-            "totalScore": 684,
-            "roundScores": [
-              364,
-              320
-            ],
-            "roundDetails": [
-              {
-                "roundNumber": 1,
-                "gameId": "00000000-0000-4000-8000-000000000002",
-                "position": 4,
-                "teamScore": 364,
-                "oppScore": 290,
-                "partner": "T13_u3"
-              },
-              {
-                "roundNumber": 2,
-                "gameId": "00000000-0000-4000-8000-000000000007",
-                "position": 4,
-                "teamScore": 320,
-                "oppScore": 420,
-                "partner": "T13_u1"
-              }
-            ]
-          },
-          {
-            "username": "T13_u1",
-            "totalScore": 610,
-            "roundScores": [
-              290,
-              320
+              412,
+              314
             ],
             "roundDetails": [
               {
                 "roundNumber": 1,
                 "gameId": "00000000-0000-4000-8000-000000000002",
                 "position": 3,
-                "teamScore": 290,
-                "oppScore": 364,
-                "partner": "T13_u4"
+                "teamScore": 412,
+                "oppScore": 286,
+                "partner": "T8_u4"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 3,
+                "teamScore": 314,
+                "oppScore": 262,
+                "partner": "T8_u2"
+              }
+            ]
+          },
+          {
+            "username": "T8_u4",
+            "totalScore": 674,
+            "roundScores": [
+              412,
+              262
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 1,
+                "teamScore": 412,
+                "oppScore": 286,
+                "partner": "T8_u1"
               },
               {
                 "roundNumber": 2,
                 "gameId": "00000000-0000-4000-8000-000000000007",
                 "position": 2,
-                "teamScore": 320,
-                "oppScore": 420,
-                "partner": "T13_u2"
+                "teamScore": 262,
+                "oppScore": 314,
+                "partner": "T8_u3"
+              }
+            ]
+          },
+          {
+            "username": "T8_u2",
+            "totalScore": 600,
+            "roundScores": [
+              286,
+              314
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 4,
+                "teamScore": 286,
+                "oppScore": 412,
+                "partner": "T8_u3"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 1,
+                "teamScore": 314,
+                "oppScore": 262,
+                "partner": "T8_u1"
+              }
+            ]
+          },
+          {
+            "username": "T8_u3",
+            "totalScore": 548,
+            "roundScores": [
+              286,
+              262
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 2,
+                "teamScore": 286,
+                "oppScore": 412,
+                "partner": "T8_u2"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 4,
+                "teamScore": 262,
+                "oppScore": 314,
+                "partner": "T8_u4"
               }
             ]
           }
@@ -2262,17 +2262,17 @@
           {
             "gameId": "00000000-0000-4000-8000-000000000007",
             "humanPlayers": [
-              "T13_u2",
-              "T13_u1",
-              "T13_u3",
-              "T13_u4"
+              "T8_u2",
+              "T8_u1",
+              "T8_u4",
+              "T8_u3"
             ],
             "botCount": 0,
             "status": "complete"
           }
         ],
-        "creatorUsername": "T13_u1",
-        "creatorSocketId": "sock14",
+        "creatorUsername": "T8_u1",
+        "creatorSocketId": "sock9",
         "pairings": [
           {
             "roundNumber": 1,
@@ -2281,12 +2281,12 @@
                 "gameId": "00000000-0000-4000-8000-000000000002",
                 "teams": [
                   [
-                    "T13_u2",
-                    "T13_u3"
+                    "T8_u2",
+                    "T8_u3"
                   ],
                   [
-                    "T13_u1",
-                    "T13_u4"
+                    "T8_u1",
+                    "T8_u4"
                   ]
                 ]
               }
@@ -2299,12 +2299,12 @@
                 "gameId": "00000000-0000-4000-8000-000000000007",
                 "teams": [
                   [
-                    "T13_u2",
-                    "T13_u1"
+                    "T8_u2",
+                    "T8_u1"
                   ],
                   [
-                    "T13_u3",
-                    "T13_u4"
+                    "T8_u4",
+                    "T8_u3"
                   ]
                 ]
               }
@@ -2318,38 +2318,38 @@
       "to": "self",
       "data": {
         "tournamentId": "00000000-0000-4000-8000-000000000001",
-        "name": "T13_u1's Tournament",
+        "name": "T8_u1's Tournament",
         "phase": "complete",
         "currentRound": 2,
         "totalRounds": 2,
         "players": [
           {
-            "socketId": "sock14",
-            "username": "T13_u1",
+            "socketId": "sock9",
+            "username": "T8_u1",
             "pic": null,
             "ready": true,
             "connected": true,
             "isCreator": true
           },
           {
-            "socketId": "sock15",
-            "username": "T13_u2",
+            "socketId": "sock10",
+            "username": "T8_u2",
             "pic": null,
             "ready": true,
             "connected": true,
             "isCreator": false
           },
           {
-            "socketId": "sock16",
-            "username": "T13_u3",
+            "socketId": "sock11",
+            "username": "T8_u3",
             "pic": null,
             "ready": true,
             "connected": true,
             "isCreator": false
           },
           {
-            "socketId": "sock17",
-            "username": "T13_u4",
+            "socketId": "sock12",
+            "username": "T8_u4",
             "pic": null,
             "ready": true,
             "connected": true,
@@ -2359,106 +2359,106 @@
         "messages": [],
         "scoreboard": [
           {
-            "username": "T13_u3",
-            "totalScore": 784,
+            "username": "T8_u1",
+            "totalScore": 726,
             "roundScores": [
-              364,
-              420
-            ],
-            "roundDetails": [
-              {
-                "roundNumber": 1,
-                "gameId": "00000000-0000-4000-8000-000000000002",
-                "position": 2,
-                "teamScore": 364,
-                "oppScore": 290,
-                "partner": "T13_u2"
-              },
-              {
-                "roundNumber": 2,
-                "gameId": "00000000-0000-4000-8000-000000000007",
-                "position": 3,
-                "teamScore": 420,
-                "oppScore": 320,
-                "partner": "T13_u4"
-              }
-            ]
-          },
-          {
-            "username": "T13_u4",
-            "totalScore": 710,
-            "roundScores": [
-              290,
-              420
-            ],
-            "roundDetails": [
-              {
-                "roundNumber": 1,
-                "gameId": "00000000-0000-4000-8000-000000000002",
-                "position": 1,
-                "teamScore": 290,
-                "oppScore": 364,
-                "partner": "T13_u1"
-              },
-              {
-                "roundNumber": 2,
-                "gameId": "00000000-0000-4000-8000-000000000007",
-                "position": 1,
-                "teamScore": 420,
-                "oppScore": 320,
-                "partner": "T13_u3"
-              }
-            ]
-          },
-          {
-            "username": "T13_u2",
-            "totalScore": 684,
-            "roundScores": [
-              364,
-              320
-            ],
-            "roundDetails": [
-              {
-                "roundNumber": 1,
-                "gameId": "00000000-0000-4000-8000-000000000002",
-                "position": 4,
-                "teamScore": 364,
-                "oppScore": 290,
-                "partner": "T13_u3"
-              },
-              {
-                "roundNumber": 2,
-                "gameId": "00000000-0000-4000-8000-000000000007",
-                "position": 4,
-                "teamScore": 320,
-                "oppScore": 420,
-                "partner": "T13_u1"
-              }
-            ]
-          },
-          {
-            "username": "T13_u1",
-            "totalScore": 610,
-            "roundScores": [
-              290,
-              320
+              412,
+              314
             ],
             "roundDetails": [
               {
                 "roundNumber": 1,
                 "gameId": "00000000-0000-4000-8000-000000000002",
                 "position": 3,
-                "teamScore": 290,
-                "oppScore": 364,
-                "partner": "T13_u4"
+                "teamScore": 412,
+                "oppScore": 286,
+                "partner": "T8_u4"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 3,
+                "teamScore": 314,
+                "oppScore": 262,
+                "partner": "T8_u2"
+              }
+            ]
+          },
+          {
+            "username": "T8_u4",
+            "totalScore": 674,
+            "roundScores": [
+              412,
+              262
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 1,
+                "teamScore": 412,
+                "oppScore": 286,
+                "partner": "T8_u1"
               },
               {
                 "roundNumber": 2,
                 "gameId": "00000000-0000-4000-8000-000000000007",
                 "position": 2,
-                "teamScore": 320,
-                "oppScore": 420,
-                "partner": "T13_u2"
+                "teamScore": 262,
+                "oppScore": 314,
+                "partner": "T8_u3"
+              }
+            ]
+          },
+          {
+            "username": "T8_u2",
+            "totalScore": 600,
+            "roundScores": [
+              286,
+              314
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 4,
+                "teamScore": 286,
+                "oppScore": 412,
+                "partner": "T8_u3"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 1,
+                "teamScore": 314,
+                "oppScore": 262,
+                "partner": "T8_u1"
+              }
+            ]
+          },
+          {
+            "username": "T8_u3",
+            "totalScore": 548,
+            "roundScores": [
+              286,
+              262
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 2,
+                "teamScore": 286,
+                "oppScore": 412,
+                "partner": "T8_u2"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 4,
+                "teamScore": 262,
+                "oppScore": 314,
+                "partner": "T8_u4"
               }
             ]
           }
@@ -2467,27 +2467,27 @@
           {
             "gameId": "00000000-0000-4000-8000-000000000007",
             "humanPlayers": [
-              "T13_u2",
-              "T13_u1",
-              "T13_u3",
-              "T13_u4"
+              "T8_u2",
+              "T8_u1",
+              "T8_u4",
+              "T8_u3"
             ],
             "botCount": 0,
             "status": "complete"
           }
         ],
-        "creatorUsername": "T13_u1",
-        "creatorSocketId": "sock14",
+        "creatorUsername": "T8_u1",
+        "creatorSocketId": "sock9",
         "winners": [
-          "T13_u3"
+          "T8_u1"
         ],
         "cutForABuck": {
-          "winner": "T13_u2",
+          "winner": "T8_u2",
           "participants": [
-            "T13_u1",
-            "T13_u2",
-            "T13_u3",
-            "T13_u4"
+            "T8_u1",
+            "T8_u2",
+            "T8_u3",
+            "T8_u4"
           ],
           "rounds": 15
         },
@@ -2499,12 +2499,12 @@
                 "gameId": "00000000-0000-4000-8000-000000000002",
                 "teams": [
                   [
-                    "T13_u2",
-                    "T13_u3"
+                    "T8_u2",
+                    "T8_u3"
                   ],
                   [
-                    "T13_u1",
-                    "T13_u4"
+                    "T8_u1",
+                    "T8_u4"
                   ]
                 ]
               }
@@ -2517,12 +2517,12 @@
                 "gameId": "00000000-0000-4000-8000-000000000007",
                 "teams": [
                   [
-                    "T13_u2",
-                    "T13_u1"
+                    "T8_u2",
+                    "T8_u1"
                   ],
                   [
-                    "T13_u3",
-                    "T13_u4"
+                    "T8_u4",
+                    "T8_u3"
                   ]
                 ]
               }
@@ -2538,7 +2538,7 @@
         "username": "System",
         "message": "Round 1: everyone tied on 2s, so draw again.",
         "isSpectator": false,
-        "timestamp": 1767269640000,
+        "timestamp": 1767269641000,
         "system": true,
         "type": "system"
       }
@@ -2550,7 +2550,7 @@
         "username": "System",
         "message": "Round 2: everyone tied on 3s, so draw again.",
         "isSpectator": false,
-        "timestamp": 1767269644000,
+        "timestamp": 1767269645000,
         "system": true,
         "type": "system"
       }
@@ -2562,7 +2562,7 @@
         "username": "System",
         "message": "Round 3: everyone tied on 4s, so draw again.",
         "isSpectator": false,
-        "timestamp": 1767269648000,
+        "timestamp": 1767269649000,
         "system": true,
         "type": "system"
       }
@@ -2574,7 +2574,7 @@
         "username": "System",
         "message": "Round 4: everyone tied on 5s, so draw again.",
         "isSpectator": false,
-        "timestamp": 1767269652000,
+        "timestamp": 1767269653000,
         "system": true,
         "type": "system"
       }
@@ -2586,7 +2586,7 @@
         "username": "System",
         "message": "Round 5: everyone tied on 6s, so draw again.",
         "isSpectator": false,
-        "timestamp": 1767269656000,
+        "timestamp": 1767269657000,
         "system": true,
         "type": "system"
       }
@@ -2598,7 +2598,7 @@
         "username": "System",
         "message": "Round 6: everyone tied on 7s, so draw again.",
         "isSpectator": false,
-        "timestamp": 1767269660000,
+        "timestamp": 1767269661000,
         "system": true,
         "type": "system"
       }
@@ -2610,7 +2610,7 @@
         "username": "System",
         "message": "Round 7: everyone tied on 8s, so draw again.",
         "isSpectator": false,
-        "timestamp": 1767269664000,
+        "timestamp": 1767269665000,
         "system": true,
         "type": "system"
       }
@@ -2622,7 +2622,7 @@
         "username": "System",
         "message": "Round 8: everyone tied on 9s, so draw again.",
         "isSpectator": false,
-        "timestamp": 1767269668000,
+        "timestamp": 1767269669000,
         "system": true,
         "type": "system"
       }
@@ -2634,7 +2634,7 @@
         "username": "System",
         "message": "Round 9: everyone tied on 10s, so draw again.",
         "isSpectator": false,
-        "timestamp": 1767269672000,
+        "timestamp": 1767269673000,
         "system": true,
         "type": "system"
       }
@@ -2646,7 +2646,7 @@
         "username": "System",
         "message": "Round 10: everyone tied on jacks, so draw again.",
         "isSpectator": false,
-        "timestamp": 1767269676000,
+        "timestamp": 1767269677000,
         "system": true,
         "type": "system"
       }
@@ -2658,7 +2658,7 @@
         "username": "System",
         "message": "Round 11: everyone tied on queens, so draw again.",
         "isSpectator": false,
-        "timestamp": 1767269680000,
+        "timestamp": 1767269681000,
         "system": true,
         "type": "system"
       }
@@ -2670,7 +2670,7 @@
         "username": "System",
         "message": "Round 12: everyone tied on kings, so draw again.",
         "isSpectator": false,
-        "timestamp": 1767269684000,
+        "timestamp": 1767269685000,
         "system": true,
         "type": "system"
       }
@@ -2682,7 +2682,7 @@
         "username": "System",
         "message": "Round 13: everyone tied on aces, so draw again.",
         "isSpectator": false,
-        "timestamp": 1767269688000,
+        "timestamp": 1767269689000,
         "system": true,
         "type": "system"
       }
@@ -2694,7 +2694,7 @@
         "username": "System",
         "message": "Reshuffling: the deck ran out.",
         "isSpectator": false,
-        "timestamp": 1767269692000,
+        "timestamp": 1767269693000,
         "system": true,
         "type": "system"
       }
@@ -2704,9 +2704,9 @@
       "to": "socket",
       "data": {
         "username": "System",
-        "message": "Round 14: T13_u1 4♥, T13_u2 K♠, T13_u3 J♠, T13_u4 4♠. T13_u1 and T13_u4 are out.",
+        "message": "Round 14: T8_u1 4♥, T8_u2 K♠, T8_u3 J♠, T8_u4 4♠. T8_u1 and T8_u4 are out.",
         "isSpectator": false,
-        "timestamp": 1767269692000,
+        "timestamp": 1767269693000,
         "system": true,
         "type": "system"
       }
@@ -2716,9 +2716,9 @@
       "to": "socket",
       "data": {
         "username": "System",
-        "message": "Round 15: T13_u2 Q♦, T13_u3 2♠. T13_u3 is out.",
+        "message": "Round 15: T8_u2 Q♦, T8_u3 2♠. T8_u3 is out.",
         "isSpectator": false,
-        "timestamp": 1767269696000,
+        "timestamp": 1767269697000,
         "system": true,
         "type": "system"
       }
@@ -2730,12 +2730,12 @@
         "tournaments": [
           {
             "id": "00000000-0000-4000-8000-000000000001",
-            "name": "T13_u1's Tournament",
+            "name": "T8_u1's Tournament",
             "playerCount": 4,
             "phase": "round_active",
             "currentRound": 2,
             "totalRounds": 2,
-            "creatorUsername": "T13_u1",
+            "creatorUsername": "T8_u1",
             "cut": true
           }
         ]

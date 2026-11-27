@@ -178,16 +178,18 @@ async function abortGame(io, game, reason) {
  * Used by the lobby, tournament and ambient start paths.
  *
  * A tournament table with planned teams (game.drawTeams, two or more
- * members) decides here, once, how its draw runs (owner 2026-11-25): honest
- * (game.drawHonest: each player the card they picked; the draw decides only
- * the seats and who deals first) when every human entrant there and every
- * spectator present now sent the clientHello cap tournamentPairings,
- * otherwise staged (GameState._plannedDrawIndex) so a legacy client's
- * printed rule stays true. Either way startDraw carries the teams by name
- * (`teams`, every planned table: a cap client always shows the draw for
- * first deal), and an honest table stores and broadcasts one system log
- * line naming them (it reaches a legacy spectator who comes later through
- * the snapshot log). TOURNAMENT_HONEST_DRAW=off forces staged.
+ * members) draws honestly (owner 2026-11-25): each player gets the card
+ * they picked and the draw decides only the seats and who deals first.
+ * startDraw carries the teams by name (`teams`: a client with the
+ * clientHello cap tournamentPairings shows the draw for first deal), and
+ * the room gets one stored system log line naming them. The staged draw
+ * (cards chosen so the casual "two highest cards are partners" seated the
+ * plan) is gone: every iOS build the upgrade gate lets in (41 and later)
+ * has the cap. A cached web tab from before 2026-11-25 does not: it shows
+ * its old casual copy over an honest draw, and the log line (in its game
+ * log, and through the snapshot log for one who comes later) plus
+ * teamsAnnounced say who is partnered. The "Tournament draw" log counts
+ * those sockets (legacyHumans / legacySpectators) so their use is visible.
  * @param {Object} io
  * @param {GameState} game
  * @param {Object} [opts]
@@ -205,16 +207,15 @@ function beginDraw(io, game, { announce = true } = {}) {
     let payload = { start: true };
     if (game.drawTeams) {
         const legacy = legacyAudience(io, game);
-        game.drawHonest = !honestDrawOff() && legacy.humans === 0 && legacy.spectators === 0;
         game.drawTeamsWire = plannedTeamsWire(game);
         payload = { start: true, teams: game.drawTeamsWire };
         socketLogger.info('Tournament draw', {
-            gameId: game.gameId, mode: game.drawHonest ? 'firstDeal' : 'staged',
+            gameId: game.gameId, mode: 'firstDeal',
             legacyHumans: legacy.humans, legacySpectators: legacy.spectators,
         });
     }
     if (announce) game.broadcast(io, 'startDraw', payload);
-    if (game.drawHonest && announce) {
+    if (game.drawTeams && announce) {
         const line = `Partners this round: ${teamsText(game.drawTeamsWire)}. The draw decides who deals first.`;
         game.addLogEntry(line, null, 'system');
         game.broadcast(io, 'gameLogEntry', { message: line, type: 'system' });
@@ -244,14 +245,12 @@ function beginDraw(io, game, { announce = true } = {}) {
     return true;
 }
 
-/** TOURNAMENT_HONEST_DRAW=off (also false / 0 / disabled / no), read at each draw: every planned table stages its draw. */
-const honestDrawOff = () => /^(off|false|0|disabled|no)$/i.test(process.env.TOURNAMENT_HONEST_DRAW || '');
-
 /**
  * Who at a planned table cannot show a draw for first deal (no
- * tournamentPairings cap): {humans, spectators}. A human entrant who is not
- * connected counts (it may come back on any client); one who left is
- * seated as a resign bot and is not at the table.
+ * tournamentPairings cap: a cached web tab from before 2026-11-25):
+ * {humans, spectators}, for the "Tournament draw" log only. A human
+ * entrant who is not connected counts (it may come back on any client);
+ * one who left is seated as a resign bot and is not at the table.
  */
 function legacyAudience(io, game) {
     let humans = 0;

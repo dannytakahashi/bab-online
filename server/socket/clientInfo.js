@@ -76,12 +76,12 @@ const { socketLogger } = require('../utils/logger');
  *                     tournament events' `pairings`), and at a tournament
  *                     table startDraw.teams / snapshot draw.teams shown as a
  *                     draw for first deal (2026-11-25). A tournament table
- *                     draws honestly (each player the card they picked; the
- *                     draw decides only seats and the first deal) only when
- *                     every human there and every spectator present at the
- *                     draw's start has it; otherwise the draw is staged as
- *                     before (gameLifecycle.beginDraw, PAIRINGS_CAP in
- *                     game/tournamentPartners.js)
+ *                     always draws honestly (each player the card they
+ *                     picked; the draw decides only seats and the first
+ *                     deal): every iOS build the upgrade gate lets in has
+ *                     it, and a cached web tab without it gets the room's
+ *                     "Partners this round" log line (gameLifecycle.beginDraw,
+ *                     PAIRINGS_CAP in game/tournamentPartners.js)
  *   badges            shows badges (owner 2026-11-24): the player's earned
  *                     ones as `badges` on profileResponse /
  *                     playerProfileResponse, and the private s2c

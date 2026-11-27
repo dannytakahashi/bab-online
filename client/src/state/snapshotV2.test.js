@@ -412,7 +412,7 @@ describe('draw.teams (a tournament table\'s draw for first deal)', () => {
   const pairings = JSON.parse(fs.readFileSync(path.join(PDIR, 'events.json'), 'utf8'));
   const snapOf = (mode) => pairings[mode].find((e) => e.event === 'stateSnapshot').data.snapshot;
 
-  it.each(['honest', 'staged'])('%s: the server\'s mid-draw snapshot keeps its 2 x 2 teams', (mode) => {
+  it.each(['honest'])('%s: the server\'s mid-draw snapshot keeps its 2 x 2 teams', (mode) => {
     const r = parseSnapshotV2(snapOf(mode), { strict: true });
     expect(r.ok).toBe(true);
     expect(r.warnings).toEqual([]);

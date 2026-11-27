@@ -365,18 +365,15 @@ describe('draw-phase leave and disconnect', () => {
         expect(gameManager.playerGames.get(fresh.id)).toBe(game.gameId);
     });
 
-    test('a planned tournament table keeps its teams and staged cards through the takeover', () => {
+    test('a planned tournament table keeps its teams through the takeover', () => {
         seq++;
         const ids = [1, 2, 3, 4].map((n) => `p${seq}-h${n}`);
         const game = drawingGame(ids);
         game.drawTeams = [[ids[0], ids[2]], [ids[1], ids[3]]];
-        game.drawPlan = new Map(ids.map((id, i) => [id, { rank: String(i + 2), suit: 'spades' }]));
         game.markEntrantDisconnected(ids[2]);
 
         expect(game.reattachEntrant(`user_${ids[2]}`, 'p-new')).toBe(ids[2]);
         expect(game.drawTeams).toEqual([[ids[0], 'p-new'], [ids[1], ids[3]]]);
-        expect(game.drawPlan.get('p-new')).toEqual({ rank: '4', suit: 'spades' });
-        expect(game.drawPlan.has(ids[2])).toBe(false);
         // Nobody else's name, and never onto a socket that is another entrant
         expect(game.reattachEntrant('nobody', 'p-x')).toBeNull();
         expect(game.reattachEntrant(`user_${ids[1]}`, ids[0])).toBeNull();
