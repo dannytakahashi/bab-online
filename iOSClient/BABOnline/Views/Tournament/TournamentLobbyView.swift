@@ -4,8 +4,9 @@ import SwiftUI
 /// Rounds picker in the lobby phase, the mic and Leave (the host's Leave and End Tournament, an icon
 /// each), the players and standings, the chat, then ONE action slot at the bottom
 /// (TournamentLobbySlot: Ready / Unready, or the host's Begin). Where the system shows the vertical
-/// bar (the iPhone Duo), Leave / End Tournament (or the complete phase's Main Room) are the leading
-/// toolbar items in that column (VerticalBarHost).
+/// bar (the iPhone Duo), Leave / End Tournament (or the complete phase's Main Room) are toolbar
+/// items in that column (VerticalBarHost), laid out as the game's bar: Leave (the game's Exit glyph)
+/// alone in the top pill, End Tournament in its own pill under it.
 struct TournamentLobbyView: View {
     var body: some View {
         VerticalBarHost { TournamentLobbyScreen(bar: $0) }
@@ -20,6 +21,8 @@ private struct TournamentLobbyScreen: View {
     @EnvironmentObject var tournamentState: TournamentState
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.dynamicTypeSize) private var typeSize
+    /// The vertical bar's Leave follows the bar's symbol size and weight (ExitIcon.barImage).
+    @Environment(\.legibilityWeight) private var legibilityWeight
     /// Bumped by every hinge change so the fold is read again at the same size.
     @State private var hingeTick = 0
     @ObservedObject private var socketService = SocketService.shared
@@ -122,16 +125,19 @@ private struct TournamentLobbyScreen: View {
         .verticalBarChrome(bar, showsBarControls: bar.usesVerticalBar)
         .toolbar {
             if bar.usesVerticalBar {
-                ToolbarItemGroup(placement: .barLeading) {
-                    if showsFinal {
+                if showsFinal {
+                    ToolbarItem(placement: .barLeading) {
                         Button(action: returnToMainRoom) {
                             Label("Main Room", systemImage: "chevron.left")
                         }
-                    } else {
-                        // the host's Leave and End Tournament, one item each, Leave on top (the
-                        // owner: "I think the sidebar is correct for the duo")
-                        ForEach(TournamentLobbyMenu.displayOrder(menuEntry, inBar: true), id: \.self) { item in
-                            entryButton(item)
+                    }
+                } else {
+                    // as the game's bar (owner 2026-11-27, "The standard game icons"): Leave alone
+                    // in the top pill (a leading item), the host's End Tournament in its own pill
+                    // under it (a trailing item; TournamentLobbyMenu.barPill)
+                    ForEach(TournamentLobbyMenu.displayOrder(menuEntry, inBar: true), id: \.self) { item in
+                        ToolbarItem(placement: TournamentLobbyMenu.barPill(item) == .leading ? .barLeading : .barTrailing) {
+                            entryButton(item, inBar: true)
                                 .tint(TournamentLobbyMenu.isDestructiveForEveryone(item) ? Theme.error : nil)
                         }
                     }
@@ -628,17 +634,48 @@ private struct TournamentLobbyScreen: View {
     /// at the chat (owner 2026-11-26, "the same fix you did for game selection"). End Tournament
     /// waits for the session and the re-entry like the slot; Leave never waits (during the
     /// re-entry it is TournamentRejoin.abandon).
-    private func entryButton(_ item: TournamentLobbyMenu.Item) -> some View {
+    private func entryButton(_ item: TournamentLobbyMenu.Item, inBar: Bool = false) -> some View {
         Button {
             ask(item)
         } label: {
             // a Label, so the Large Content Viewer and the bar have the words
-            Label(TournamentLobbyMenu.buttonTitle(item), systemImage: TournamentLobbyMenu.icon(item))
+            if TournamentLobbyMenu.isMirrored(item) {
+                Label {
+                    Text(TournamentLobbyMenu.buttonTitle(item))
+                } icon: {
+                    mirroredIcon(item, inBar: inBar)
+                }
+            } else {
+                Label(TournamentLobbyMenu.buttonTitle(item), systemImage: TournamentLobbyMenu.icon(item))
+            }
         }
         .disabled(!TournamentLobbyMenu.isEnabled(item, canSend: canSendTournamentActions))
         .accessibilityLabel(TournamentLobbyMenu.title(item))
         .accessibilityHint(TournamentLobbyMenu.hint(item))
         .accessibilityIdentifier(TournamentLobbyMenu.identifier(item))
+    }
+
+    /// Leave's and Stop Watching's icon, the game's Exit exactly (its arrow points left, out): in the vertical bar the
+    /// game's bar image (the bar draws a toolbar item's symbol itself and drops SwiftUI transforms,
+    /// so the mirror is in the bitmap, ExitIcon.barImage), in a header the symbol mirrored as the
+    /// game's corner Exit is. Hidden: the button reads "Leave Tournament" / "Stop Watching", not the
+    /// symbol's name.
+    @ViewBuilder
+    private func mirroredIcon(_ item: TournamentLobbyMenu.Item, inBar: Bool) -> some View {
+        #if os(iOS)
+        if inBar {
+            Image(platformImage: ExitIcon.barImage(dynamicTypeSize: typeSize, legibilityWeight: legibilityWeight))
+                .accessibilityHidden(true)
+        } else {
+            Image(systemName: TournamentLobbyMenu.icon(item))
+                .scaleEffect(x: -1, y: 1)
+                .accessibilityHidden(true)
+        }
+        #else
+        Image(systemName: TournamentLobbyMenu.icon(item))
+            .scaleEffect(x: -1, y: 1)
+            .accessibilityHidden(true)
+        #endif
     }
 
     /// The fallback where a header row cannot fit the host's two icons: ONE level, a "…" menu of

@@ -4,7 +4,8 @@ import XCTest
 /// Unready; the host's Begin once allowed, with Unready under it), the host's Rounds picker in the
 /// header, Leave / Stop Watching as a button (a member, a spectator), the host's Leave and End
 /// Tournament as two icons (owner 2026-11-26: one action = one icon; the "…" menu only where a header
-/// cannot fit both, which no tested device reaches), each confirmed by a centred alert; and New Game
+/// cannot fit both, which no tested device reaches; in the Duo's vertical bar Leave alone in the top
+/// pill as the game's Exit, End in its own pill under it), each confirmed by a centred alert; and New Game
 /// as a native menu with each choice's words under its name (Tournament among them), the trophy
 /// opening the leaderboard. Fixture mode; run on the iPhone 18 Pro, the iPad and the iPhone Duo
 /// closed and open (where the buttons are vertical bar items).
@@ -189,7 +190,8 @@ final class LobbyMenuLayoutUITests: XCTestCase {
 
     /// The host's two icons, Leave and End Tournament (owner 2026-11-26: "tournament host should
     /// get two separate icons"): both reachable, side by side (a row in the header, a column in the
-    /// Duo's bar), no "…" menu (the fallback never shows on a tested device), nothing asked yet.
+    /// Duo's bar, a pill each), no "…" menu (the fallback never shows on a tested device), nothing
+    /// asked yet.
     @discardableResult
     private func hostButtons(_ app: XCUIApplication, file: StaticString = #filePath,
                              line: UInt = #line) -> (leave: XCUIElement, end: XCUIElement) {
@@ -205,7 +207,13 @@ final class LobbyMenuLayoutUITests: XCTestCase {
         let row = abs(l.midY - e.midY) < 2, column = abs(l.midX - e.midX) < 2
         XCTAssertTrue(row || column, "side by side: \(l) \(e)", file: file, line: line)
         if row { XCTAssertLessThan(e.maxX, l.minX + 1, "End before Leave, Leave in the corner", file: file, line: line) }
-        if column { XCTAssertLessThan(l.maxY, e.minY + 1, "Leave on top in the bar", file: file, line: line) }
+        if column {
+            XCTAssertLessThan(l.maxY, e.minY + 1, "Leave on top in the bar", file: file, line: line)
+            // Leave alone in the top pill as the game's Exit, End in its own pill under it (owner
+            // 2026-11-27): on the open Duo (iOS 27.2) two items of one pill sit 14 pt apart, two
+            // pills 22 pt
+            XCTAssertGreaterThan(e.minY - l.maxY, 18, "End in its own pill: \(l) \(e)", file: file, line: line)
+        }
         XCTAssertEqual(app.alerts.count, 0, "nothing asked yet", file: file, line: line)
         return (leave, end)
     }
