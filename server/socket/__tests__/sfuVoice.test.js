@@ -813,6 +813,42 @@ describe('blocks fail closed and reach a member who is away', () => {
         expect(remoteMidsAt(sa.sessionId)).toEqual([]);
         expect(remoteMidsAt(sb.sessionId)).toEqual([]);
     });
+
+    test.each([['the publisher blocks', 0], ['the subscriber blocks', 1]])('after a restart, a block made before the publisher resumed is enforced when it does (%s)', async (_, blocker) => {
+        const ctx = await tournament(['sfu', 'sfu']);
+        const [a, b] = ctx.sockets;
+        const sa = await joinVoice(ctx, a, { publish: true });
+        const sb = await joinVoice(ctx, b, { publish: true });
+        const pb = await ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [pullOf(sa)] });
+        ctx.t.voiceRoom = { order: 0, members: new Map() };
+        for (const s of [a, b]) tournamentVoice.enter(ctx.io, ctx.t, s.id);
+        // b resumes with its pull of a; a is back in the room but has not resumed
+        expect(await ask(ctx, b, 'sfuResume', { sessionId: sb.sessionId, sessionToken: sb.sessionToken, trackName: 'mic', mid: '0', pulls: [{ mid: pb.tracks[0].mid, ...pullOf(sa) }] })).toMatchObject({ ok: true });
+        const [by, of] = blocker === 0 ? [a, b] : [b, a];
+        await safety.blockUser(by, ctx.io, { username: of.username });
+        await jest.advanceTimersByTimeAsync(sfuRoom.BLOCK_ENFORCE_MS + 10);
+        await settle();
+        // nothing of a's session is known yet, so nothing could be closed
+        expect(remoteMidsAt(sb.sessionId)).toEqual([pb.tracks[0].mid]);
+        expect(await ask(ctx, a, 'sfuResume', { sessionId: sa.sessionId, sessionToken: sa.sessionToken, trackName: 'mic', mid: '0', pulls: [] })).toMatchObject({ ok: true });
+        await settle();
+        expect(remoteMidsAt(sb.sessionId)).toEqual([]);
+    });
+
+    test('after a restart, an honest resume with no block closes nothing', async () => {
+        const ctx = await tournament(['sfu', 'sfu']);
+        const [a, b] = ctx.sockets;
+        const sa = await joinVoice(ctx, a, { publish: true });
+        const sb = await joinVoice(ctx, b, { publish: true });
+        const pb = await ask(ctx, b, 'sfuPull', { sessionId: sb.sessionId, tracks: [pullOf(sa)] });
+        ctx.t.voiceRoom = { order: 0, members: new Map() };
+        for (const s of [a, b]) tournamentVoice.enter(ctx.io, ctx.t, s.id);
+        expect(await ask(ctx, b, 'sfuResume', { sessionId: sb.sessionId, sessionToken: sb.sessionToken, trackName: 'mic', mid: '0', pulls: [{ mid: pb.tracks[0].mid, ...pullOf(sa) }] })).toMatchObject({ ok: true });
+        await ask(ctx, a, 'sfuResume', { sessionId: sa.sessionId, sessionToken: sa.sessionToken, trackName: 'mic', mid: '0', pulls: [] });
+        await jest.advanceTimersByTimeAsync(sfuRoom.BLOCK_ENFORCE_MS + 10);
+        await settle();
+        expect(remoteMidsAt(sb.sessionId)).toEqual([pb.tracks[0].mid]);
+    });
 });
 
 // ==================== Cloudflare failures and the queue ====================

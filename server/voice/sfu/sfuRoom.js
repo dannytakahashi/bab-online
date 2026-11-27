@@ -134,6 +134,11 @@ function blocked(t, a, b) {
     return la.has(b.username) || lb.has(a.username);
 }
 
+/** Do both lists exist and does either name the other? (no load, never fail closed) */
+function knownBlocked(a, b) {
+    return a.blocks instanceof Set && b.blocks instanceof Set && (a.blocks.has(b.username) || b.blocks.has(a.username));
+}
+
 /** The block list a socket holds now, copied, or null. */
 function socketBlocks(io, sid) {
     const list = io?.sockets?.sockets?.get(sid)?.data?.blockedUsers;
@@ -531,6 +536,17 @@ function resume(io, t, entry, { sessionId, trackName, mid, pulls = [] }) {
     if (barred.length) {
         for (const m of barred) entry.pulls.delete(m);
         closeLate(t, sessionId, barred, 'blocked');
+    }
+    // ... and the other way: a member it is blocked with may hold a pull of
+    // this session from before a restart, re-registered while this session
+    // was unknown here (a block made then found no session of this member to
+    // close: enforceBlock had nothing to match). Now that the session is
+    // known, enforce each such pair again. Known lists only: an unknown list
+    // is kept apart by `blocked`, and its load runs setBlocks -> hidePair.
+    if (!same) {
+        for (const o of sfuState(t).entries.values()) {
+            if (o !== entry && knownBlocked(entry, o)) enforceBlock(t, entry.username, o.username);
+        }
     }
     if (changed) announce(io, t, entry, 'session');
     else if (was === 'reconnecting') announce(io, t, entry, 'resumed');
