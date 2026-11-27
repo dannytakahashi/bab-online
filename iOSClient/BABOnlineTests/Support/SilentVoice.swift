@@ -70,7 +70,9 @@ extension VoiceChatManager {
                        deactivateAudioSession: @escaping @MainActor () -> Void = {},
                        sendIceCandidate: @escaping @MainActor (String, RTCIceCandidate) -> Void = { _, _ in },
                        audioDevice: SilentAudioDevice = SilentAudioDevice(),
-                       after: ((TimeInterval, @escaping @MainActor () -> Void) -> Void)? = nil) -> VoiceChatManager {
+                       after: ((TimeInterval, @escaping @MainActor () -> Void) -> Void)? = nil,
+                       sendSfu: @escaping @MainActor (String, [String: Any]) -> Void = { _, _ in },
+                       sfuClock: (now: @MainActor () -> Date, after: @MainActor (TimeInterval, @escaping @MainActor () -> Void) -> Void)? = nil) -> VoiceChatManager {
         VoiceChatManager(hooks: .init(requestRecordPermission: requestRecordPermission,
                                       recordPermissionGranted: recordPermissionGranted,
                                       configureAudioSession: configureAudioSession,
@@ -79,9 +81,13 @@ extension VoiceChatManager {
                                       sendAnswer: sendAnswer,
                                       notify: notify,
                                       socketId: socketId,
-                                      sendIceCandidate: sendIceCandidate),
+                                      sendIceCandidate: sendIceCandidate,
+                                      sendSfu: sendSfu),
                          iceStore: IceServerStore(timeout: 0.05, emit: { _ in }),
                          audioDevice: audioDevice,
-                         after: after)
+                         after: after,
+                         sfuClock: sfuClock,
+                         // no STUN in the unit tests (the fake SFU is in-process)
+                         sfuIceServers: [])
     }
 }
