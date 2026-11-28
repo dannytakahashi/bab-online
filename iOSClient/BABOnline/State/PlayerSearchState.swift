@@ -42,10 +42,13 @@ final class PlayerSearchState: ObservableObject {
         /// while the next search runs, as results do.
         case unavailable(String)
 
-        /// Something is on screen that the next reply replaces (so no spinner over it).
+        /// Something is on screen that the next reply replaces (so no spinner over it). Not the
+        /// offline line: once a search can be sent it is no longer true, so it gives way to
+        /// `.searching` (and the spinner rule) at once.
         var keepsWhileSearching: Bool {
             switch self {
-            case .results, .unavailable: return true
+            case .results: return true
+            case .unavailable(let line): return line != PlayerSearchState.offlineLine
             case .idle, .searching: return false
             }
         }

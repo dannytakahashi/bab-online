@@ -210,6 +210,24 @@ final class PlayerSearchTests: XCTestCase {
         XCTAssertEqual(names(s), ["kimberly"])
     }
 
+    /// Offline, then connected again: the next keystroke searches and the offline line goes at
+    /// once (it would say "offline" while a search runs); the spinner rule applies again.
+    func testTheOfflineLineGoesOnceASearchCanBeSent() {
+        let s = makeState()
+        connected = false
+        s.setText("kim")
+        XCTAssertEqual(s.phase, .unavailable(PlayerSearchState.offlineLine))
+        connected = true
+        s.setText("kimb")
+        XCTAssertEqual(s.phase, .searching, "not the offline line while a search can run")
+        clock.advance(0.3)
+        XCTAssertEqual(sent, ["kimb"])
+        clock.advance(1)
+        XCTAssertTrue(s.showsProgress, "nothing on screen, so the spinner shows")
+        s.apply(response: reply("kimb", ["kimberly"]))
+        XCTAssertEqual(names(s), ["kimberly"])
+    }
+
     func testNoAnswerAndAFailureAreQuietLines() {
         let s = makeState()
         s.setText("kim"); clock.advance(0.3)
