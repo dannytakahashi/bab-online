@@ -36,6 +36,9 @@ struct GameEndData: Equatable {
     /// Get Your Bid (gameEnd.gyb): each seat's final score, the winners, the exact bids, the
     /// hands; nil for the base game (whose team keys then carry the result).
     var gyb: GybEnd? = nil
+    /// The scorecard (gameEnd `scorecard`, additive 2026-11-27): every hand's row; nil from an
+    /// older server (GameEndView then has no Scorecard tab).
+    var scorecard: [ScorecardRow]? = nil
 
     static func from(_ dict: [String: Any]) -> GameEndData? {
         // Server sends { score: { team1: N, team2: N }, playerStats: { "1": { username, ... }, ... } }
@@ -80,7 +83,8 @@ struct GameEndData: Equatable {
         let history = dict["handHistory"] as? [[String: Any]] ?? []
         return GameEndData(winningTeam: winner, team1Score: t1Score, team2Score: t2Score,
                            team1Players: t1Players, team2Players: t2Players, handHistory: history,
-                           playerStats: PlayerEndStats.rows(dict["playerStats"]), gyb: GybEnd.from(dict["gyb"]))
+                           playerStats: PlayerEndStats.rows(dict["playerStats"]), gyb: GybEnd.from(dict["gyb"]),
+                           scorecard: Scorecard.rows(fromJSON: dict["scorecard"]))
     }
 }
 
@@ -154,6 +158,6 @@ extension GameEndData {
     static func == (a: GameEndData, b: GameEndData) -> Bool {
         a.winningTeam == b.winningTeam && a.team1Score == b.team1Score && a.team2Score == b.team2Score
             && a.team1Players == b.team1Players && a.team2Players == b.team2Players
-            && a.playerStats == b.playerStats && a.gyb == b.gyb
+            && a.playerStats == b.playerStats && a.gyb == b.gyb && a.scorecard == b.scorecard
     }
 }

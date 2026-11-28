@@ -188,6 +188,7 @@ enum UIFixture {
             if drawStates.contains(name) { editDraw(name, &snapDict) }
             if drawTeams, drawStates.contains(name) || name == "draw-in-progress" { editDrawTeams(name, &snapDict) }
             editFaults(&snapDict)
+            editScorecard(&snapDict)  // -uiScorecard (UIFixture+Scorecard.swift)
             editSeatBadges(&snapDict)  // -uiSeatBadges (UIFixture+SeatBadges.swift)
             editAssistHand(&snapDict)
             editAsSpectator(&snapDict)
@@ -241,10 +242,16 @@ enum UIFixture {
                 }
                 // `-uiTie YES`: equal final scores (TIE GAME)
                 let tie = UserDefaults.standard.bool(forKey: "uiTie")
-                store.apply(serverEvent: "gameEnd", payload: [[
+                var end: [String: Any] = [
                     "score": ["team1": 312, "team2": tie ? 312 : 287], "playerStats": stats,
                     "tournamentId": snap.tournament?.tournamentId ?? NSNull(), "seq": snap.seq + 1,
-                ] as [String: Any]])
+                ]
+                // `-uiScorecard YES`: every hand's row, the score their total (UIFixture+Scorecard)
+                if let card = scorecardEnd() {
+                    end["scorecard"] = card.rows
+                    end["score"] = ["team1": card.team1, "team2": card.team2]
+                }
+                store.apply(serverEvent: "gameEnd", payload: [end])
             }
             seedTableExtras(store, snap, auth: auth)
             seedAssist(store, auth: auth)

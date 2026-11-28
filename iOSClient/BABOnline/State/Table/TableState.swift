@@ -62,6 +62,11 @@ struct TableSlice: Equatable {
     var mode: GameMode = .classic
     /// A Get Your Bid table's scores, exact bids and last hand (unused in the base game).
     var gyb = GybTable()
+    /// The scorecard (owner 2026-11-27; Scorecard.swift): the server's rows of this game's
+    /// completed hands, nil while the server has sent none (an older server: no Scorecard tab,
+    /// no score-bar hint). [] from a deal's `scorecardRows`; handComplete appends its row; a
+    /// snapshot and gameEnd bring them all.
+    var scorecard: [ScorecardRow]?
 
     /// Seats at the table: 3 at a Get Your Bid table, else 4.
     var seats: Int { mode.seats }

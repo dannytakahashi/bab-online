@@ -52,11 +52,21 @@ extension UIFixture {
             for (pos, user, _) in gybSeats {
                 stats[String(pos)] = ["username": user, "totalBids": 20 + pos, "totalTricks": 22 + pos, "setsCaused": 0, "totalHSI": 0, "avgHSI": 0] as [String: Any]
             }
-            store.apply(serverEvent: "gameEnd", payload: [[
+            var end: [String: Any] = [
                 "score": ["team1": 0, "team2": 0], "playerStats": stats, "tournamentId": NSNull(),
                 "gyb": ["scores": scores, "winners": tie ? [1, 2] : [2], "made": [5, 8, 2], "hands": 13],
                 "seq": (store.state.sync.lastSeq ?? 40) + 1,
-            ] as [String: Any]])
+            ]
+            // `-uiScorecard YES`: 13 rows, the scores and the winners theirs (UIFixture+Scorecard)
+            if scorecardMode, !scorecardNone {
+                let rows = gybScorecard()
+                let totals = rows.last?["scores"] as? [Int] ?? scores
+                let top = totals.max() ?? 0
+                let made = (0..<3).map { k in rows.filter { r in (r["took"] as? [Int])?[k] == Int((r["bids"] as? [String])?[k] ?? "") }.count }
+                end["scorecard"] = rows
+                end["gyb"] = ["scores": totals, "winners": (1...3).filter { totals[$0 - 1] == top }, "made": made, "hands": 13]
+            }
+            store.apply(serverEvent: "gameEnd", payload: [end])
         }
         appState.screen = .game
         return true
@@ -109,6 +119,8 @@ extension UIFixture {
             "resume": NSNull(),
         ]
         if !spectator { snap["viewer"] = ["role": "seat", "position": 1, "ownerView": "seat", "canAct": true] }
+        // the scorecard's rows so far (the server's key; -uiScorecard fills the 3 hands before this one)
+        editGybScorecard(&snap)
         return snap
     }
 
