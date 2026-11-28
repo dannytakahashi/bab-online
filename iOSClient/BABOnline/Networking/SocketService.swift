@@ -544,18 +544,38 @@ final class SocketService: ObservableObject {
     func noteSessionEstablished() {
         isSessionReady = true
         restoreWait = nil
+        unansweredRebuilds = 0
     }
 
     // MARK: - The restore's answer
 
     /// How long a restore sent on a connected socket may go unanswered before the connection
-    /// is rebuilt (`restoreSent`). The server answers every restore it receives (a failure
-    /// too) unless the socket closed meanwhile; well under a second on a live link.
+    /// is rebuilt (`restoreSent`), the first time. The server answers every restore it
+    /// receives (a failure too) unless the socket closed meanwhile; well under a second on a
+    /// live link.
     static var restoreAnswerWait: TimeInterval = 5
+    /// The longest wait (`currentRestoreAnswerWait`).
+    static var restoreAnswerWaitCap: TimeInterval = 30
+
+    /// Connections rebuilt in a row because their restore went unanswered, since the last
+    /// session (`noteSessionEstablished`) or sign-out (`disconnect`). Each one doubles the next
+    /// wait, so a server that answers, but later than `restoreAnswerWait` (a restore waits on
+    /// the database: up to 10 s while the server starts, and each Mongo operation up to its
+    /// 5 s server selection timeout in a blip), is still waited for long enough to be heard:
+    /// with a fixed wait every restore was cut off just before its answer and the gate never
+    /// opened, the app building a new connection every 5 s against a server already slow.
+    /// A failure answered (`restoreAnswered`) keeps it: a "Database error" can come as late.
+    private var unansweredRebuilds = 0
+    /// The wait for the next restore: `restoreAnswerWait`, doubled per unanswered rebuild in
+    /// a row, at most `restoreAnswerWaitCap` (5, 10, 20, 30, 30 s...).
+    var currentRestoreAnswerWait: TimeInterval {
+        min(Self.restoreAnswerWait * pow(2, Double(min(unansweredRebuilds, 16))), Self.restoreAnswerWaitCap)
+    }
 
     /// The restore waiting for its answer: the connection it went out on (`connectionsOpened`
-    /// when it was built: a socket's address can be reused by the next one) and its round.
-    private var restoreWait: (connection: Int, round: Int)?
+    /// when it was built: a socket's address can be reused by the next one), its round, and
+    /// how long it is given.
+    private var restoreWait: (connection: Int, round: Int, seconds: TimeInterval)?
     private var restoreWaitRounds = 0
 
     /// A restore went out on `socket` (`.connect`, or a retry after a retryable failure).
@@ -568,14 +588,15 @@ final class SocketService: ObservableObject {
     /// background): `SocketEngine.write` drops a packet while the engine is between two
     /// sessions, and a namespace connect answered on the session being replaced raises
     /// `.connect` for a socket the next session never joins. Unanswered after
-    /// `restoreAnswerWait` on the same connection, still connected: a new connection
-    /// (`forceReconnect`), whose own restore opens the gate. Nothing is let through early.
+    /// `currentRestoreAnswerWait` on the same connection, still connected: a new connection
+    /// (`forceReconnect`), whose own restore opens the gate, and given twice as long (a slow
+    /// server, not a lost restore, is heard on a later round). Nothing is let through early.
     func restoreSent(on socket: SocketIOClient) {
         guard socket === self.socket else { return }
         restoreWaitRounds += 1
-        let wait = (connection: connectionsOpened, round: restoreWaitRounds)
+        let wait = (connection: connectionsOpened, round: restoreWaitRounds, seconds: currentRestoreAnswerWait)
         restoreWait = wait
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.restoreAnswerWait) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait.seconds) { [weak self] in
             self?.restoreWaitEnded(wait)
         }
     }
@@ -586,21 +607,23 @@ final class SocketService: ObservableObject {
         restoreWait = nil
     }
 
-    private func restoreWaitEnded(_ wait: (connection: Int, round: Int)) {
-        guard let pending = restoreWait, pending == wait else { return }
+    private func restoreWaitEnded(_ wait: (connection: Int, round: Int, seconds: TimeInterval)) {
+        guard let pending = restoreWait, pending.connection == wait.connection, pending.round == wait.round else { return }
         restoreWait = nil
         guard let socket, connectionsOpened == wait.connection, isConnected, !isSessionReady,
               authState?.hasStoredSession == true else { return }
         let state = "manager \(manager.map { "\($0.status)" } ?? "-"), socket \(socket.status)"
-        print("[Socket] Restore unanswered after \(Self.restoreAnswerWait) s (\(state)): rebuilding connection")
+        unansweredRebuilds += 1
+        print("[Socket] Restore unanswered after \(wait.seconds) s (\(state)): rebuilding connection, next wait \(currentRestoreAnswerWait) s")
         ErrorReporter.shared.report(kind: "restoreUnanswered",
-                                    message: "no restore answer after \(Int(Self.restoreAnswerWait)) s (\(state))")
+                                    message: "no restore answer after \(Int(wait.seconds)) s (\(state))")
         forceReconnect()
     }
 
     func disconnect() {
         cancelForegroundProbe()
         restoreWait = nil
+        unansweredRebuilds = 0
         if let manager, let socket { Self.retire(manager: manager, socket: socket) }
         socket = nil
         manager = nil

@@ -168,8 +168,8 @@ final class LiveSpadeResumeTests: XCTestCase {
     /// A restore lost on its way (the harness started with `BAB_LIVE_DROP_RESTORES=2`: the
     /// library's reconnect's restore before the foreground and the foreground rebuild's are
     /// dropped unanswered): the connection is up, the toast gone, and New Game comes back once
-    /// `SocketService.restoreAnswerWait` has rebuilt the connection. Before 2026-11-27 it stayed
-    /// greyed out. Opt in with `TEST_RUNNER_BAB_SPADE_LOST=1`.
+    /// `SocketService.restoreSent`'s wait has rebuilt the connection twice (5 then 10 s: it
+    /// backs off). Before 2026-11-27 it stayed greyed out. Opt in with `TEST_RUNNER_BAB_SPADE_LOST=1`.
     func testSpadeAfterALostRestore() throws {
         guard env["BAB_SPADE_LOST"] == "1" else { throw XCTSkip("opt-in: TEST_RUNNER_BAB_SPADE_LOST=1 with BAB_LIVE_DROP_RESTORES=2 on the harness") }
         let app = try liveApp()

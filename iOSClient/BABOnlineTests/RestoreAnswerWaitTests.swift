@@ -8,7 +8,8 @@ import SocketIO
 /// never saw it) left the connection up, the connection toast gone and New Game, Join and
 /// Spectate off with nothing asking again. Now a restore unanswered after
 /// `SocketService.restoreAnswerWait` on a socket still connected gets a new connection, whose
-/// restore opens the gate. A real SocketManager and the app's router against
+/// restore opens the gate; each rebuild in a row waits twice as long (a slow server is still
+/// heard). A real SocketManager and the app's router against
 /// FakeSocketIOServer, which drops the restores a test says to.
 final class RestoreAnswerWaitTests: XCTestCase {
     private var service: SocketService { SocketService.shared }  // the app skips its socket under XCTest
@@ -69,6 +70,7 @@ final class RestoreAnswerWaitTests: XCTestCase {
         service.isSessionReady = false
         auth.restoreRetrying = false
         SocketService.restoreAnswerWait = 5
+        SocketService.restoreAnswerWaitCap = 30
         server.stop()
         server = nil
         super.tearDown()
@@ -165,5 +167,65 @@ final class RestoreAnswerWaitTests: XCTestCase {
         spin(SocketService.restoreAnswerWait + 0.5)
         XCTAssertTrue(service.manager === manager)
         XCTAssertFalse(service.isSessionReady)
+    }
+
+    /// A server that answers, but later than the first wait (2.2 s against 1.5 s: a restore
+    /// waiting on the database): the rebuilt connection is given twice as long and is heard.
+    /// With a fixed wait every restore was cut off before its answer, a new connection every
+    /// wait and the gate never open.
+    func testASlowServerIsHeardOnTheNextRound() {
+        server.replyDelays = ["restoreSessionResponse": 2.2]
+        let opened = service.connectionsOpened
+        connect()
+        wait("connected, the restore sent") { self.service.isConnected && self.restores == 1 }
+        spin(1.0)
+        XCTAssertFalse(service.canSendMainRoomActions, "nothing before the answer")
+        wait("the slow restore is answered on the rebuilt connection", timeout: 15) { self.service.isSessionReady }
+        XCTAssertLessThanOrEqual(service.connectionsOpened - opened, 2, "one rebuild at most")
+        XCTAssertTrue(service.canSendMainRoomActions)
+        let settled = service.connectionsOpened
+        spin(SocketService.restoreAnswerWait * 2 + 0.5)
+        XCTAssertEqual(service.connectionsOpened, settled, "kept once answered")
+    }
+
+    /// Rebuilds in a row wait longer each time (1.5 s, then 3 s), and a session resets it: the
+    /// next lost restore is waited for 1.5 s again.
+    func testUnansweredRebuildsWaitLongerUntilASession() {
+        script.set([.drop, .drop])
+        connect()
+        wait("the first restore sent") { self.restores == 1 }
+        let opened = service.connectionsOpened
+        XCTAssertEqual(service.currentRestoreAnswerWait, 1.5)
+        wait("the first rebuild", timeout: 5) { self.service.connectionsOpened == opened + 1 }
+        let firstRebuild = Date()
+        XCTAssertEqual(service.currentRestoreAnswerWait, 3, "doubled")
+        wait("the second rebuild", timeout: 8) { self.service.connectionsOpened == opened + 2 }
+        XCTAssertGreaterThan(Date().timeIntervalSince(firstRebuild), 2.8, "the second wait is twice the first")
+        XCTAssertEqual(service.currentRestoreAnswerWait, 6)
+        wait("restored", timeout: 10) { self.service.isSessionReady }
+        XCTAssertEqual(service.currentRestoreAnswerWait, 1.5, "a session resets it")
+
+        script.set([.drop])
+        let before = service.connectionsOpened
+        service.forceReconnect()
+        let rebuilt = Date()
+        wait("the new connection's restore sent") { self.restores == 4 }
+        wait("rebuilt after the first wait again", timeout: 5) { self.service.connectionsOpened == before + 2 }
+        XCTAssertLessThan(Date().timeIntervalSince(rebuilt), 2.8, "the first wait, not the doubled one")
+        wait("restored", timeout: 10) { self.service.isSessionReady }
+    }
+
+    /// The wait stops growing at `restoreAnswerWaitCap`.
+    func testTheWaitIsCapped() {
+        SocketService.restoreAnswerWaitCap = 2
+        script.set([.drop, .drop])
+        connect()
+        wait("the first restore sent") { self.restores == 1 }
+        let opened = service.connectionsOpened
+        wait("the first rebuild", timeout: 5) { self.service.connectionsOpened == opened + 1 }
+        XCTAssertEqual(service.currentRestoreAnswerWait, 2, "3 s capped at 2")
+        wait("the second rebuild", timeout: 5) { self.service.connectionsOpened == opened + 2 }
+        XCTAssertEqual(service.currentRestoreAnswerWait, 2)
+        wait("restored", timeout: 10) { self.service.isSessionReady }
     }
 }
