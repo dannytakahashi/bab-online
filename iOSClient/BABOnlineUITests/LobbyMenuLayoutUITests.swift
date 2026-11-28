@@ -649,7 +649,9 @@ final class LobbyMenuLayoutUITests: XCTestCase {
     func testTheBarPutsTheTrophyInTheBottomPill() {
         let app = mainRoom()
         let pose = Fixture.probe(app, "ui.pose")
-        guard pose.contains(" vbar ") else { app.terminate(); return }  // only where the bar shows
+        // only where the bar shows: the pose's last word is the bar's edge, "-" when there is none
+        // (StatsUITests.testSheetClearOfVerticalBar reads it the same way)
+        guard pose.contains(" vbar "), let edge = pose.split(separator: " ").last, edge != "-" else { app.terminate(); return }
         let newGame = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "New Game")).firstMatch
         let cup = trophy(app)
         let players = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "online")).firstMatch
