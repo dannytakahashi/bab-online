@@ -32,6 +32,25 @@ final class GameEndStatsUITests: XCTestCase {
         app.descendants(matching: .any).matching(identifier: "gameEnd.stats.\(pos)").firstMatch
     }
 
+    /// The results' own scroll view (the one holding the card). Swipe it, never the application:
+    /// on the open Duo XCUIApplication's frame is the inner screen's portrait 669x951 while the
+    /// window is landscape 951x669, so `app.swipeUp()` is placed on a frame that is not the
+    /// window's and never scrolls the results (the card stayed put through 14 of them at AX5),
+    /// while the same swipe on the window or this scroll view moves it a screen at a time. A
+    /// person's swipe scrolls it on every device; this was the test's reach, not the screen's.
+    private func scroller(_ app: XCUIApplication) -> XCUIElement {
+        app.scrollViews.containing(.any, identifier: "gameEnd").firstMatch
+    }
+
+    /// Scroll the results until `e` can be tapped (up to `tries` swipes each way, `up` first).
+    @discardableResult
+    private func reveal(_ app: XCUIApplication, _ e: XCUIElement, up: Bool = true, tries: Int = 8) -> Bool {
+        let s = scroller(app)
+        for _ in 0..<tries where !e.isHittable { up ? s.swipeUp() : s.swipeDown() }
+        for _ in 0..<tries where !e.isHittable { up ? s.swipeDown() : s.swipeUp() }
+        return e.isHittable
+    }
+
     private func attach(_ app: XCUIApplication, _ name: String) {
         let a = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         a.name = name
@@ -88,9 +107,7 @@ final class GameEndStatsUITests: XCTestCase {
         sleep(2)
         attach(app, "game-end-landscape")
         checkRows(app, "game-end landscape")
-        let button = app.buttons["Return to Lobby"]
-        for _ in 0..<4 where !button.isHittable { app.swipeUp() }
-        XCTAssertTrue(button.isHittable, "Return to Lobby reachable in landscape")
+        XCTAssertTrue(reveal(app, app.buttons["Return to Lobby"]), "Return to Lobby reachable in landscape")
     }
 
     func testSpectatorSeesTheSameStats() {
@@ -121,24 +138,35 @@ final class GameEndStatsUITests: XCTestCase {
 
     /// The largest text sizes: the largest standard one (the table, or the stacked rows where it
     /// does not fit) and the largest accessibility one (stacked): every row reads its sentence,
-    /// stays inside the window, and the card scrolls to the button.
+    /// stays inside the window, and the card scrolls to the button; the Summary | Scorecard
+    /// control scrolls back into reach, and the scorecard's results scroll to the button too
+    /// (the open Duo in landscape is the shortest: 669 pt).
     func testLargestTextSizesStayReadableAndReachable() {
         for (tag, category) in [("xxxl", "UICTContentSizeCategoryXXXL"), ("ax5", "UICTContentSizeCategoryAccessibilityXXXL")] {
-            let app = launch("game-end", extra: ["-UIPreferredContentSizeCategoryName", category])
+            // -uiScorecard YES: the scorecard's 13 hands (the stats rows are the fixture's either way)
+            let app = launch("game-end", extra: ["-UIPreferredContentSizeCategoryName", category, "-uiScorecard", "YES"])
             sleep(1)
             attach(app, "game-end-\(tag)")
             let window = app.windows.firstMatch.frame
             for pos in 1...4 {
                 let e = row(app, pos)
-                for _ in 0..<6 where !e.isHittable { app.swipeUp() }
+                reveal(app, e)
+                XCTAssertTrue(e.isHittable, "\(tag) seat \(pos) scrolled into reach")
                 XCTAssertEqual(e.label, Self.expected[pos], "\(tag) seat \(pos)")
                 XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "gameEnd.stats.\(pos)").count, 1, "\(tag) seat \(pos)")
                 XCTAssertGreaterThanOrEqual(e.frame.minX, window.minX - 1, "\(tag) seat \(pos) inside the window")
                 XCTAssertLessThanOrEqual(e.frame.maxX, window.maxX + 1, "\(tag) seat \(pos) inside the window")
             }
             let button = app.buttons["Return to Lobby"]
-            for _ in 0..<6 where !button.isHittable { app.swipeUp() }
-            XCTAssertTrue(button.isHittable, "Return to Lobby reachable at \(tag)")
+            XCTAssertTrue(reveal(app, button), "Return to Lobby reachable at \(tag)")
+            attach(app, "game-end-\(tag)-return")
+            // back up to the Summary | Scorecard control, then the scorecard's way to the button
+            let scorecard = app.descendants(matching: .any)["gameEnd.tabs"].buttons["Scorecard"]
+            XCTAssertTrue(reveal(app, scorecard, up: false), "Summary | Scorecard reachable at \(tag)")
+            scorecard.tap()
+            XCTAssertTrue(app.descendants(matching: .any)["scorecard.row.13"].waitForExistence(timeout: 3), "\(tag): the scorecard shows")
+            XCTAssertTrue(reveal(app, button), "Return to Lobby reachable from the scorecard at \(tag)")
+            attach(app, "game-end-\(tag)-scorecard-return")
             app.terminate()
         }
     }
