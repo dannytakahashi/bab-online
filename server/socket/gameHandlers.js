@@ -38,6 +38,7 @@ const { emitLobbiesUpdated } = require('./gameLifecycle');
 const playAgain = require('./playAgain');
 const assistHandlers = require('./assistHandlers');
 const { snapshotFor, gybExtra, carrierFor } = require('./snapshotHandlers');
+const scorecard = require('../game/scorecard');
 const shoulderView = require('./shoulderView');
 const pacing = require('../game/pacing');
 /** The live persist store (deploy survival), lazily: a no-op with LIVE_PERSIST off. */
@@ -773,6 +774,13 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
     }
     // Get Your Bid: each seat's score, by position - 1 (additive `gyb`)
     const gybStart = isGyb(game) ? { gyb: { scores: gybScores(game) } } : null;
+    // How many scorecard rows the game has (additive 2026-11-27;
+    // game/scorecard.js): every deal, so a client knows the server keeps a
+    // scorecard before the first hand ends (its rows come with each
+    // handComplete and every snapshot; a missed handComplete is a seq gap,
+    // whose resync snapshot brings every row). A count,
+    // not the rows: a deal's payload stays small (avatarPayloads' budget)
+    const cardRows = Array.isArray(game.scorecard) ? game.scorecard.length : 0;
 
     // Store HSI values on game state for reconnection
     game.hsiValues = hsiValues;
@@ -820,6 +828,7 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
             playerInfo: info.players,  // Current player info for avatar updates
             seq: handSeq,  // additive: the deal's broadcast sequence number
             ...(info.avatarUrls && { avatarUrls: info.avatarUrls }),  // additive: custom pictures' URLs
+            scorecardRows: cardRows,
             ...gybStart
         });
     }
@@ -843,6 +852,7 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
             seq: handSeq,
             ...(info.avatarUrls && { avatarUrls: info.avatarUrls }),
             ...(watched && { shoulder: shoulderView.shoulderPayload(game, watched) }),
+            scorecardRows: cardRows,
             ...gybStart
         });
     }
@@ -1017,6 +1027,8 @@ function scoreGybHand(game, io) {
         game.addLogEntry(`${name}: Bid ${bid}, Won ${took}${forbiddenHit ? ' (Forbidden Bid)' : ''}, +${points} → ${game.gyb.scores[pos]}`, null, 'score');
     }
     gameLogger.debug('Score update', { gyb: seats, scores: game.gyb.scores, gameId: game.gameId });
+    // The scorecard's row: the very seats and points just scored
+    const row = scorecard.appendRow(game, scorecard.gybRow(game, { seats, forbidden, scores: gybScores(game) }));
 
     game.broadcast(io, 'handComplete', {
         score: game.score,
@@ -1024,7 +1036,8 @@ function scoreGybHand(game, io) {
         team2Tricks: game.tricks.team2,
         team1OldScore: game.score.team1,
         team2OldScore: game.score.team2,
-        gyb: { scores: gybScores(game), oldScores, seats, forbidden }
+        gyb: { scores: gybScores(game), oldScores, seats, forbidden },
+        scorecardRow: JSON.parse(JSON.stringify(row))
     });
 
     return Array.from({ length: N }, (_, i) =>
@@ -1119,6 +1132,11 @@ function scoreClassicHand(game, io) {
     const faults = game.handTricks ? handFaults({
         teamBids: game.bids, teamTricks: game.tricks, playerBids: game.playerBids, handTricks: game.handTricks
     }) : [];
+    // The scorecard's row (game/scorecard.js): this hand's points and faults
+    // as just scored, the same list the fault lines below are written from
+    const row = scorecard.appendRow(game, scorecard.classicRow(game, {
+        oldScore: { team1: team1OldScore, team2: team2OldScore }, faults
+    }));
     if (game.playerStats) {
         for (const f of faults) {
             if (game.playerStats[f.position]) game.playerStats[f.position].setsCaused++;
@@ -1189,7 +1207,9 @@ function scoreClassicHand(game, io) {
         team1Tricks: game.tricks.team1,
         team2Tricks: game.tricks.team2,
         team1OldScore,
-        team2OldScore
+        team2OldScore,
+        // additive (2026-11-27): the hand's scorecard row (clients append it)
+        scorecardRow: JSON.parse(JSON.stringify(row))
     });
 
     // Then one stored, sequenced line per fault (owner 2026-11-19), after
@@ -1236,6 +1256,9 @@ async function finishGame(game, io, { playerStatsWithNames, gybEnd }) {
         score: game.score,
         playerStats: playerStatsWithNames,
         tournamentId,
+        // additive (2026-11-27): every hand's row (the results' Scorecard
+        // tab); not the reserved handHistory, which shipped iOS reads
+        scorecard: scorecard.scorecardWire(game),
         ...gybEnd
     })) return;
 

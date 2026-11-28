@@ -52,7 +52,7 @@ describe('reload while watching a tournament table', () => {
     socket.fire('spectatorJoined', spectatorState({ gameId: 'g3' }));
     socket.clearEmits();
     socket.fire('gameEnd', { score: { team1: 300, team2: 120 }, playerStats: {}, tournamentId: null });
-    document.querySelector('#finalScoreOverlay button')?.click();
+    document.querySelector('#finalScoreOverlay .kit-modal__actions button')?.click();
     expect(socket.emitted('returnToTournament')).toHaveLength(1);
     expect(socket.emitted('spectateTournament')).toHaveLength(0);
     expect(page.session.screen).toBe('tournamentLobby');

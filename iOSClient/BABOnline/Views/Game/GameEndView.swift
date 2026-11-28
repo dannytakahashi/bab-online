@@ -14,6 +14,15 @@ struct GameEndView: View {
     /// A compact width (a phone, the closed Duo) gives the stats table more room.
     private var compact: Bool { hSize == .compact }
 
+    /// "Summary | Scorecard" (owner 2026-11-27): Summary first and the default, unchanged.
+    enum Tab: String, CaseIterable, Identifiable { case summary = "Summary", scorecard = "Scorecard"; var id: String { rawValue } }
+    @State private var tab: Tab = .summary
+
+    /// The game's scorecard rows (gameEnd's, else what the table kept); nil from an older
+    /// server: no control, the summary as before.
+    private var scorecardRows: [ScorecardRow]? { gameState.gameEndData?.scorecard ?? gameState.scorecardRows }
+    private var showsScorecard: Bool { scorecardRows != nil && tab == .scorecard }
+
     var body: some View {
         ZStack {
             Theme.scrim.ignoresSafeArea()
@@ -23,7 +32,8 @@ struct GameEndView: View {
                 ScrollView {
                     card
                         .frame(maxWidth: 460)  // readable on the open Duo and the iPad
-                        .padding(.horizontal, compact ? Theme.Space.s4 : Theme.Space.s6)
+                        // the scorecard's columns take the phone's width (375 pt fits at the default size)
+                        .padding(.horizontal, compact ? (showsScorecard ? Theme.Space.s2 : Theme.Space.s4) : Theme.Space.s6)
                         .padding(.vertical, Theme.Space.s4)
                         .frame(maxWidth: .infinity, minHeight: geo.size.height)
                 }
@@ -34,7 +44,16 @@ struct GameEndView: View {
 
     private var card: some View {
         VStack(spacing: Theme.Space.s6) {
-            if let data = gameState.gameEndData, let end = data.gyb {
+            if scorecardRows != nil {
+                Picker("Results view", selection: $tab) {
+                    ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("gameEnd.tabs")
+            }
+            if showsScorecard {
+                ScorecardTable(model: gameState.scorecardModel(rows: scorecardRows, current: false))
+            } else if let data = gameState.gameEndData, let end = data.gyb {
                 // Get Your Bid: per-player results, best score first (the web's showFinalScoreOverlay({solo}))
                 soloResults(end, data)
             } else if let data = gameState.gameEndData {
@@ -110,7 +129,7 @@ struct GameEndView: View {
             }
         }
         .padding(.vertical, Theme.Space.s8)
-        .padding(.horizontal, compact ? Theme.Space.s5 : Theme.Space.s8)
+        .padding(.horizontal, compact ? (showsScorecard ? Theme.Space.s2 : Theme.Space.s5) : Theme.Space.s8)
         .background(
             RoundedRectangle(cornerRadius: Theme.Radius.lg)
                 .fill(Theme.surface)

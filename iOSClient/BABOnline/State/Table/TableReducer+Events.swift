@@ -121,6 +121,7 @@ extension TableReducer {
             fx.append(.sound(TableReducer.gameEndSound(s, data)))
             s.pending = nil
             s.table.tournamentId = p.tournamentId
+            if let rows = data?.scorecard { s.table.scorecard = rows }
             if let end = data?.gyb {
                 setMode(&s, .gyb)
                 s.table.gyb.scores = end.scores
@@ -421,6 +422,10 @@ extension TableReducer {
         clearHelpBadges(&s)
         s.table.watchedAssist = nil
         if s.table.phase.kind == .ended || s.table.phase.kind == .none { s.table.phase = .waiting }
+        // the scorecard: another game's deal starts a new card; a deal with scorecardRows says
+        // the server keeps one
+        if let gid = p.gameId, let mine = s.table.gameId, gid != mine { s.table.scorecard = nil }
+        if p.scorecardRows?.value != nil, s.table.scorecard == nil { s.table.scorecard = [] }
         if let gid = p.gameId { s.table.gameId = gid }
         let previous = s.table.deal
         let dealSeq = (previous?.dealSeq ?? 0) + 1
@@ -627,6 +632,7 @@ extension TableReducer {
         s.table.watchedAssist = nil
         clearHelpBadges(&s)
         s.scores.score = TeamPair(team1: t1, team2: t2)
+        if let row = p.scorecardRow?.value, row.isValid { s.table.scorecard = Scorecard.merge(s.table.scorecard ?? [], row) }
         s.table.phase = .handResolving(HandResolvingState(bids: bids,
             outcome: HandOutcome(team1Tricks: t1Tricks, team2Tricks: t2Tricks, team1OldScore: old1, team2OldScore: old2)))
         if let hand = p.gyb {

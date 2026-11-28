@@ -442,6 +442,30 @@ const defs = {
         }), { minItems: 3, maxItems: 3 }),
         forbidden: orNull(ref('gybForbidden')),
     }),
+    // ---------- the scorecard (2026-11-27; server/game/scorecard.js) ----------
+    // One completed hand (one row of the table people keep with real
+    // cards), seat arrays by position - 1: four seats in the base game,
+    // three in Get Your Bid. points / scores are per team [team1, team2]
+    // in the base game, per seat in Get Your Bid; faults the positions at
+    // fault (rules.handFaults, the "Fault:" lines; [] in Get Your Bid);
+    // set the base game's [team1 set, team2 set]; forbidden Get Your Bid's
+    // Forbidden Bid of the deal (null under 5 cards). Sent as
+    // handComplete.scorecardRow, and as the rows so far in snapshot v2 and
+    // gameEnd (`scorecard`); gameStart carries only their count
+    // (`scorecardRows`)
+    scorecardHand: obj({
+        handNo: int({ minimum: 1, maximum: 13 }),
+        handSize: int({ minimum: 1, maximum: 13 }),
+        trump: orNull(ref('card')),
+        dealer: ref('position'),
+        bids: arr(ref('bidString'), { minItems: 3, maxItems: 4 }),
+        took: arr(int({ minimum: 0, maximum: 13 }), { minItems: 3, maxItems: 4 }),
+        points: arr(int(), { minItems: 2, maxItems: 3 }),
+        scores: arr(int(), { minItems: 2, maxItems: 3 }),
+        faults: arr(ref('position'), { maxItems: 4 }),
+        set: arr(bool(), { minItems: 2, maxItems: 2 }),
+        forbidden: orNull(ref('gybForbidden')),
+    }, { optional: ['set', 'forbidden'] }),
     // gameEnd.gyb (and lobbyReturn.lastGame.gyb): the result
     gybEnd: obj({
         scores: ref('gybBySeat'),
@@ -612,7 +636,12 @@ const defs = {
             inMs: int({ minimum: 0, description: 'ms until the server bids 0 for the seat, from serverTime (relative: never compare with a client clock)' }),
             durationMs: int({ minimum: 1 }),
         }),
-    }, { optional: ['bidClock'] }),
+        // additive (2026-11-27, the scorecard): the rows of the hands
+        // completed so far (server/game/scorecard.js), [] before the first
+        // one ends. Optional in the schema only for the fixtures and
+        // baselines recorded before it: the server always sends it
+        scorecard: arr(ref('scorecardHand'), { maxItems: 13 }),
+    }, { optional: ['bidClock', 'scorecard'] }),
     viewerV2: obj({
         role: enm('seat', 'lazyWatcher', 'spectator', 'entrant', 'none'),
         position: orNull(ref('position')),

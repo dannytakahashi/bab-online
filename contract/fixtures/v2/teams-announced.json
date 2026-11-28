@@ -193,6 +193,7 @@
     "resume": {
       "kind": "teams",
       "inMs": 3000
-    }
+    },
+    "scorecard": []
   }
 }

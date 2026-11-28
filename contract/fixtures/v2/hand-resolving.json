@@ -544,6 +544,7 @@
     "resume": {
       "kind": "hand",
       "inMs": 1000
-    }
+    },
+    "scorecard": []
   }
 }

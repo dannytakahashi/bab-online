@@ -14,6 +14,7 @@
 
 import { STOCK_MIN, STOCK_MAX } from '../constants/avatars.js';
 import { validBidClock } from './bidClock.js';
+import { parseRows } from './scorecard.js';
 import { validShoulder } from './shoulder.js';
 import { validTeams } from './drawTeams.js';
 
@@ -233,6 +234,14 @@ export function parseSnapshotV2(raw, { strict = false } = {}) {
     } else {
       c.warnings.push(`$.bidClock: malformed ${JSON.stringify(raw.bidClock)}, dropped`);
     }
+  }
+  // scorecard (2026-11-27): the rows of the hands completed so far (the
+  // server's, state/scorecard.js); the malformed rows are dropped, a
+  // malformed list is left out (the card keeps what it has)
+  if ('scorecard' in raw) {
+    const rows = parseRows(raw.scorecard);
+    if (rows) copy.scorecard = rows;
+    else c.warnings.push('$.scorecard: malformed, dropped');
   }
   // draw.teams (2026-11-25): a tournament table's planned teams, exactly
   // 2 x 2 {username, isBot}; malformed: dropped with a warning (the draw

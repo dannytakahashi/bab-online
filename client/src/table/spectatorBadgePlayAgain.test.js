@@ -43,7 +43,7 @@ async function replayViewer(who, at) {
       lastT = e.t;
       if (e.dir === 'c2s') {
         if (e.event === 'RETURN') {
-          const btn = [...document.querySelectorAll('#finalScoreOverlay button')].find((b) => /lobby/i.test(b.textContent));
+          const btn = [...document.querySelectorAll('#finalScoreOverlay .kit-modal__actions button')].find((b) => /lobby/i.test(b.textContent));
           expect(btn, 'the score modal offers Return to Lobby').toBeTruthy();
           btn.click();
           replay.advance(100);

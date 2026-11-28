@@ -3,6 +3,7 @@
  * Handles fetching and updating user profiles
  */
 
+const { scorecardWire } = require('../game/scorecard');
 const database = require('../database');
 const { getUsersCollection, getGameRecordsCollection } = database;
 const gameManager = require('../game/GameManager');
@@ -754,6 +755,10 @@ function buildGameEndRecord(game) {
     }
 
     const doc = buildGameRecord(game, { withBots: withBots || assisted.length > 0 });
+    // The scorecard (2026-11-27, game/scorecard.js): every hand's bids,
+    // tricks, faults and points, kept for a later history view. Left out
+    // for a game without one (a doc restored from before it)
+    if (Array.isArray(game.scorecard) && game.scorecard.length > 0) doc.scorecard = scorecardWire(game);
     doc.statsDeltas = { bucket, byPosition, names };
     if (Object.keys(bags).length > 0) doc.statsDeltas.bags = bags;
     if (Object.keys(exact).length > 0) doc.statsDeltas.exact = exact;

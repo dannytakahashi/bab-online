@@ -3,13 +3,25 @@ import SwiftUI
 /// Score/bids/tricks header bar at top of game screen.
 struct ScoreBarView: View {
     @EnvironmentObject var gameState: GameState
+    /// The scorecard sheet (owner 2026-11-27): a tap on the bar opens it while the server keeps
+    /// a scorecard (`GameState.hasScorecard`); the only visual hint is the "›" after the hand.
+    @State private var showsScorecard = false
 
     var body: some View {
-        if gameState.isGyb {
-            soloBar
-        } else {
-            teamBar
+        Group {
+            if gameState.isGyb {
+                soloBar
+            } else {
+                teamBar
+            }
         }
+        .contentShape(Rectangle())
+        .onTapGesture { if gameState.hasScorecard { showsScorecard = true } }
+        .sheet(isPresented: $showsScorecard) {
+            ScorecardSheet().environmentObject(gameState)
+        }
+        // the game's end has its own Scorecard tab: the sheet goes with the table
+        .onChange(of: gameState.phase) { _, phase in if phase == .ended || phase == .none { showsScorecard = false } }
     }
 
     // MARK: Get Your Bid (three seats, no teams: the web's three-cell score header)
@@ -69,6 +81,22 @@ struct ScoreBarView: View {
 
     /// The trump and the hand (shared by both bars).
     private var centerInfo: some View {
+        trumpAndHand.modifier(ScorecardEntry(on: gameState.hasScorecard, open: { showsScorecard = true },
+                                             value: entryValue))
+    }
+
+    /// What VoiceOver reads after "Scorecard" on the bar's button: the trump and the hand.
+    private var entryValue: String {
+        let trump = gameState.trump.map { "Trump \(trumpDisplay($0))" }
+        return [trump, "Hand \(handNumber)"].compactMap { $0 }.joined(separator: ", ")
+    }
+
+    /// "Hand 12", with a small muted "›" while the bar opens the scorecard.
+    private var handLine: Text {
+        Text("Hand \(handNumber)") + Text(gameState.hasScorecard ? " \u{203A}" : "")
+    }
+
+    private var trumpAndHand: some View {
         VStack(spacing: 2) {
             if let trump = gameState.trump {
                 HStack(spacing: Theme.Space.s1) {
@@ -82,7 +110,7 @@ struct ScoreBarView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
             }
-            Text("Hand \(handNumber)")
+            handLine
                 .font(.caption2)
                 .foregroundColor(Theme.textDim)
         }
@@ -123,10 +151,11 @@ struct ScoreBarView: View {
                             .foregroundColor(trumpColor(trump))
                     }
                 }
-                Text("Hand \(handNumber)")
+                handLine
                     .font(.caption2)
                     .foregroundColor(Theme.textDim)
             }
+            .modifier(ScorecardEntry(on: gameState.hasScorecard, open: { showsScorecard = true }, value: entryValue))
             .frame(width: 100)
 
             // Opponent side (positions 2 & 4)
@@ -476,5 +505,29 @@ struct SoloScoreColumn: View {
         #if DEBUG
         .accessibilityValue("\(column.score)")  // the fixture UI tests read the score
         #endif
+    }
+}
+
+/// The score bar's scorecard entry for VoiceOver (and the UI tests): while the server keeps a
+/// scorecard, the trump and hand column is one button named "Scorecard" (its value the trump and
+/// the hand) that opens the sheet; the sighted tap is the whole bar's. Otherwise unchanged.
+struct ScorecardEntry: ViewModifier {
+    let on: Bool
+    let open: () -> Void
+    let value: String
+
+    func body(content: Content) -> some View {
+        if on {
+            content
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Scorecard")
+                .accessibilityValue(value)
+                .accessibilityHint("Shows every hand's bids, tricks and points")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { open() }
+                .accessibilityIdentifier("scoreBar.scorecard")
+        } else {
+            content
+        }
     }
 }

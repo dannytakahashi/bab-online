@@ -119,10 +119,10 @@ describe('a v1 doc hydrates under the current CODEC_V (3)', () => {
         }
     });
 
-    test('expectedAfterRestore upgrades only the version and the assist (and no bag or spot-on counter: none in the doc)', () => {
+    test('expectedAfterRestore upgrades only the version and the assist (and no bag or spot-on counter or scorecard: none in the doc)', () => {
         const doc = V1_DOCS[0];
         const out = codec.expectedAfterRestore(doc);
-        const { v, state: { assist, seatBags, seatExact, badgeTrack, ...state }, ...rest } = out;
+        const { v, state: { assist, seatBags, seatExact, badgeTrack, scorecard, ...state }, ...rest } = out;
         expect(v).toBe(3);
         expect(assist).toEqual(defaultAssist());
         expect(seatBags).toBeNull();
@@ -132,6 +132,9 @@ describe('a v1 doc hydrates under the current CODEC_V (3)', () => {
         // nor a badge tracker (2026-11-25): that game earns only what its final state shows
         expect(badgeTrack).toBeNull();
         expect(restore(doc).game.badgeTrack).toBeNull();
+        // nor a scorecard (2026-11-27): the card starts with the hands after the restore
+        expect(scorecard).toEqual([]);
+        expect(restore(doc).game.scorecard).toEqual([]);
         const plainRestore = json(doc);
         plainRestore.state.eventSeq += codec.EVENT_SEQ_OFFSET;
         expect(Object.keys(state).sort()).toEqual(Object.keys(plainRestore.state).sort());

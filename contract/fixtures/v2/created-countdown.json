@@ -107,6 +107,7 @@
     "resume": {
       "kind": "countdown",
       "inMs": 2000
-    }
+    },
+    "scorecard": []
   }
 }

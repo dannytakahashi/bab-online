@@ -21,8 +21,10 @@ contract to every one of them; a failure names the build it would break:
   commit's Swift (`contract/lib/swiftDecodes.js` parses
   `ServerEvent.decode` and every type it reaches: `WirePayloads.swift`,
   `WireDecoding.swift`, the generated `TableSnapshot.swift`, `Card.swift`
-  and, from 1.2.7 (41), `State/Table/GetYourBid.swift`, which an older
-  build's floor never read: `SOURCES_FROM` in `contract/baseline.js`).
+  and, from 1.2.7 (41), `State/Table/GetYourBid.swift` and, from 1.2.8
+  (52), `State/Table/Scorecard.swift`, which an older build's floor never
+  read: `SOURCES_FROM` in `contract/baseline.js`, which `additiveOnly.test.js`
+  holds to every frozen floor's `sources`).
   For every event iOS decodes with JSONDecoder, each non-optional property
   must stay required and non-null in today's schema, and every property
   (optional ones too: `decodeIfPresent` throws on a wrong type) must keep a
