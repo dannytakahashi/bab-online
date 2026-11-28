@@ -6,7 +6,7 @@
  * shows only the reply to the latest one sent.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { showPlayerSearchPage, updatePlayerSearchResults, removePlayerSearchPage, refreshPlayerSearchOnline as refreshNow, updatePlayerCards, _resetPlayerCardsForTests, PLAYER_CARDS_MAX } from './PlayerSearchPage.js';
+import { showPlayerSearchPage, updatePlayerSearchResults, removePlayerSearchPage, refreshPlayerSearchOnline as refreshNow, updatePlayerCards, _resetPlayerCardsForTests, PLAYER_CARDS_MAX, PLAYER_CARDS_RETRY_MS, playerCardsRefused } from './PlayerSearchPage.js';
 import { foldAvatarPayload } from '../../utils/avatar.js';
 import { registerProfileHandlers } from '../../handlers/profileHandlers.js';
 
@@ -308,6 +308,76 @@ describe('the online list shows pictures (playerCards, 2026-11-27)', () => {
     online = [];
     open();
     expect(cardCalls()).toEqual([]);
+  });
+
+  it('a refused request (a burst past the rate limit): its unanswered names are asked once more after the window, with the joiners', () => {
+    expect(PLAYER_CARDS_RETRY_MS).toBe(10000);
+    online = ['ivy', 'kim', 'ora', 'pat'];
+    refreshNow();
+    vi.advanceTimersByTime(300);
+    expect(cardCalls()).toEqual([['ivy', 'kim', 'ora'], ['pat']]);
+    updatePlayerCards([card('ivy', 31), card('kim', 12), card('ora', 9)]);
+    playerCardsRefused();
+    // joins inside the window wait for it
+    online = ['ivy', 'kim', 'ora', 'pat', 'quinn'];
+    refreshNow();
+    vi.advanceTimersByTime(9000);
+    expect(cardCalls()).toHaveLength(2);
+    vi.advanceTimersByTime(1000);
+    expect(cardCalls()).toEqual([['ivy', 'kim', 'ora'], ['pat'], ['pat', 'quinn']]);
+    updatePlayerCards([card('pat', 7), card('quinn', 8)]);
+    expect(pic('pat').getAttribute('src')).toBe('assets/avatars/v1/profile7.webp');
+    expect(pic('quinn').getAttribute('src')).toBe('assets/avatars/v1/profile8.webp');
+  });
+
+  it('a request always refused is one retry, never a loop; a reopening starts over', () => {
+    for (let i = 0; i < 5; i++) {
+      playerCardsRefused();
+      vi.advanceTimersByTime(PLAYER_CARDS_RETRY_MS);
+    }
+    vi.advanceTimersByTime(600000);
+    expect(cardCalls()).toEqual([['ivy', 'kim', 'ora'], ['ivy', 'kim', 'ora']]);
+    expect(pic('kim').tagName).toBe('SPAN');
+    removePlayerSearchPage();
+    socket.emit.mockClear();
+    open();
+    expect(cardCalls()).toEqual([['ivy', 'kim', 'ora']]);
+  });
+
+  it('a retry never asks again for a name answered meanwhile', () => {
+    online = ['ivy', 'kim', 'ora', 'pat'];
+    refreshNow();
+    vi.advanceTimersByTime(300);
+    playerCardsRefused();
+    updatePlayerCards([card('ivy', 31), card('kim', 12), card('ora', 9)]);
+    vi.advanceTimersByTime(PLAYER_CARDS_RETRY_MS);
+    expect(cardCalls()).toEqual([['ivy', 'kim', 'ora'], ['pat'], ['pat']]);
+  });
+
+  it('a refusal after the page closed does nothing', () => {
+    removePlayerSearchPage();
+    socket.emit.mockClear();
+    playerCardsRefused();
+    vi.advanceTimersByTime(60000);
+    expect(cardCalls()).toEqual([]);
+  });
+
+  it('a reconnect\'s mainRoomJoined asks again for the names never answered, with the same list, and ends a hold', () => {
+    updatePlayerCards([card('ivy', 31), card('kim', 12)]);
+    refreshNow({ rejoined: true });
+    vi.advanceTimersByTime(300);
+    expect(cardCalls()).toEqual([['ivy', 'kim', 'ora'], ['ora']]);
+    // a plain list change does not re-ask
+    refreshNow();
+    vi.advanceTimersByTime(300);
+    expect(cardCalls()).toHaveLength(2);
+    // a refusal's hold ends with the new socket (its own rate limit)
+    playerCardsRefused();
+    refreshNow({ rejoined: true });
+    vi.advanceTimersByTime(300);
+    expect(cardCalls()).toEqual([['ivy', 'kim', 'ora'], ['ora'], ['ora']]);
+    vi.advanceTimersByTime(PLAYER_CARDS_RETRY_MS * 2);
+    expect(cardCalls()).toHaveLength(3);
   });
 
   it('the handler passes a success\'s rows and drops a failure', () => {

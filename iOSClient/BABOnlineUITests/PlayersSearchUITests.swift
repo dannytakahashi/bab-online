@@ -84,7 +84,8 @@ final class PlayersSearchUITests: XCTestCase {
     private func reveal(_ app: XCUIApplication, _ e: XCUIElement, in container: XCUIElement? = nil) {
         let list = container ?? element(app, "players.list")
         let window = app.windows.firstMatch.frame
-        for _ in 0..<24 where !(e.exists && e.isHittable && window.contains(e.frame)) {
+        for _ in 0..<24 {
+            if e.exists && e.isHittable && window.contains(e.frame) { break }
             let from = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.65))
             let to = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
             from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.3)
@@ -158,14 +159,31 @@ final class PlayersSearchUITests: XCTestCase {
     func testTheInitialsComeFirstAndThePicturesReplaceThemInPlace() {
         let app = openPlayers(["-uiPlayerCards", "slow"])
         XCTAssertTrue(element(app, "players.onlineHeader").waitForExistence(timeout: 3))
-        XCTAssertEqual(probe(app, "players.onlinePictures"), "ivy:-,kim:-,hal:-,jon:-,ora:-,max:-,pat:-", "initials until the cards come")
+        let initials = "ivy:-,kim:-,hal:-,jon:-,ora:-,max:-,pat:-"
+        XCTAssertEqual(probe(app, "players.onlinePictures"), initials, "initials until the cards come")
+        shot("players-online-initials")
         // the rows on screen (at accessibility sizes only the first ones)
         let rows = ["kim", "hal", "jon", "ora", "max"].map { element(app, "online.\($0)") }.filter(\.exists)
         XCTAssertFalse(rows.isEmpty)
         let before = rows.map(\.frame)
-        shot("players-online-initials")
-        XCTAssertTrue(waitForPictures(app, timeout: 10) { $0.contains("kim:/avatar/kim?v=3") && $0.contains("hal:22") })
+        // still the initials after the frames were read: `before` is the layout before the
+        // pictures, so the comparison below spans their arrival (review of PR #454: under load at
+        // AX5 the frames were read after a shorter delay's pictures had already come)
+        XCTAssertEqual(probe(app, "players.onlinePictures"), initials, "the frames were read before the pictures came")
+        XCTAssertTrue(waitForPictures(app, timeout: 25) { $0.contains("kim:/avatar/kim?v=3") && $0.contains("hal:22") })
         XCTAssertEqual(rows.map(\.frame), before, "nothing moved when the pictures came")
+        app.terminate()
+    }
+
+    func testARefusedRequestIsAskedOnceMoreAndThePicturesCome() {
+        let app = openPlayers(["-uiPlayerCards", "refuse"])
+        XCTAssertTrue(element(app, "players.onlineHeader").waitForExistence(timeout: 3))
+        let all = "ivy:31,kim:/avatar/kim?v=3,hal:22,jon:5,ora:9,max:50,pat:-"
+        XCTAssertTrue(waitForPictures(app, timeout: 10) { $0 == all }, "the retry's pictures: \(probe(app, "players.onlinePictures"))")
+        XCTAssertEqual(probe(app, "players.cardsSent"), "ivy,kim,hal,jon,ora,max,pat|ivy,kim,hal,jon,ora,max,pat", "refused, then asked once more")
+        XCTAssertFalse(element(app, "serverErrorToast").exists, "never a toast")
+        sleep(3)
+        XCTAssertEqual(probe(app, "players.cardsSent").split(separator: "|").count, 2, "and nothing after")
         app.terminate()
     }
 

@@ -104,8 +104,21 @@ final class PlayerSearchState: ObservableObject {
     @Published private(set) var cards: [String: String] = [:]
     /// The names asked for since the sheet opened: each at most once per opening, so a server
     /// that never answers (one from before playerCards) costs one request per change of the list
-    /// and nothing else. Cleared when the sheet opens, which refreshes every listed card.
+    /// and nothing else. Cleared when the sheet opens, which refreshes every listed card. Two
+    /// cases ask a name again within an opening (review of PR #454): a refused request (the
+    /// rate limit, during a burst of joins) and a new session (a reconnect), each below.
     private(set) var cardsAsked = Set<String>()
+    /// The names a reply has brought back since the sheet opened (a name with no account never
+    /// comes back: it counts as unanswered, and is asked again at most as often as below).
+    private(set) var cardsAnswered = Set<String>()
+    /// The names asked again after a refusal since the sheet opened: each at most once, so a
+    /// request the server always refuses is one retry, never a loop.
+    private(set) var cardsRetried = Set<String>()
+    /// After a refusal nothing is asked for `cardsRetryDelay` (the server's rate-limit window,
+    /// playerCards 20 per 10 s); then what is unasked goes in one request.
+    private(set) var cardsHeld = false
+    var cardsRetryDelay: TimeInterval = 10
+    private var cancelRetry: (() -> Void)?
     /// The online list as the sheet last showed it (the main room's, in its order).
     private var online: [String] = []
     private var sheetOpen = false
@@ -163,6 +176,7 @@ final class PlayerSearchState: ObservableObject {
         sheetOpen = false
         cancelCards?()
         cancelCards = nil
+        endHold()
     }
 
     private func clear() {
@@ -180,6 +194,9 @@ final class PlayerSearchState: ObservableObject {
     func sheetOpened(online: [String]) {
         sheetOpen = true
         cardsAsked = []
+        cardsAnswered = []
+        cardsRetried = []
+        endHold()
         self.online = online
         askForCards()
     }
@@ -192,7 +209,20 @@ final class PlayerSearchState: ObservableObject {
         scheduleCards()
     }
 
+    /// A new session while the sheet is up (SocketService.isSessionReady again: a reconnect's
+    /// restore): the names sent and never answered are asked again, as are the names the sheet
+    /// could not ask while offline, after the pause. A reply lost with the old socket would
+    /// otherwise leave their initials until the sheet reopened, and the reconnect's online list
+    /// is often the same one (no onChange). The new socket has a fresh rate limit, so a hold ends.
+    func sessionRestored() {
+        guard sheetOpen else { return }
+        cardsAsked.formIntersection(cardsAnswered)
+        endHold()
+        scheduleCards()
+    }
+
     private func scheduleCards() {
+        guard !cardsHeld else { return }
         cancelCards?()
         cancelCards = schedule(cardsDebounce) { [weak self] in self?.askForCards() }
     }
@@ -202,9 +232,9 @@ final class PlayerSearchState: ObservableObject {
     private func askForCards() {
         cancelCards?()
         cancelCards = nil
-        guard sheetOpen, phase == .idle, isConnected() else { return }
+        guard sheetOpen, !cardsHeld, phase == .idle, isConnected() else { return }
         var seen = Set<String>()
-        let names = online.filter { !$0.isEmpty && !cardsAsked.contains($0) && seen.insert($0).inserted }
+        let names = online.filter { !$0.isEmpty && !cardsAsked.contains($0) && !cardsAnswered.contains($0) && seen.insert($0).inserted }
         var start = 0
         while start < names.count {
             let batch = Array(names[start..<min(start + Self.cardsBatch, names.count)])
@@ -215,16 +245,44 @@ final class PlayerSearchState: ObservableObject {
     }
 
     /// playerCardsResponse: each row's picture remembered (the rows on screen redraw). A failure
-    /// keeps the initials, and nothing is asked again until the list changes or the sheet reopens.
+    /// reply keeps the initials, and nothing is asked again until the list changes, a new
+    /// session or the sheet reopens.
     func applyCards(response dict: [String: Any]) {
         guard dict["success"] as? Bool == true, let rows = dict["players"] as? [Any] else { return }
-        remember(rows.compactMap { ($0 as? [String: Any]).flatMap { PlayerSearchResult.from($0, avatarUrls: Self.urls(dict)) } })
+        let results = rows.compactMap { ($0 as? [String: Any]).flatMap { PlayerSearchResult.from($0, avatarUrls: Self.urls(dict)) } }
+        cardsAnswered.formUnion(results.map(\.username))
+        remember(results)
     }
 
-    /// serverError for playerCards (the rate limit, a refused payload): claimed and dropped, so
-    /// a background request never shows a toast; the initials stay.
+    /// serverError for playerCards (the rate limit, a refused payload): claimed, so a background
+    /// request never shows a toast; the initials stay for now. The names asked and not answered
+    /// (the refused request's among them; the server does not say which it was) are asked once
+    /// more, `cardsRetryDelay` later, with whatever joined meanwhile, in one request; a name
+    /// already asked again after a refusal is not, so this is one retry, never a loop.
     func applyCardsServerError(_ dict: [String: Any]) -> Bool {
-        dict["handler"] as? String == SocketEvents.Client.playerCards
+        guard dict["handler"] as? String == SocketEvents.Client.playerCards else { return false }
+        guard sheetOpen else { return true }
+        let again = cardsAsked.subtracting(cardsAnswered).subtracting(cardsRetried)
+        cardsAsked.subtract(again)
+        cardsRetried.formUnion(again)
+        if !cardsHeld {
+            cardsHeld = true
+            cancelCards?()
+            cancelCards = nil
+            cancelRetry = schedule(cardsRetryDelay) { [weak self] in
+                guard let self else { return }
+                self.cancelRetry = nil
+                self.cardsHeld = false
+                self.askForCards()
+            }
+        }
+        return true
+    }
+
+    private func endHold() {
+        cancelRetry?()
+        cancelRetry = nil
+        cardsHeld = false
     }
 
     private func remember(_ results: [PlayerSearchResult]) {

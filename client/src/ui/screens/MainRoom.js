@@ -334,8 +334,9 @@ export function showMainRoom(data, socket, username = null) {
   currentOnlineUsers = data.onlineUsers || [];
   // a rebuild in place (a reconnect's mainRoomJoined) keeps an open Players
   // page: its online list follows the fresh one (a no-op when it is closed
-  // or a search shows)
-  refreshPlayerSearchOnline();
+  // or a search shows), and the names whose cards never came back (lost with
+  // the old connection) are asked again
+  refreshPlayerSearchOnline({ rejoined: true });
 
   // The count is a button so the player list opens on focus as well as hover
   const onlineWrap = el('div', { className: 'online-count' });

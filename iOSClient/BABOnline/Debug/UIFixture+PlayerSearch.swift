@@ -14,9 +14,11 @@ import SwiftUI
 /// The online list's pictures (2026-11-27): `playerCards` is answered here too, with the
 /// server's playerCardsResponse shape (the same rows; `avatarUrls` for kim; a name with no
 /// account, "pat", absent) and decoding. `-uiPlayerCards`: `ok` (the default, 0.3 s), `slow`
-/// (after 6 s: the initials first, then the pictures in place), `silent` (never answers: a
-/// server from before playerCards). Every request is noted in the "players.cardsSent" probe
-/// ("ivy,kim,...|max" per request, "-" for none).
+/// (after 15 s: the initials first, then the pictures in place; long enough that a loaded
+/// simulator at AX5 still reads the initials' frames first), `silent` (never answers: a server
+/// from before playerCards), `refuse` (the first request is refused as the rate limit refuses
+/// it, a serverError for playerCards; the retry, 2 s later here, is answered). Every request is
+/// noted in the "players.cardsSent" probe ("ivy,kim,...|max" per request, "-" for none).
 extension UIFixture {
     static let playerSearchMode: String = UserDefaults.standard.string(forKey: "uiPlayerSearch") ?? "ok"
     static let playerCardsMode: String = UserDefaults.standard.string(forKey: "uiPlayerCards") ?? "ok"
@@ -36,10 +38,18 @@ extension UIFixture {
             let reply = playerSearchReply(query)
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { search?.apply(response: reply) }
         }
+        if playerCardsMode == "refuse" { search.cardsRetryDelay = 2 }
+        var refused = false
         search.sendCards = { [weak search] names in
             PlayerCardsProbe.shared.note(names)
             guard playerCardsMode != "silent" else { return }
-            let delay: TimeInterval = playerCardsMode == "slow" ? 6 : 0.3
+            if playerCardsMode == "refuse", !refused {
+                refused = true
+                let error: [String: Any] = ["code": "rateLimit", "message": "Too many requests, please slow down", "handler": "playerCards"]
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { _ = search?.applyCardsServerError(error) }
+                return
+            }
+            let delay: TimeInterval = playerCardsMode == "slow" ? 15 : 0.3
             let reply = playerCardsReply(names)
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { search?.applyCards(response: reply) }
         }

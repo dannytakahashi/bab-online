@@ -66,7 +66,7 @@ import { setIsAdmin } from './admin/adminApi.js';
 import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase, setReadyDeadlinePassed, updateTournamentPairings, setTournamentTotalRounds, configureTournamentLobby, syncTournamentCut, showTournamentFinal, setTournamentCutTalking, isTournamentCutShowing, setTournamentVoiceFull, isTournamentFinished } from './ui/screens/TournamentLobby.js';
 import { applyCutEvent, restoreCut, clearCut, getCutState, getCutTournamentId } from './ui/cut/cutStore.js';
 import { STAGE as CUT_STAGE, winnerLine as cutWinnerLine } from './state/cutForABuck.js';
-import { updatePlayerSearchResults, updatePlayerCards } from './ui/screens/PlayerSearchPage.js';
+import { updatePlayerSearchResults, updatePlayerCards, playerCardsRefused } from './ui/screens/PlayerSearchPage.js';
 import { showTournamentResultsOverlay } from './ui/components/TournamentScoreboard.js';
 import { showResignationDialog, dismissResignationDialog } from './ui/components/ResignationDialog.js';
 import { SCREENS, initializeUIManager } from './ui/UIManager.js';
@@ -1394,9 +1394,11 @@ function initializeApp() {
   const onServerFailure = (payload) => {
     const failure = failureOf(payload);
     // the Players page's picture requests are background reads: a refusal
-    // (the rate limit) keeps the initials, never a toast
+    // (the rate limit) keeps the initials for now, never a toast; the names
+    // are asked once more after the server's window
     if (failure.handler === 'playerCards') {
       console.warn('Player cards refused:', failure.type);
+      playerCardsRefused();
       return;
     }
     routeTableError(failure);

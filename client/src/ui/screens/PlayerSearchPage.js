@@ -43,11 +43,24 @@ const cards = new Map();
  * refreshes every listed card.
  */
 const cardsAsked = new Set();
+/**
+ * The names a reply has brought back since the page opened (a name with no
+ * account never comes back: it counts as unanswered). Two cases ask a name
+ * again within an opening (review of PR 454): a refused request (the rate
+ * limit, during a burst of joins), once per name after the server's window
+ * (cardsRetried), and a new session (a reconnect's mainRoomJoined).
+ */
+const cardsAnswered = new Set();
+const cardsRetried = new Set();
 let cardsTimer = null;
+/** After a refusal nothing is asked until this timer runs (the server's window). */
+let cardsRetryTimer = null;
 /** The server's limit per playerCards request (profileHandlers PLAYER_CARDS_MAX). */
 export const PLAYER_CARDS_MAX = 100;
 /** The pause after a change of the online list before asking (the search's 300 ms). */
 export const PLAYER_CARDS_DEBOUNCE_MS = 300;
+/** The pause after a refused playerCards (the server's window: 20 per 10 s). */
+export const PLAYER_CARDS_RETRY_MS = 10000;
 
 /**
  * Get the appropriate profile picture source.
@@ -158,8 +171,8 @@ function askForCards() {
   clearTimeout(cardsTimer);
   cardsTimer = null;
   const socket = currentSocket;
-  if (!socket || !onlineListShown()) return;
-  const names = onlineUsernames().filter((u) => !cardsAsked.has(u));
+  if (!socket || cardsRetryTimer || !onlineListShown()) return;
+  const names = onlineUsernames().filter((u) => !cardsAsked.has(u) && !cardsAnswered.has(u));
   for (let i = 0; i < names.length; i += PLAYER_CARDS_MAX) {
     const usernames = names.slice(i, i + PLAYER_CARDS_MAX);
     usernames.forEach((u) => cardsAsked.add(u));
@@ -175,8 +188,40 @@ function onlineListShown() {
 
 /** The online list changed or came back: ask for the new names' cards after the pause. */
 function scheduleCards() {
+  if (cardsRetryTimer) return; // the refusal's timer asks
   clearTimeout(cardsTimer);
   cardsTimer = setTimeout(askForCards, PLAYER_CARDS_DEBOUNCE_MS);
+}
+
+/** End a refusal's hold (a new opening, a new session, the page closed). */
+function endCardsHold() {
+  clearTimeout(cardsRetryTimer);
+  cardsRetryTimer = null;
+}
+
+/**
+ * A playerCards refused (serverError with handler playerCards: the rate
+ * limit, a refused payload; main.js shows no toast for it). The names asked
+ * and not answered (the refused request's among them: the server does not
+ * say which it was) are asked once more after PLAYER_CARDS_RETRY_MS, with
+ * whatever joined meanwhile, in one request; a name already asked again
+ * after a refusal is not, so it is one retry, never a loop.
+ */
+export function playerCardsRefused() {
+  if (!currentSocket) return;
+  for (const u of cardsAsked) {
+    if (!cardsAnswered.has(u) && !cardsRetried.has(u)) {
+      cardsAsked.delete(u);
+      cardsRetried.add(u);
+    }
+  }
+  if (cardsRetryTimer) return;
+  clearTimeout(cardsTimer);
+  cardsTimer = null;
+  cardsRetryTimer = setTimeout(() => {
+    cardsRetryTimer = null;
+    askForCards();
+  }, PLAYER_CARDS_RETRY_MS);
 }
 
 /** Remember a row's picture fields (a card or a search result). */
@@ -199,6 +244,9 @@ export function showPlayerSearchPage(socket, { getOnlineUsers = () => [], me = n
   onlineSource = { getOnlineUsers, me };
   // a new opening asks again for every listed card (the known pictures show meanwhile)
   cardsAsked.clear();
+  cardsAnswered.clear();
+  cardsRetried.clear();
+  endCardsHold();
 
   // Search row (input + button)
   const searchInput = el('input', {
@@ -271,6 +319,7 @@ export function showPlayerSearchPage(socket, { getOnlineUsers = () => [], me = n
       clearTimeout(debounceTimer);
       clearTimeout(cardsTimer);
       cardsTimer = null;
+      endCardsHold();
       searchModal = null;
       currentSocket = null;
       latestQuery = null;
@@ -354,15 +403,18 @@ function renderResults(players) {
 /**
  * A playerCardsResponse (the search rows of the online names asked for,
  * avatarUrls folded in by utils/avatar.js): remembered, and the rows on
- * screen get their pictures in place. A failure changes nothing (the
- * initials stay); nothing is asked again until the list changes or the page
- * reopens.
+ * screen get their pictures in place. A failure reply changes nothing (the
+ * initials stay); nothing is asked again until the list changes, a new
+ * session or the page reopens.
  *
  * @param {Array} players - the reply's rows
  */
 export function updatePlayerCards(players) {
   if (!Array.isArray(players) || players.length === 0) return;
   players.forEach(rememberCard);
+  if (currentSocket) {
+    players.forEach((p) => { if (typeof p?.username === 'string') cardsAnswered.add(p.username); });
+  }
   const container = document.getElementById('playerSearchResults');
   if (!container || !onlineListShown()) return;
   for (const row of container.querySelectorAll('.search-result[data-username]')) {
@@ -374,9 +426,19 @@ export function updatePlayerCards(players) {
  * The main room's online list changed: redraw it if the page shows it (an
  * empty box), keeping focus on the row it was on when that player is still
  * listed, and the rows of the players still listed as they are; the new
- * names' cards are asked for after the pause.
+ * names' cards are asked for after the pause. With `rejoined` (the main
+ * room's mainRoomJoined: a reconnect's restore) the names sent and never
+ * answered are asked again too, since their reply was lost with the old
+ * connection, and a refusal's hold ends (the server's limit is per socket).
+ *
+ * @param {Object} [options]
+ * @param {boolean} [options.rejoined]
  */
-export function refreshPlayerSearchOnline() {
+export function refreshPlayerSearchOnline({ rejoined = false } = {}) {
+  if (rejoined && currentSocket) {
+    for (const u of cardsAsked) if (!cardsAnswered.has(u)) cardsAsked.delete(u);
+    endCardsHold();
+  }
   const container = document.getElementById('playerSearchResults');
   const input = document.getElementById('playerSearchInput');
   if (!container || !input || input.value.trim()) return;
@@ -398,6 +460,7 @@ export function removePlayerSearchPage() {
   clearTimeout(debounceTimer);
   clearTimeout(cardsTimer);
   cardsTimer = null;
+  endCardsHold();
   latestQuery = null;
   searchModal?.close('api');
   searchModal = null;
@@ -409,6 +472,9 @@ export function removePlayerSearchPage() {
 export function _resetPlayerCardsForTests() {
   cards.clear();
   cardsAsked.clear();
+  cardsAnswered.clear();
+  cardsRetried.clear();
   clearTimeout(cardsTimer);
   cardsTimer = null;
+  endCardsHold();
 }

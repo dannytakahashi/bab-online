@@ -50,6 +50,11 @@ struct PlayersSheet: View {
         // the online list's pictures: every listed card on open, a joiner's after the pause
         .onAppear { search.sheetOpened(online: mainRoomState.onlineUsers) }
         .onChange(of: mainRoomState.onlineUsers) { _, online in search.onlineChanged(online) }
+        // a reconnect while the sheet is up: the names whose answer never came are asked again
+        // (a publisher, not an observed SocketService, so its other changes never redraw the list)
+        .onReceive(SocketService.shared.$isSessionReady.removeDuplicates().dropFirst()) { ready in
+            if ready { search.sessionRestored() }
+        }
         .onDisappear { search.reset() }
         // a row opens that player's profile (iOS 1.2.2)
         .playerProfileHost()
