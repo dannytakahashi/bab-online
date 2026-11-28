@@ -105,31 +105,4 @@ final class ExitIconTests: XCTestCase {
             XCTAssertTrue(lines[i + 1].contains(".accessibilityHidden(true)"), "the bar's Exit icon is decorative")
         }
     }
-
-    /// The tournament lobby's Leave is the game's Exit (owner 2026-11-27 on the open Duo, the game's
-    /// bar as the reference): in the vertical bar the same mirrored image with the same inputs, alone
-    /// in a leading item (its own pill), End Tournament a trailing item; in a header the symbol
-    /// mirrored as the game's corner Exit.
-    func testTheTournamentLobbysLeaveIsTheGamesExit() throws {
-        let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("BABOnline/Views/Tournament/TournamentLobbyView.swift")
-        let source = try String(contentsOf: file, encoding: .utf8)
-        let start = try XCTUnwrap(source.range(of: "private func mirroredIcon("))
-        let end = try XCTUnwrap(source.range(of: "private func fallbackMenu(", range: start.upperBound..<source.endIndex))
-        let body = String(source[start.upperBound..<end.lowerBound])
-        let bar = try XCTUnwrap(body.components(separatedBy: "} else {").first)
-        XCTAssertTrue(bar.contains("if inBar {"))
-        XCTAssertTrue(bar.contains("Image(platformImage: ExitIcon.barImage(dynamicTypeSize: typeSize, legibilityWeight: legibilityWeight))"),
-                      "the bar's Leave is the game's bar image")
-        XCTAssertFalse(bar.contains(".scaleEffect("), "the bar ignores SwiftUI transforms")
-        XCTAssertTrue(body.contains(".scaleEffect(x: -1, y: 1)"), "the header's Leave is mirrored as the game's corner Exit")
-        XCTAssertEqual(body.components(separatedBy: ".accessibilityHidden(true)").count - 1, 3, "each icon is decorative")
-        // the toolbar: one item per button, its placement from barPill (separate pills), no group
-        let toolbar = try XCTUnwrap(source.range(of: ".toolbar {"))
-        let toolbarEnd = try XCTUnwrap(source.range(of: "// Tournament-room voice", range: toolbar.upperBound..<source.endIndex))
-        let items = String(source[toolbar.upperBound..<toolbarEnd.lowerBound])
-        XCTAssertFalse(items.contains("ToolbarItemGroup"), "a group would put End in Leave's pill")
-        XCTAssertTrue(items.contains("ToolbarItem(placement: TournamentLobbyMenu.barPill(item) == .leading ? .barLeading : .barTrailing)"))
-        XCTAssertTrue(items.contains("entryButton(item, inBar: true)"))
-    }
 }

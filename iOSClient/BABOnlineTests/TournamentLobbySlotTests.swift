@@ -310,54 +310,88 @@ final class TournamentLobbySlotTests: XCTestCase {
         XCTAssertEqual(M.entry(phase: "complete", isCreator: false, isSpectator: true), .none)
     }
 
-    /// Leave keeps a member's Leave's place: first (the top) in the Duo's bar, last (the trailing
-    /// corner) in a header row, with End Tournament before it.
-    func testTheHostsButtonsKeepLeaveWhereAMembersIs() {
+    /// Leave (or Stop Watching) on the leading side, End Tournament on the trailing side (owner
+    /// 2026-11-27, the game lobby as the reference): a header reads Leave, the title, then End; the
+    /// Duo's bar Leave's pill above End's.
+    func testLeaveLeadsAndEndTrails() {
         typealias M = TournamentLobbyMenu
         let host = M.entry(phase: "lobby", isCreator: true, isSpectator: false)
-        XCTAssertEqual(M.displayOrder(host, inBar: true), [.leave, .end])
-        XCTAssertEqual(M.displayOrder(host, inBar: false), [.end, .leave])
-        XCTAssertEqual(M.displayOrder(.button(.leave), inBar: false), [.leave])
-        XCTAssertEqual(M.displayOrder(.button(.stopWatching), inBar: true), [.stopWatching])
-        XCTAssertEqual(M.displayOrder(.none, inBar: true), [])
+        XCTAssertEqual(M.displayOrder(host), [.leave, .end])
+        XCTAssertEqual(M.items(host, on: .leading), [.leave])
+        XCTAssertEqual(M.items(host, on: .trailing), [.end])
+        XCTAssertEqual(M.items(.button(.leave), on: .leading), [.leave])
+        XCTAssertEqual(M.items(.button(.leave), on: .trailing), [])
+        XCTAssertEqual(M.items(.button(.stopWatching), on: .leading), [.stopWatching])
+        XCTAssertEqual(M.displayOrder(.button(.stopWatching)), [.stopWatching])
+        XCTAssertEqual(M.displayOrder(.none), [])
+        XCTAssertEqual(M.items(.none, on: .leading), [])
     }
 
-    /// The vertical bar as the game's (owner 2026-11-27, "The standard game icons"): Leave (or Stop
-    /// Watching) alone in the top pill, a leading item as the game's Exit; End Tournament a trailing
-    /// item, in its own pill under it; Leave above End.
-    func testTheBarsPillsAreTheGames() {
+    /// The vertical bar as the game lobby's: Leave (or Stop Watching) alone in the top pill, a
+    /// leading item as the game lobby's bar Leave; End Tournament a trailing item, in its own pill
+    /// under it; Leave above End.
+    func testTheBarsPillsAreTheGameLobbys() {
         typealias M = TournamentLobbyMenu
-        XCTAssertEqual(M.barPill(.leave), .leading)
-        XCTAssertEqual(M.barPill(.stopWatching), .leading)
-        XCTAssertEqual(M.barPill(.end), .trailing)
+        XCTAssertEqual(M.side(.leave), .leading)
+        XCTAssertEqual(M.side(.stopWatching), .leading)
+        XCTAssertEqual(M.side(.end), .trailing)
         // every role: one leading item at most (alone in its pill), End never in Leave's pill
         for phase in ["lobby", "between_rounds", "round_active", CutForABuck.phase] {
             for (host, spectator) in [(true, false), (false, false), (false, true)] {
-                let order = M.displayOrder(M.entry(phase: phase, isCreator: host, isSpectator: spectator), inBar: true)
-                let leading = order.filter { M.barPill($0) == .leading }
+                let order = M.displayOrder(M.entry(phase: phase, isCreator: host, isSpectator: spectator))
+                let leading = order.filter { M.side($0) == .leading }
                 XCTAssertEqual(leading.count, 1, "\(phase) host \(host) spectator \(spectator): \(order)")
                 // the bar lays out its leading pill above its trailing one: the order agrees
-                XCTAssertEqual(order, order.filter { M.barPill($0) == .leading } + order.filter { M.barPill($0) == .trailing })
+                XCTAssertEqual(order, order.filter { M.side($0) == .leading } + order.filter { M.side($0) == .trailing })
             }
         }
-        XCTAssertEqual(M.displayOrder(M.entry(phase: "lobby", isCreator: true, isSpectator: false), inBar: true).map(M.barPill),
+        XCTAssertEqual(M.displayOrder(M.entry(phase: "lobby", isCreator: true, isSpectator: false)).map(M.side),
                        [.leading, .trailing])
     }
 
-    /// Leave and a spectator's Stop Watching are the game's Exit glyph exactly: the same symbol,
-    /// mirrored (its arrow points left, out), as the game gives a seated player and a spectator one
-    /// Exit; End is drawn as it is.
-    func testLeaveIsTheGamesExitGlyph() {
+    /// Leave and a spectator's Stop Watching are the game lobby's back chevron (owner 2026-11-27 on
+    /// the open Duo: "This back arrow is also the one used elsewhere in iOS for the duo, maybe we
+    /// should use it instead of our rectangle with arrow?"), never mirrored; End is drawn as it is.
+    func testLeaveIsTheGameLobbysBackChevron() {
         typealias M = TournamentLobbyMenu
-        XCTAssertEqual(M.icon(.leave), ExitIcon.symbolName)
-        XCTAssertEqual(M.icon(.stopWatching), ExitIcon.symbolName)
-        XCTAssertTrue(M.isMirrored(.leave))
-        XCTAssertTrue(M.isMirrored(.stopWatching))
-        XCTAssertFalse(M.isMirrored(.end))
+        XCTAssertEqual(M.icon(.leave), "chevron.left")
+        XCTAssertEqual(M.icon(.stopWatching), "chevron.left")
+        XCTAssertEqual(M.icon(.leave), LobbyBackButton.symbol, "the header's back control")
+        XCTAssertEqual(M.icon(.end), "stop.circle")
+        XCTAssertNotEqual(M.icon(.leave), ExitIcon.symbolName, "not the game's Exit door")
         // the label VoiceOver reads stays the choice, never the symbol's name
         XCTAssertEqual(M.title(.leave), "Leave Tournament")
         XCTAssertEqual(M.title(.stopWatching), "Stop Watching")
         XCTAssertEqual(M.identifier(.stopWatching), "tournament.stopWatching")
+    }
+
+    /// The views, read from the checkout: the tournament lobby draws no Exit door and mirrors
+    /// nothing; its bar is one ToolbarItem per button placed by `side` (separate pills, no group),
+    /// each a Label of the item's icon as the game lobby's bar Leave is; its header's Leave is
+    /// the game lobby's own back control (LobbyBackButton).
+    func testTheViewsUseTheGameLobbysBackControl() throws {
+        let views = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("BABOnline/Views")
+        let tournament = try String(contentsOf: views.appendingPathComponent("Tournament/TournamentLobbyView.swift"), encoding: .utf8)
+        let gameLobby = try String(contentsOf: views.appendingPathComponent("GameLobby/GameLobbyView.swift"), encoding: .utf8)
+        let header = try String(contentsOf: views.appendingPathComponent("GameLobby/LobbyHeaderView.swift"), encoding: .utf8)
+        XCTAssertFalse(tournament.contains("ExitIcon"), "no Exit door in the tournament lobby")
+        XCTAssertFalse(tournament.contains(".scaleEffect(x: -1"), "nothing mirrored")
+        // the game lobby's references
+        XCTAssertTrue(gameLobby.contains("ToolbarItem(placement: .barLeading)"))
+        XCTAssertTrue(gameLobby.contains("Label(\"Leave\", systemImage: \"chevron.left\")"))
+        XCTAssertTrue(header.contains("LobbyBackButton(title: \"Leave\", action: leave)"))
+        // the tournament lobby's bar: one item per button, its placement from side, no group
+        let toolbar = try XCTUnwrap(tournament.range(of: ".toolbar {"))
+        let toolbarEnd = try XCTUnwrap(tournament.range(of: "// Tournament-room voice", range: toolbar.upperBound..<tournament.endIndex))
+        let items = String(tournament[toolbar.upperBound..<toolbarEnd.lowerBound])
+        XCTAssertFalse(items.contains("ToolbarItemGroup"), "a group would put End in Leave's pill")
+        XCTAssertTrue(items.contains("ToolbarItem(placement: TournamentLobbyMenu.side(item) == .leading ? .barLeading : .barTrailing)"))
+        XCTAssertTrue(items.contains("entryButton(item)"))
+        XCTAssertTrue(tournament.contains("Label(TournamentLobbyMenu.buttonTitle(item), systemImage: TournamentLobbyMenu.icon(item))"))
+        // the tournament lobby's header: the game lobby's back control
+        XCTAssertTrue(tournament.contains("LobbyBackButton(title: TournamentLobbyMenu.buttonTitle(item))"))
+        XCTAssertTrue(tournament.contains("LobbyBackButton(title: \"Main Room\", action: returnToMainRoom)"))
     }
 
     func testTheButtonsWordsAndIdentifiers() {
@@ -365,7 +399,8 @@ final class TournamentLobbySlotTests: XCTestCase {
         XCTAssertEqual(M.identifier(.leave), "tournament.leave")
         XCTAssertEqual(M.identifier(.end), "tournament.end")
         XCTAssertEqual(M.identifier(.stopWatching), "tournament.stopWatching")
-        // the fallback "…" menu (a header row with no room for two icons) and its rows
+        // the fallback "…" menu of Leave and End (an AX controls row with no room for Leave's words
+        // and End's icon) and its rows
         XCTAssertEqual(M.fallbackIdentifier, "tournament.more")
         XCTAssertEqual(M.menuIdentifier(.end), "tournament.menu.end")
         XCTAssertEqual(M.menuIdentifier(.leave), "tournament.menu.leave")
@@ -387,8 +422,8 @@ final class TournamentLobbySlotTests: XCTestCase {
         XCTAssertEqual(M.buttonTitle(.leave), "Leave")
         XCTAssertEqual(M.buttonTitle(.end), "End Tournament")
         XCTAssertEqual(M.buttonTitle(.stopWatching), "Stop Watching")
-        XCTAssertEqual(M.icon(.leave), "rectangle.portrait.and.arrow.right")
-        XCTAssertEqual(M.icon(.stopWatching), "rectangle.portrait.and.arrow.right")
+        XCTAssertEqual(M.icon(.leave), "chevron.left")
+        XCTAssertEqual(M.icon(.stopWatching), "chevron.left")
         XCTAssertEqual(M.icon(.end), "stop.circle")
         XCTAssertFalse(M.icon(.end).contains("xmark"), "End is a stop, never a close")
         // "End" everywhere the user reads it; the wire event stays cancelTournament
