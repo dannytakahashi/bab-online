@@ -9,7 +9,7 @@ import Foundation
 ///
 /// Faults it can inject: `answersSnapshots = false` (the server never answers: a stalled
 /// or namespace-less connection), `snapshotReplyDelay` (the answer comes, but late: a slow
-/// link), `restart()` (the process restarted: every held request is dropped and old engine
+/// link), `replyDelays` (the same for scripted replies), `restart()` (the process restarted: every held request is dropped and old engine
 /// ids get Engine.IO's 400 "Session ID unknown"). `deliveredAnswers` records each
 /// stateSnapshot answer written to a client's held poll, and when.
 final class FakeSocketIOServer {
@@ -21,6 +21,7 @@ final class FakeSocketIOServer {
     private var _events: [(engine: String, name: String, payload: [String: Any])] = []
     private var _answersSnapshots = true
     private var _snapshotReplyDelay: TimeInterval = 0
+    private var _replyDelays: [String: TimeInterval] = [:]
     private var _deliveredAnswers: [(engine: String, requestId: String, at: Date)] = []
 
     /// One accepted HTTP connection.
@@ -85,6 +86,13 @@ final class FakeSocketIOServer {
     var snapshotReplyDelay: TimeInterval {
         get { queue.sync { _snapshotReplyDelay } }
         set { queue.sync { _snapshotReplyDelay = newValue } }
+    }
+    /// Seconds before a scripted reply (`replies`) of the named event is written (none: at
+    /// once), e.g. `["restoreSessionResponse": 2.5]`: a server slow to answer (a restore waiting
+    /// on the database). The reply goes to the engine that asked, as `snapshotReplyDelay`'s.
+    var replyDelays: [String: TimeInterval] {
+        get { queue.sync { _replyDelays } }
+        set { queue.sync { _replyDelays = newValue } }
     }
     /// Every stateSnapshot answer written to a held poll (so it reached the client's HTTP
     /// stack): the engine, the requestId it echoed, and when.
@@ -245,7 +253,11 @@ final class FakeSocketIOServer {
                 for (event, data) in _replies?(name, payload) ?? [] {
                     if let json = try? JSONSerialization.data(withJSONObject: [event, data]),
                        let text = String(data: json, encoding: .utf8) {
-                        push("2" + text, to: engine)
+                        if let delay = _replyDelays[event], delay > 0 {
+                            queue.asyncAfter(deadline: .now() + delay) { [weak self] in self?.push("2" + text, to: engine) }
+                        } else {
+                            push("2" + text, to: engine)
+                        }
                     }
                 }
                 if name == "requestSnapshot", _answersSnapshots {
