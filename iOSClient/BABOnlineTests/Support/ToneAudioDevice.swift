@@ -28,6 +28,14 @@ final class ToneAudioDevice: SilentAudioDevice, @unchecked Sendable {
         return levels.count
     }
 
+    /// While true the device records nothing (no frame reaches WebRTC, so no audio packet is sent):
+    /// a far end that sends no audio at all, as a muted web tab whose AudioContext is suspended.
+    var recordsNothing: Bool {
+        get { levelLock.lock(); defer { levelLock.unlock() }; return _recordsNothing }
+        set { levelLock.lock(); _recordsNothing = newValue; levelLock.unlock() }
+    }
+    private var _recordsNothing = false
+
     func resetLevel() {
         levelLock.lock()
         levels = []
@@ -102,7 +110,7 @@ final class ToneAudioDevice: SilentAudioDevice, @unchecked Sendable {
                 samples[i] = Int16(0.3 * 32_767 * sin(phase))
                 phase += step
             }
-            if let delegate = currentDelegate {
+            if let delegate = currentDelegate, !recordsNothing {
                 var flags = AudioUnitRenderActionFlags()
                 var stamp = AudioTimeStamp()
                 stamp.mSampleTime = sampleTime

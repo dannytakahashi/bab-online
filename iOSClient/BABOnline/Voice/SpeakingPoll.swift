@@ -51,6 +51,21 @@ enum SpeakingPoll {
         return best
     }
 
+    /// What a call's transport received: the succeeded (or nominated) candidate pairs' bytes, STUN
+    /// requests and responses, summed; nil with no such pair (one call per player's liveness check).
+    static func transportReceipts(_ stats: [(type: String, values: [String: NSObject])]) -> Int? {
+        var total: Int?
+        for s in stats where s.type == "candidate-pair" {
+            let state = s.values["state"] as? String
+            let nominated = (s.values["nominated"] as? NSNumber)?.boolValue ?? false
+            guard state == "succeeded" || nominated else { continue }
+            let n = ["bytesReceived", "requestsReceived", "responsesReceived"]
+                .reduce(0) { $0 + ((s.values[$1] as? NSNumber)?.intValue ?? 0) }
+            total = (total ?? 0) + n
+        }
+        return total
+    }
+
     /// A sender's outbound-rtp bytes (the live probe).
     static func outboundBytes(_ stats: [(type: String, values: [String: NSObject])]) -> Int? {
         stats.first { $0.type == "outbound-rtp" && kind($0.values) == "audio" }

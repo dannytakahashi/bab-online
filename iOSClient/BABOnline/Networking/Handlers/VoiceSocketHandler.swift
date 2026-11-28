@@ -50,6 +50,8 @@ final class VoiceSocketHandler {
             DispatchQueue.main.async {
                 VoiceChatManager.shared.meshRoomSeen()
                 VoiceChatManager.shared.noteAnnounced(socketId, username: username)
+                // one call per player: a call to them on an older socket id moves here or closes
+                VoiceChatManager.shared.peerJoined(socketId, username: username)
             }
         }
 
