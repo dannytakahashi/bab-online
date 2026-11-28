@@ -24,6 +24,29 @@ struct LobbyCount: Equatable {
     var spoken: String { "\(ready) of \(seats) ready" }
 }
 
+/// The lobbies' back control in a header: a back chevron and its word, in the header's grey. The
+/// game lobby's Leave, and the tournament lobby's Leave / Stop Watching / Main Room (owner
+/// 2026-11-27: the tournament lobby's Leave is the game lobby's exactly, on the leading side before
+/// the title). The vertical bar's item is `Label(<word>, systemImage: "chevron.left")`.
+struct LobbyBackButton: View {
+    let title: String
+    let action: () -> Void
+
+    static let symbol = "chevron.left"
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Theme.Space.s1) {
+                Image(systemName: Self.symbol)
+                    .accessibilityHidden(true)
+                Text(title)
+                    .lineLimit(1)
+            }
+            .foregroundColor(Theme.textSecondary)
+        }
+    }
+}
+
 /// The game lobby's header: Leave (unless the vertical bar holds it), the lobby's title, the
 /// mic while voice is on, and the count. Measured, never truncated (owner 2026-11-16, build 12
 /// on an iPhone 17: "4/8 · Rea..."): one row where everything fits (the iPad, the open Duo's
@@ -150,17 +173,9 @@ struct LobbyHeaderView: View {
     // MARK: - Parts
 
     private func leaveButton(_ shown: Form?) -> some View {
-        Button(action: leave) {
-            HStack(spacing: Theme.Space.s1) {
-                Image(systemName: "chevron.left")
-                    .accessibilityHidden(true)
-                Text("Leave")
-                    .lineLimit(1)
-            }
-            .foregroundColor(Theme.textSecondary)
-        }
-        .fixedSize()
-        .headerProbe("leave", shown, probe)
+        LobbyBackButton(title: "Leave", action: leave)
+            .fixedSize()
+            .headerProbe("leave", shown, probe)
     }
 
     @ViewBuilder
