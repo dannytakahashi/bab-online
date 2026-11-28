@@ -46,6 +46,8 @@ final class VoiceSocketHandler {
             print("[Voice] Peer joined: \(socketId) \(username)")
             DispatchQueue.main.async {
                 VoiceChatManager.shared.noteAnnounced(socketId, username: username)
+                // one call per player: a call to them on an older socket id moves here or closes
+                VoiceChatManager.shared.peerJoined(socketId, username: username)
             }
         }
 

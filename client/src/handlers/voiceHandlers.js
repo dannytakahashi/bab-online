@@ -74,6 +74,9 @@ export function registerVoiceHandlers(socketManager, { onVoiceSettings, onVoiceP
     // If both sides initiate simultaneously, WebRTC glare breaks both connections.
     console.log('Voice peer joined:', data.socketId, data.username);
     voiceManager.sfu?.onMeshEvent();
+    // One call per player: a call to them on an older socket id moves to
+    // this one (still flowing) or closes (docs/claude/voice.md)
+    voiceManager.peerJoined?.(data.socketId, data.username);
     onVoicePeers?.('joined', data);
   });
 
