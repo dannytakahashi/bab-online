@@ -136,7 +136,7 @@ only then the neutral `assets/default_avatar.png` — never another player's
 stock animal.
 
 Exposure: nothing a socket cannot already read without signing in
-(getLeaderboard / searchPlayers / getPlayerProfile return every custom
+(getLeaderboard / searchPlayers / playerCards / getPlayerProfile return every custom
 picture and confirm names). The body is always our own re-encode, never the
 stored bytes. Stale caches: a deleted user's versioned URL stays in browser
 caches (no CDN purge); the server answers 404 from then on. An account

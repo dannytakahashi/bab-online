@@ -946,6 +946,14 @@ describe('(e) non-game handlers', () => {
         await profileHandlers.getRecords(c, w.io);
         await profileHandlers.searchPlayers(c, w.io, { query: 'e_' });
         await profileHandlers.searchPlayers(c, w.io, {});
+        // the Players page's online list pictures (2026-11-27): known names
+        // in the order asked, an unknown one absent; a DB failure
+        await profileHandlers.playerCards(c, w.io, { usernames: ['e_vet', 'e_ghost', 'e_vet'] });
+        expect(events(w.log, 'playerCardsResponse').pop().data.players.map((p) => p.username)).toEqual(['e_vet']);
+        const cardsFind = jest.spyOn(mockDb.current.users, 'find').mockImplementationOnce(() => { throw new Error('down'); });
+        await profileHandlers.playerCards(c, w.io, { usernames: ['e_vet'] });
+        cardsFind.mockRestore();
+        expect(events(w.log, 'playerCardsResponse').pop().data).toEqual({ success: false, message: 'Database error' });
         await profileHandlers.getPlayerProfile(c, w.io, { username: 'e_alice' });
         await profileHandlers.getPlayerProfile(c, w.io, { username: 'e_ghost' });
         await profileHandlers.getPlayerProfile(c, w.io, { username: 'e_vet' });

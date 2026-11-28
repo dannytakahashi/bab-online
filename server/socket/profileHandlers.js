@@ -1306,6 +1306,27 @@ async function getLeaderboard(socket, io, data) {
     }
 }
 
+/** What a player row (search results, player cards) is built from. */
+const PLAYER_ROW_PROJECTION = { username: 1, profilePic: 1, customProfilePic: 1, 'stats.gamesPlayed': 1, 'stats.wins': 1 };
+
+/**
+ * A player row ($defs.playerSearchRow) from a users document read with
+ * PLAYER_ROW_PROJECTION, before avatarWire.mapProfileRows (which nulls the
+ * custom picture and gives its URL in avatarUrls).
+ */
+function playerRow(u) {
+    return {
+        username: u.username,
+        profilePic: u.profilePic || 1,
+        customProfilePic: u.customProfilePic || null,
+        gamesPlayed: u.stats?.gamesPlayed || 0,
+        wins: u.stats?.wins || 0
+    };
+}
+
+/** The most usernames one playerCards request may name (validators.js). */
+const PLAYER_CARDS_MAX = 100;
+
 /**
  * Search for players by username
  * @param {Socket} socket - Socket instance
@@ -1325,7 +1346,7 @@ async function searchPlayers(socket, io, data) {
     }
     // Every answer echoes the query as sent (additive 2026-11-15): web
     // search-as-you-type drops a reply to an older query (they can finish
-    // out of order). iOS never sends searchPlayers
+    // out of order); the iOS Players sheet does the same (2026-11-27)
     const echo = { query };
 
     // No username is longer than 50 characters, so a longer query matches
@@ -1341,17 +1362,10 @@ async function searchPlayers(socket, io, data) {
         const escaped = query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const users = await usersCollection.find(
             { username: { $regex: escaped, $options: 'i' }, mergedInto: { $exists: false } },
-            { projection: { username: 1, profilePic: 1, customProfilePic: 1, 'stats.gamesPlayed': 1, 'stats.wins': 1 } }
+            { projection: PLAYER_ROW_PROJECTION }
         ).limit(20).toArray();
 
-        const rows = users.map(u => ({
-            username: u.username,
-            profilePic: u.profilePic || 1,
-            customProfilePic: u.customProfilePic || null,
-            gamesPlayed: u.stats?.gamesPlayed || 0,
-            wins: u.stats?.wins || 0
-        }));
-        const mapped = await avatarWire.mapProfileRows(rows);
+        const mapped = await avatarWire.mapProfileRows(users.map(playerRow));
         const players = mapped.rows;
         const reply = { success: true, players, ...echo };
         if (mapped.avatarUrls) reply.avatarUrls = mapped.avatarUrls;
@@ -1361,6 +1375,45 @@ async function searchPlayers(socket, io, data) {
     } catch (error) {
         authLogger.error('Error searching players', { query, error: error.message });
         socket.emit('searchPlayersResponse', { success: false, message: 'Database error', ...echo });
+    }
+}
+
+/**
+ * Player cards (2026-11-27): the search rows of up to PLAYER_CARDS_MAX
+ * named players, for the pictures of the Players page's online list (the
+ * online list itself is names only: presence broadcasts go to the whole
+ * main room on every join and leave, and carry no pictures). Answered to
+ * this socket only (playerCardsResponse), with searchPlayers' projection,
+ * row mapping and avatarUrls; merged accounts are left out as search leaves
+ * them out, and a name with no account (a typo, a deleted account, a bot)
+ * is simply absent. Rows come in the order the names were asked, each name
+ * once. Joi (validators.js playerCards) bounds the list; rate limited as
+ * playerCards.
+ * @param {Socket} socket - Socket instance
+ * @param {Server} io - Socket.IO server instance
+ * @param {Object} data - {usernames: string[]} (1..PLAYER_CARDS_MAX)
+ */
+async function playerCards(socket, io, data) {
+    const asked = [...new Set((data?.usernames || []).filter(u => typeof u === 'string' && u))].slice(0, PLAYER_CARDS_MAX);
+    if (asked.length === 0) {
+        socket.emit('playerCardsResponse', { success: true, players: [] });
+        return;
+    }
+    try {
+        const users = await getUsersCollection().find(
+            { username: { $in: asked }, mergedInto: { $exists: false } },
+            { projection: PLAYER_ROW_PROJECTION }
+        ).toArray();
+        const byName = new Map(users.map(u => [u.username, u]));
+        const rows = asked.filter(name => byName.has(name)).map(name => playerRow(byName.get(name)));
+        const mapped = await avatarWire.mapProfileRows(rows);
+        const reply = { success: true, players: mapped.rows };
+        if (mapped.avatarUrls) reply.avatarUrls = mapped.avatarUrls;
+        socket.emit('playerCardsResponse', reply);
+        authLogger.debug('Player cards', { asked: asked.length, found: rows.length });
+    } catch (error) {
+        authLogger.error('Error reading player cards', { asked: asked.length, error: error.message });
+        socket.emit('playerCardsResponse', { success: false, message: 'Database error' });
     }
 }
 
@@ -1745,6 +1798,8 @@ module.exports = {
     getUserProfilePic,
     getLeaderboard,
     searchPlayers,
+    playerCards,
+    PLAYER_CARDS_MAX,
     getPlayerProfile,
     getRecords,
     recordTournament,

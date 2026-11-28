@@ -121,6 +121,10 @@ enum UIFixture {
         // `-uiForegroundProbe YES`: signed in, a foreground probe in flight (main-room actions
         // wait for its answer, with no Reconnecting toast)
         if UserDefaults.standard.bool(forKey: "uiForegroundProbe") { SocketService.shared.holdForegroundProbeForFixture() }
+        #if os(iOS)
+        // `-uiGateFlip <mode>:<ms>`: the gate moved around the scene's transitions (UIFixture+GateFlip)
+        installGateFlip()
+        #endif
         // `-uiServerError "<message>"`: the server-error toast, shown once the screen is up
         if let message = UserDefaults.standard.string(forKey: "uiServerError") {
             // the toast layer is mounted for a signed-in user only (ContentView)
@@ -878,10 +882,16 @@ enum UIFixture {
 }
 
 /// No network in fixture mode: every avatar shows its initial, unless `UI_FIXTURE_AVATARS`
-/// names a folder with the stock art (`profile<N>.png`, the repo's client/assets: screenshots).
+/// names a folder with the stock art (`profile<N>.png`, the repo's client/assets: screenshots);
+/// then a custom picture (an `/avatar/` path, e.g. kim's) is the generated sample photo.
 struct FixtureAvatarLoader: AvatarLoading {
     func load(_ picNumber: Int, completion: @escaping (PlatformImage?) -> Void) {
         completion(UIFixture.avatarFolder.flatMap { PlatformImage(contentsOfFile: "\($0)/profile\(picNumber).png") })
+    }
+
+    func load(path: String, completion: @escaping (PlatformImage?) -> Void) {
+        guard UIFixture.avatarFolder != nil, path.hasPrefix("/avatar/") else { return completion(nil) }
+        completion(PlatformImage(data: UIFixture.samplePhotoData()))
     }
 }
 
@@ -945,6 +955,8 @@ final class TableDebugProbe: ObservableObject {
     /// The spectator badge's speaking outline (SpectatorBadgeView, SpeakingWatchers):
     /// "lit=<0|1> names=<a,b|-> unnamed=<n>"; "-" while no badge shows.
     @Published var spectatorsSpeaking = "-"
+    /// The main room's session gate (`-uiGateFlip`, UIFixture+GateFlip): "ready=1 probing=0 flips=n".
+    @Published var gate = "-"
     /// The window's size classes ("compact/regular" = h/v), recorded with the pose.
     @Published var sizeClasses = "-"
     /// The system's vertical bar edge ("trailing" / "leading"), "-" where none is used.
@@ -1231,6 +1243,7 @@ struct FixtureProbes: View {
             dot("table.shoulderBadge", probe.shoulderBadge)
             dot("table.voice", probe.tableVoice)
             dot("table.spectatorsSpeaking", probe.spectatorsSpeaking)
+            dot("mainRoom.gate", probe.gate)
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)

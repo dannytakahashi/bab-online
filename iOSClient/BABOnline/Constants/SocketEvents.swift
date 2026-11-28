@@ -61,6 +61,8 @@ enum SocketEvents {
         static let updateProfilePic = "updateProfilePic"
         static let uploadProfilePic = "uploadProfilePic"
         static let getPlayerProfile = "getPlayerProfile"
+        static let searchPlayers = "searchPlayers"
+        static let playerCards = "playerCards"
 
         // Tournament
         static let createTournament = "createTournament"
@@ -213,6 +215,8 @@ enum SocketEvents {
         static let profilePicUpdateResponse = "profilePicUpdateResponse"
         static let profilePicUploadResponse = "profilePicUploadResponse"
         static let playerProfileResponse = "playerProfileResponse"
+        static let searchPlayersResponse = "searchPlayersResponse"
+        static let playerCardsResponse = "playerCardsResponse"
         static let badgesAwarded = "badgesAwarded"
 
         // Voice

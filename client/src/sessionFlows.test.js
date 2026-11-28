@@ -563,6 +563,11 @@ describe('identity and errors', () => {
         .toEqual({ text: "That wasn't accepted. Try again.", type: 'warning' });
     });
 
+    it('the Players page\'s picture requests (playerCards) never toast: a refusal keeps the initials', () => {
+      expect(fire({ code: 'rateLimit', message: 'Too many requests, please slow down', handler: 'playerCards' })).toBeNull();
+      expect(fire({ code: 'validation', message: 'Validation failed', handler: 'playerCards' })).toBeNull();
+    });
+
     it('a rate limit is a nudge (amber); a server failure is red', () => {
       expect(fire({ code: 'rateLimit', message: 'Too many requests, please slow down', handler: 'chatMessage' }))
         .toEqual({ text: 'Too many requests. Please slow down.', type: 'warning' });
@@ -604,6 +609,37 @@ describe('identity and errors', () => {
         clearToasts();
       }
     });
+  });
+
+  it('the Players page\'s pictures: a refused playerCards is asked once more after the window, and a reconnect asks again for what never came (review of PR #454)', async () => {
+    const { clearToasts } = await import('./ui/kit/toast.js');
+    const { removePlayerSearchPage } = await import('./ui/screens/PlayerSearchPage.js');
+    await signIn();
+    socket.fire('mainRoomJoined', mainRoomPayload({ onlineCount: 3, onlineUsers: ['me', 'bob', 'cat'] }));
+    socket.clearEmits();
+    vi.useFakeTimers();
+    try {
+      [...document.querySelectorAll('button')].find((b) => b.textContent === 'Players').click();
+      expect(socket.emitted('playerCards')).toEqual([{ usernames: ['me', 'bob', 'cat'] }]);
+      clearToasts();
+      socket.fire('serverError', { code: 'rateLimit', message: 'Too many requests, please slow down', handler: 'playerCards' });
+      expect(document.querySelector('.kit-toast')).toBeNull();
+      vi.advanceTimersByTime(9999);
+      expect(socket.emitted('playerCards')).toHaveLength(1);
+      vi.advanceTimersByTime(1);
+      expect(socket.emitted('playerCards')).toHaveLength(2);
+      socket.fire('playerCardsResponse', { success: true, players: [{ username: 'me', profilePic: 3, customProfilePic: null, gamesPlayed: 1, wins: 0 }] });
+      // the socket drops before bob's and cat's answer: the reconnect's main room asks again
+      socket.reconnect(nextSocketId());
+      socket.fire('restoreSessionResponse', { success: true, username: 'me', blockedUsers: [] });
+      socket.fire('mainRoomJoined', mainRoomPayload({ onlineCount: 3, onlineUsers: ['me', 'bob', 'cat'] }));
+      vi.advanceTimersByTime(300);
+      expect(socket.emitted('playerCards').at(-1)).toEqual({ usernames: ['bob', 'cat'] });
+    } finally {
+      vi.useRealTimers();
+      removePlayerSearchPage();
+      clearToasts();
+    }
   });
 
   it('a block list the server pushes after an admin rename (silent) updates without a toast; a player\'s own block still toasts', async () => {

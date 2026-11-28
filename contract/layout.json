@@ -81,6 +81,7 @@
           "getProfile",
           "updateProfilePic",
           "searchPlayers",
+          "playerCards",
           "getPlayerProfile",
           "uploadProfilePic"
         ]
@@ -268,6 +269,7 @@
         "section": "Player Search & Profile Lookup",
         "events": [
           "searchPlayersResponse",
+          "playerCardsResponse",
           "playerProfileResponse"
         ]
       },
@@ -423,7 +425,9 @@
           "getProfile",
           "updateProfilePic",
           "uploadProfilePic",
-          "getPlayerProfile"
+          "getPlayerProfile",
+          "searchPlayers",
+          "playerCards"
         ]
       },
       {
@@ -625,6 +629,8 @@
           "profilePicUpdateResponse",
           "profilePicUploadResponse",
           "playerProfileResponse",
+          "searchPlayersResponse",
+          "playerCardsResponse",
           "badgesAwarded"
         ]
       },
@@ -676,8 +682,6 @@
   "exclude": {
     "web": {},
     "swift": {
-      "searchPlayers": "player search is web only (the owner declined it for iOS, 2026-11-15); iOS 1.2.2 has the profile events",
-      "searchPlayersResponse": "player search is web only (the owner declined it for iOS, 2026-11-15); iOS 1.2.2 has the profile events",
       "sessionSuperseded": "web only: iOS 1.1.0 never shares a saved session between live sockets (a different session gets forceLogout); the server never needs it to read this"
     }
   }
