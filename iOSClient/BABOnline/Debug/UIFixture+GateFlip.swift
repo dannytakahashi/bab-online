@@ -1,4 +1,5 @@
-#if DEBUG && os(iOS)
+#if os(iOS)
+#if DEBUG
 import UIKit
 import Combine
 
@@ -86,4 +87,5 @@ extension UIFixture {
 
     @MainActor private static var gateFlips = 0
 }
+#endif
 #endif
