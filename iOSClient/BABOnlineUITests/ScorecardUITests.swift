@@ -23,8 +23,24 @@ final class ScorecardUITests: XCTestCase {
         return app
     }
 
-    /// The table's DEBUG layout probe: "fits|scrolls labels=one|two|cut dealer=whole|cut".
+    /// The table's DEBUG layout probe: "fits|scrolls labels=one|two|cut dealer=whole|cut
+    /// head=whole|cut|- gap=<pt>|-" (`head=`: the drawn "Dealer" heading against its natural width,
+    /// `gap=`: from the drawn "Hand" to it).
     private func layout(_ app: XCUIApplication) -> String { any(app, "scorecard").value as? String ?? "" }
+
+    /// The "Dealer" heading as drawn: never cut ("Dea…" on the iPhone 17's game end, review of PR
+    /// #455) and never touching "Hand" ("HandDealer" at AX5). Waits for both headings' frames.
+    private func checkDealerHeading(_ app: XCUIApplication, _ tag: String) {
+        let table = any(app, "scorecard")
+        let measured = NSPredicate(format: "value CONTAINS 'head=' AND NOT (value CONTAINS 'head=-')")
+        expectation(for: measured, evaluatedWith: table)
+        waitForExpectations(timeout: 5)
+        let v = layout(app)
+        XCTAssertTrue(v.contains("head=whole"), "\(tag): the Dealer heading cut or shrunk: \(v)")
+        let gap = v.range(of: #"gap=(-?\d+)"#, options: .regularExpression).flatMap { Int(v[$0].dropFirst(4)) }
+        XCTAssertNotNil(gap, "\(tag): no gap in \(v)")
+        XCTAssertGreaterThanOrEqual(gap ?? -1, 3, "\(tag): Hand and Dealer touch: \(v)")
+    }
 
     /// At the default size the table fits, and no Score column's names or dealer is cut (review of
     /// PR #455: "jon & k…" on every device, "🤖 …" for a bot dealer).
@@ -33,6 +49,7 @@ final class ScorecardUITests: XCTestCase {
         XCTAssertTrue(v.hasPrefix("fits "), "\(tag): the columns fit at the default size: \(v)")
         XCTAssertFalse(v.contains("labels=cut"), "\(tag): a Score column's names cut: \(v)")
         XCTAssertTrue(v.contains("dealer=whole"), "\(tag): a dealer's name cut: \(v)")
+        checkDealerHeading(app, tag)
     }
 
     private func any(_ app: XCUIApplication, _ id: String) -> XCUIElement {
@@ -119,8 +136,26 @@ final class ScorecardUITests: XCTestCase {
         seg.tap()
         XCTAssertTrue(any(app, "scorecard").waitForExistence(timeout: 5))
         XCTAssertFalse(layout(app).contains("labels=cut"), "scrolling, nothing need be cut: \(layout(app))")
+        checkDealerHeading(app, "game-end AX5")
         shot("game-end-scorecard-ax5")
         checkRows(app, [1, 2, 3], "AX5")
+    }
+
+    /// The narrowest game-end card (the closed Duo's ~350 pt table, `-uiScorecardWidth 350`, on
+    /// any phone): the "Dealer" heading whole (review of PR #455: "Dea…" there), and the pairs'
+    /// names and the dealers whole too (the fix before it widened the Score columns), in the base
+    /// game and Get Your Bid.
+    func testTheNarrowestCardKeepsTheDealerHeadingAndTheNames() {
+        for fixture in ["game-end", "gyb-end"] {
+            let app = launch(fixture, ["-uiScorecardWidth", "350"])
+            let seg = app.buttons["Scorecard"]
+            XCTAssertTrue(seg.waitForExistence(timeout: 5))
+            seg.tap()
+            XCTAssertTrue(any(app, "scorecard").waitForExistence(timeout: 5))
+            checkWholeLabels(app, "\(fixture) at 350 pt")
+            shot("\(fixture)-scorecard-350")
+            app.terminate()
+        }
     }
 
     // MARK: - Mid-game
@@ -171,6 +206,7 @@ final class ScorecardUITests: XCTestCase {
         entry.tap()
         XCTAssertTrue(any(app, "scorecard.sheet").waitForExistence(timeout: 5))
         checkRows(app, [1, 2, 3], "sheet AX5")
+        checkDealerHeading(app, "sheet AX5")
         shot("midgame-sheet-ax5")
     }
 

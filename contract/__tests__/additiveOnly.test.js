@@ -274,6 +274,15 @@ test('every frozen iOS build has a well-formed baseline and decode floor', () =>
     }
 });
 
+// SOURCES_FROM must name the first build that really read each later source: a file credited to a
+// build frozen without it (Scorecard.swift once said 51, which shipped without the scorecard) makes
+// contract:baseline --check re-derive that floor from a file its commit never had.
+eachBuild('%s froze exactly the decode sources SOURCES_FROM gives its build', (_, b) => {
+    const { DECODE_SOURCES, SOURCES_FROM } = require('../baseline');
+    const expected = DECODE_SOURCES.filter((f) => !(b.build < (SOURCES_FROM[f] || 0)));
+    expect(b.decodes.sources).toEqual(expected);
+});
+
 test('a build MIN_IOS_BUILD gates is retired (its baseline would hold back removals for nobody)', () => {
     const gated = BUILDS.filter((b) => b.build < MIN_IOS_BUILD).map((b) => `${b.file} (build ${b.build} < MIN_IOS_BUILD ${MIN_IOS_BUILD})`);
     if (gated.length) throw new Error(`Retire (delete) the baselines of gated builds, contract/baselines/README.md:\n  ${gated.join('\n  ')}`);

@@ -11,10 +11,10 @@ import SwiftUI
 /// cells neutral.
 ///
 /// Width: the columns fit a 375 pt phone at the default text size. The Hand column is fixed; the
-/// Dealer column and each Score column get their header's (and the dealers' names') measured
-/// width where that leaves the players `playerComfortW` each (`ScorecardWidths.solve`), and a
-/// pair's name over its Score column goes over two lines ("ivy &" / "hal") where one line does
-/// not fit; the players share the rest. Where even the minimums do not fit (the accessibility
+/// Dealer column is never narrower than its "Dealer" heading, each Score column gets its pair's
+/// measured names (over two lines, "ivy &" / "hal", where one line does not fit) before the
+/// players give up `playerComfortW`, and the Dealer column grows to the dealers' names where the
+/// players keep it (`ScorecardWidths.solve`); the players share the rest. Where even the minimums do not fit (the accessibility
 /// sizes) the Hand column stays pinned and the rest scrolls sideways at full widths; never
 /// clipped. Long names end in "…".
 /// VoiceOver: the drawn table is hidden; each row is one element over it reading the row's
@@ -35,6 +35,18 @@ struct ScorecardTable: View {
     @State private var width: CGFloat = 0
     /// Natural (one-line) widths of the headers and dealer names, by `MeasureKey`.
     @State private var measured: [String: CGFloat] = [:]
+    #if DEBUG
+    /// The drawn "Hand" and "Dealer" headings' frames in the table (the probe's `head=`).
+    @State private var drawnHeads: [String: CGRect] = [:]
+    #endif
+    private static let space = "scorecard.table"
+    /// The table's widest (any width, but `-uiScorecardWidth <pt>` in fixture mode).
+    private static var maxWidth: CGFloat {
+        #if DEBUG
+        if let w = UIFixture.scorecardWidth { return w }
+        #endif
+        return .infinity
+    }
 
     private enum Col: Hashable { case hand, dealer, player(Int), score(Int) }
 
@@ -54,7 +66,7 @@ struct ScorecardTable: View {
             two: model.scoreColumns.indices.map { i in model.scoreColumns[i].lines.indices.map { m("score.\(i).line\($0)") }.max() ?? 0 },
             players: nPlayers, twoLineAllowed: !model.solo,
             pairs: model.pairs.indices.map { m("pair.\($0)") },
-            dealerNames: dealerNames.map { m("dealer.\($0)") }.max() ?? 0))
+            dealerNames: dealerNames.map { m("dealer.\($0)") }.max() ?? 0, dealerHead: m("dealer.head")))
     }
     private var topH: CGFloat { widths.twoLine ? pairTwoH : pairH }
     private var tableH: CGFloat { topH + headH + rowH * CGFloat(model.rows.count) }
@@ -78,6 +90,7 @@ struct ScorecardTable: View {
                         spokenRows
                     }
                     .frame(width: geo.size.width, alignment: .topLeading)
+                    .coordinateSpace(.named(Self.space))
                     .onAppear { width = geo.size.width }
                     .onChange(of: geo.size.width) { _, w in width = w }
                 }
@@ -85,18 +98,32 @@ struct ScorecardTable: View {
                 .background(alignment: .topLeading) { measurer }
             }
         }
+        .frame(maxWidth: Self.maxWidth)
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("scorecard")
         #if DEBUG
-        .accessibilityValue(Self.layoutProbe(wd))
+        .accessibilityValue(Self.layoutProbe(wd) + " " + headProbe)
         #endif
     }
 
     #if DEBUG
-    /// "fits|scrolls labels=one|two|cut dealer=whole|cut" (the UI tests' reading of the layout).
+    /// "fits|scrolls labels=one|two|cut dealer=whole|cut" (the UI tests' reading of the layout;
+    /// `dealer=` is the dealers' names against their column).
     static func layoutProbe(_ w: ScorecardWidths) -> String {
         "\(w.fits ? "fits" : "scrolls") labels=\(w.labelsCut ? "cut" : w.twoLine ? "two" : "one") dealer=\(w.dealerCut ? "cut" : "whole")"
+    }
+
+    /// The "Dealer" heading as drawn: "head=whole|cut|- gap=<pt>": whole when the drawn word is as
+    /// wide as its natural width (a truncated "Dea…" or a shrunk word is narrower), and the gap
+    /// from the drawn "Hand" to it ("HandDealer" at AX5, review of PR #455). "-" before both
+    /// are measured.
+    private var headProbe: String {
+        guard let head = drawnHeads["dealer"], let hand = drawnHeads["hand"], let natural = measured["dealer.head"], natural > 0 else {
+            return "head=- gap=-"
+        }
+        let whole = ceil(head.width) + 0.5 >= natural
+        return "head=\(whole ? "whole" : "cut") gap=\(Int((head.minX - hand.maxX).rounded(.down)))"
     }
     #endif
 
@@ -211,8 +238,9 @@ struct ScorecardTable: View {
             ForEach(cols, id: \.self) { c in
                 Group {
                     switch c {
-                    case .hand: headText("Hand", colour: Theme.textDim).frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 2)
-                    case .dealer: headText("Dealer", colour: Theme.textDim).padding(.leading, ScorecardWidths.dealerGap)
+                    case .hand:
+                        headText("Hand", colour: Theme.textDim, report: "hand").frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 2)
+                    case .dealer: headText("Dealer", colour: Theme.textDim, report: "dealer").padding(.leading, ScorecardWidths.dealerGap)
                     case .player(let i):
                         let p = model.players[i]
                         headText(p.name, colour: Theme.team(p.colour), weight: p.mine ? .bold : .semibold)
@@ -226,13 +254,20 @@ struct ScorecardTable: View {
         }
     }
 
-    private func headText(_ s: String, colour: Color, weight: Font.Weight = .semibold) -> some View {
+    /// `report`: the drawn text's frame goes to the DEBUG probe under that key (the word itself,
+    /// before its padding).
+    private func headText(_ s: String, colour: Color, weight: Font.Weight = .semibold, report: String? = nil) -> some View {
         Text(s)
             .font(.caption.weight(weight))
             .foregroundColor(colour)
             .lineLimit(1)
             .minimumScaleFactor(0.8)
             .truncationMode(.tail)
+            #if DEBUG
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.space)) }) { f in
+                if let report { drawnHeads[report] = f }
+            }
+            #endif
             .padding(.horizontal, 1)
     }
 
@@ -326,10 +361,14 @@ struct ScorecardTable: View {
 }
 
 /// The column widths for a width (pure; `ScorecardTable` measures the labels it passes in).
-/// Priority where the table fits: the players keep `playerComfort` each, then the Dealer column
-/// gets its widest label, then the Score columns their pair's name on one line, else on two
-/// lines (the base game), else what is left shared by need (`labelsCut`); the players take the
-/// rest. Where the minimums do not fit, the table scrolls and every column gets its full want.
+/// Priority where the table fits: the Dealer column never narrower than its "Dealer" heading
+/// (`dealerHead`, the gap after Hand included: review of PR #455, "Dea…" on the narrowest game
+/// end card, the closed Duo's ~350 pt table, where the column fell to `dealerMin`), then the
+/// Score columns their pair's name on one line, else on two lines (the base game), with the
+/// players at `playerComfort` each, else with the players down to `playerMin`, else what is left
+/// shared by need (`labelsCut`); then the Dealer column grows to its widest name while the
+/// players keep their comfort; the players take the rest. Where the minimums (the heading's
+/// width for the Dealer column) do not fit, the table scrolls and every column gets its full want.
 struct ScorecardWidths: Equatable {
     var fits: Bool
     var dealer: CGFloat
@@ -338,6 +377,9 @@ struct ScorecardWidths: Equatable {
     var twoLine: Bool
     var labelsCut: Bool
     var dealerCut: Bool
+    /// the Dealer column narrower than its heading (never once the heading is measured: the
+    /// solver's own reading; the DEBUG probe's `head=` measures the drawn word)
+    var headCut: Bool = false
 
     struct Input {
         var width: CGFloat
@@ -356,9 +398,11 @@ struct ScorecardWidths: Equatable {
         var twoLineAllowed: Bool
         /// each pair's label over its two players (the base game; used where the table scrolls)
         var pairs: [CGFloat] = []
-        /// the widest dealer's name alone (`dealerCut`: the cells have no scale factor; the
-        /// "Dealer" header may shrink a little)
+        /// the widest dealer's name alone (`dealerCut`: the cells have no scale factor)
         var dealerNames: CGFloat = 0
+        /// the "Dealer" heading's natural width (the column's floor where the table fits; 0
+        /// before measuring)
+        var dealerHead: CGFloat = 0
     }
 
     /// A label's room beyond its text (the header's 1 pt padding each side, and a hair).
@@ -369,44 +413,56 @@ struct ScorecardWidths: Equatable {
 
     /// A dealer's name longer than its column (its 1 pt padding each side and the gap).
     private static func namesCut(_ i: Input, _ dealer: CGFloat) -> Bool { i.dealerNames > 0 && i.dealerNames + 2 + dealerGap > dealer + 0.5 }
+    /// The width the "Dealer" heading needs whole: the word, its 1 pt padding each side, the gap
+    /// after Hand and a hair (it is drawn with no scale factor below 1 at that width).
+    static func headWidth(_ head: CGFloat) -> CGFloat { head > 0 ? head + 2 + dealerGap + 1 : 0 }
+    private static func headCut(_ i: Input, _ dealer: CGFloat) -> Bool { i.dealerHead > 0 && headWidth(i.dealerHead) > dealer + 0.5 }
 
     static func solve(_ i: Input) -> ScorecardWidths {
         let n = CGFloat(max(i.players, 1))
         let nS = CGFloat(i.one.count)
-        let wantDealer = min(i.dealerMax, max(i.dealerMin, i.dealerWant > 0 ? i.dealerWant + pad + dealerGap : 0))
+        let floor = max(i.dealerMin, headWidth(i.dealerHead))
+        let wantDealer = max(floor, min(i.dealerMax, i.dealerWant > 0 ? i.dealerWant + pad + dealerGap : 0))
         let wantOne = i.one.map { max(i.scoreMin, $0 > 0 ? $0 + pad : 0) }
         let wantTwo = i.two.map { max(i.scoreMin, $0 > 0 ? $0 + pad : 0) }
-        let minTotal = i.hand + i.dealerMin + i.scoreMin * nS + i.playerMin * n
+        let minTotal = i.hand + floor + i.scoreMin * nS + i.playerMin * n
         if i.width > 0, minTotal > i.width + 0.5 {
             // scrolls: nothing need be squeezed (a dealer past the cap still ends in "…"); the
             // players as wide as half their pair's label
             let pairHalf = ((i.pairs.max() ?? 0) + pad) / 2
             return ScorecardWidths(fits: false, dealer: wantDealer, player: max(i.playerMin, i.playerComfort, pairHalf), scores: wantOne,
-                                   twoLine: false, labelsCut: false, dealerCut: namesCut(i, wantDealer))
+                                   twoLine: false, labelsCut: false, dealerCut: namesCut(i, wantDealer), headCut: headCut(i, wantDealer))
         }
         guard i.width > 0 else {
             return ScorecardWidths(fits: true, dealer: i.dealerMin, player: i.playerMin, scores: i.one.map { _ in i.scoreMin },
                                    twoLine: false, labelsCut: false, dealerCut: false)
         }
         let rest = i.width - i.hand
-        let dealer = min(wantDealer, max(i.dealerMin, rest - i.scoreMin * nS - i.playerComfort * n))
-        let budget = max(i.scoreMin * nS, min(rest - dealer - i.playerComfort * n, rest - dealer - i.playerMin * n))
+        // the Score columns' room with the Dealer column at its heading: the players at their
+        // comfort, else down to their minimum, before any pair's names are cut
+        let comfortBudget = rest - floor - i.playerComfort * n
+        let minBudget = rest - floor - i.playerMin * n
+        let fitsIn = { (w: [CGFloat], b: CGFloat) in w.reduce(0, +) <= b + 0.5 }
         var scores = wantOne, twoLine = false, cut = false
-        if wantOne.reduce(0, +) > budget + 0.5 {
-            if i.twoLineAllowed, wantTwo.reduce(0, +) <= budget + 0.5 {
-                scores = wantTwo; twoLine = true
-            } else {
-                let base = i.twoLineAllowed ? wantTwo : wantOne
-                twoLine = i.twoLineAllowed
-                let need = base.map { $0 - i.scoreMin }.reduce(0, +)
-                let extra = max(0, budget - i.scoreMin * nS)
-                scores = base.map { need > 0 ? i.scoreMin + extra * ($0 - i.scoreMin) / need : i.scoreMin }
-                cut = true
-            }
+        if fitsIn(wantOne, comfortBudget) {
+        } else if i.twoLineAllowed, fitsIn(wantTwo, comfortBudget) {
+            scores = wantTwo; twoLine = true
+        } else if fitsIn(wantOne, minBudget) {
+        } else if i.twoLineAllowed, fitsIn(wantTwo, minBudget) {
+            scores = wantTwo; twoLine = true
+        } else {
+            let base = i.twoLineAllowed ? wantTwo : wantOne
+            twoLine = i.twoLineAllowed
+            let budget = max(i.scoreMin * nS, comfortBudget)
+            let need = base.map { $0 - i.scoreMin }.reduce(0, +)
+            let extra = max(0, budget - i.scoreMin * nS)
+            scores = base.map { need > 0 ? i.scoreMin + extra * ($0 - i.scoreMin) / need : i.scoreMin }
+            cut = true
         }
+        let dealer = min(wantDealer, max(floor, rest - scores.reduce(0, +) - i.playerComfort * n))
         let player = max(i.playerMin, (rest - dealer - scores.reduce(0, +)) / n)
         return ScorecardWidths(fits: true, dealer: dealer, player: player, scores: scores, twoLine: twoLine, labelsCut: cut,
-                               dealerCut: namesCut(i, dealer))
+                               dealerCut: namesCut(i, dealer), headCut: headCut(i, dealer))
     }
 }
 

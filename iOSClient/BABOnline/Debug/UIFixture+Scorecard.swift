@@ -1,4 +1,5 @@
 #if DEBUG
+import CoreGraphics
 import Foundation
 
 /// The scorecard in fixture mode (ScorecardUITests; owner 2026-11-27). `-uiScorecard YES`:
@@ -18,9 +19,13 @@ import Foundation
 /// each delta is what its total changed by. Cases on the card: extra tricks, a fault, a made
 /// bore (hand 5), a set 2B (hand 9), a rainbow (hand 5), a joker hand (hand 7), the Forbidden Bid.
 /// `-uiScorecardNone YES`: no `scorecard` key anywhere (an older server).
+/// `-uiScorecardWidth <pt>`: the table no wider than that (the narrowest game-end card, the
+/// closed Duo's ~350 pt, on any phone: review of PR #455, "Dea…" there).
 extension UIFixture {
     static let scorecardMode: Bool = isActive && UserDefaults.standard.bool(forKey: "uiScorecard")
     static let scorecardNone: Bool = isActive && UserDefaults.standard.bool(forKey: "uiScorecardNone")
+    static let scorecardWidth: CGFloat? = isActive
+        ? Double(UserDefaults.standard.string(forKey: "uiScorecardWidth") ?? "").map { CGFloat($0) } : nil
     static var scorecardHands: Int { min(12, max(0, Int(UserDefaults.standard.string(forKey: "uiScorecardHands") ?? "") ?? 3)) }
 
     private static func card(_ suit: String, _ rank: String) -> [String: Any] { ["suit": suit, "rank": rank] }

@@ -166,10 +166,46 @@ final class ScorecardTests: XCTestCase {
     // MARK: - Widths
 
     private func widths(_ width: CGFloat, one: [CGFloat], two: [CGFloat], players: Int = 4, dealer: CGFloat = 38,
-                        names: CGFloat = 24, twoLine: Bool = true) -> ScorecardWidths {
+                        names: CGFloat = 24, twoLine: Bool = true, head: CGFloat = 0) -> ScorecardWidths {
         ScorecardWidths.solve(.init(width: width, hand: 34, dealerMin: 36, dealerMax: 84, dealerWant: dealer, playerMin: 44,
                                     playerComfort: 48, scoreMin: 44, one: one, two: two, players: players, twoLineAllowed: twoLine,
-                                    dealerNames: names))
+                                    dealerNames: names, dealerHead: head))
+    }
+
+    /// The "Dealer" heading is the Dealer column's floor where the table fits (review of PR #455:
+    /// "Dea…" on the narrowest game-end card, the closed Duo's ~350 pt table, where the column
+    /// fell to its 36 pt minimum): the players give up their comfort first, the pairs' names stay
+    /// whole, and below the minimums the table scrolls rather than cut it.
+    func testTheDealerHeadingIsNeverCutWhereTheTableFits() {
+        let head: CGFloat = 39  // "Dealer", caption semibold, at the default size
+        let need = ScorecardWidths.headWidth(head)
+        XCTAssertEqual(need, 46, "the word, its padding, the gap after Hand and a hair")
+        for (width, players, one, two) in [(350.0, 4, [52.0, 58.0], [30.0, 32.0]), (346, 4, [52, 58], [30, 32]),
+                                           (350, 3, [20, 22, 30], [20, 22, 30]), (360, 4, [52, 58], [30, 32]),
+                                           (370, 4, [52, 58], [30, 32])] {
+            let w = widths(CGFloat(width), one: one.map { CGFloat($0) }, two: two.map { CGFloat($0) }, players: players,
+                           dealer: head, twoLine: players == 4, head: head)
+            let tag = "\(width) pt, \(players) players"
+            XCTAssertTrue(w.fits, tag)
+            XCTAssertGreaterThanOrEqual(w.dealer, need, "\(tag): the Dealer column holds its heading")
+            XCTAssertFalse(w.headCut, tag); XCTAssertFalse(w.dealerCut, tag); XCTAssertFalse(w.labelsCut, "\(tag): the pairs' names whole")
+            XCTAssertGreaterThanOrEqual(w.player, 44, tag)
+            XCTAssertEqual(34 + w.dealer + w.scores.reduce(0, +) + w.player * CGFloat(players), CGFloat(width), accuracy: 0.5, tag)
+        }
+        // 350 pt: the players drop below their comfort before a name is cut
+        let narrow = widths(350, one: [52, 58], two: [30, 32], dealer: head, head: head)
+        XCTAssertTrue(narrow.twoLine); XCTAssertEqual(narrow.dealer, 46); XCTAssertEqual(narrow.player, 45.5, accuracy: 0.01)
+        // where there is room the players keep their comfort and the column its want
+        let roomy = widths(370, one: [52, 58], two: [30, 32], dealer: head, head: head)
+        XCTAssertEqual(roomy.dealer, 49); XCTAssertGreaterThanOrEqual(roomy.player, 48)
+        // below the minimums (the heading's width included) it scrolls, the heading whole
+        let tight = widths(340, one: [52, 58], two: [30, 32], dealer: head, head: head)
+        XCTAssertFalse(tight.fits); XCTAssertFalse(tight.headCut); XCTAssertGreaterThanOrEqual(tight.dealer, need)
+        // the AX sizes: the heading wider than the cap still gets its width
+        let ax = ScorecardWidths.solve(.init(width: 370, hand: 80, dealerMin: 90, dealerMax: 120, dealerWant: 126, playerMin: 110,
+                                             playerComfort: 120, scoreMin: 110, one: [180, 165], two: [90, 85], players: 4,
+                                             twoLineAllowed: true, dealerNames: 60, dealerHead: 126))
+        XCTAssertFalse(ax.fits); XCTAssertFalse(ax.headCut); XCTAssertEqual(ax.dealer, ScorecardWidths.headWidth(126))
     }
 
     /// The pairs' names over the Score columns are never cut where the table has room (review of

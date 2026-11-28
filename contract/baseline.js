@@ -41,7 +41,7 @@ const DECODE_SOURCES = [
     'iOSClient/BABOnline/Models/Card.swift',
     // from 1.2.7 (41): Get Your Bid's wire types (GybStart and friends), reached from WirePayloads
     'iOSClient/BABOnline/State/Table/GetYourBid.swift',
-    // from 1.2.8 (51): the scorecard's handComplete row (LenientScorecardRow, ScorecardRow)
+    // from 1.2.8 (52): the scorecard's handComplete row (LenientScorecardRow, ScorecardRow)
     'iOSClient/BABOnline/State/Table/Scorecard.swift',
 ];
 /**
@@ -51,7 +51,7 @@ const DECODE_SOURCES = [
  */
 const SOURCES_FROM = {
     'iOSClient/BABOnline/State/Table/GetYourBid.swift': 41,
-    'iOSClient/BABOnline/State/Table/Scorecard.swift': 51,
+    'iOSClient/BABOnline/State/Table/Scorecard.swift': 52,
 };
 
 const git = (...args) => execFileSync('git', args, { cwd: ROOT, maxBuffer: 1 << 28 });
