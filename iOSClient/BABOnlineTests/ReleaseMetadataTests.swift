@@ -63,8 +63,9 @@ final class ReleaseMetadataTests: XCTestCase {
     /// replaces it in review: the host's Leave and End Tournament icons, Tournament in New Game; build 47
     /// (still 1.2.8, cut from 46's commit) adds only the "The host ended the tournament" toast; build 48
     /// (still 1.2.8, cut from 47's commit) adds only the gold trophy back; build 49 (still 1.2.8, cut
-    /// from 48's commit) adds the lobby bar like the game's and the trophy in the bottom pill, white).
-    static let minimumBuild = 49
+    /// from 48's commit) adds the lobby bar like the game's and the trophy in the bottom pill, white;
+    /// build 50 (still 1.2.8, cut from 49's commit) adds Players search and the restore-answer wait).
+    static let minimumBuild = 50
 
     private func info(_ key: String) -> Any? { Bundle.main.object(forInfoDictionaryKey: key) }
 
@@ -77,12 +78,12 @@ final class ReleaseMetadataTests: XCTestCase {
     }
 
     /// server/socket/upgradeGate.js answers builds below MIN_IOS_BUILD (41: 1.0.0 (1) to
-    /// 1.2.6 (40)) with an update message only; 1.2.7 (41) to (42) and 1.2.8 (43) to (49) are current, pinned
+    /// 1.2.6 (40)) with an update message only; 1.2.7 (41) to (42) and 1.2.8 (43) to (50) are current, pinned
     /// server-side by upgradeGate.test.js. The build number only grows:
     /// builds 3 to 6 went to App Store Connect and 1.2.0 (6) was released, so build 7 is 1.2.1.
     func testBuildIsNeverGatedByTheServer() throws {
         let build = try XCTUnwrap(Int(try XCTUnwrap(info("CFBundleVersion") as? String)))
-        XCTAssertGreaterThanOrEqual(build, Self.minimumBuild, "1.2.0 (6), 1.2.1 (9) and 1.2.2 (13) were released; 1.2.8 ships as build 49 or later and builds never go back")
+        XCTAssertGreaterThanOrEqual(build, Self.minimumBuild, "1.2.0 (6), 1.2.1 (9) and 1.2.2 (13) were released; 1.2.8 ships as build 50 or later and builds never go back")
         XCTAssertEqual(info("CFBundleShortVersionString") as? String, "1.2.8", "1.2.7 (42) was released, so build 43 is 1.2.8")
     }
 
