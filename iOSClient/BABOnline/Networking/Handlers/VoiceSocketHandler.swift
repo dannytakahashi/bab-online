@@ -24,6 +24,9 @@ final class VoiceSocketHandler {
     func register() {
         // Peer list — server tells us which humans are already in voice
         socket.on(SocketEvents.Server.voicePeerList) { data, _ in
+            // only a mesh room lists peers: a held SFU session ends first (SFU step 1: a deploy
+            // onto a process with the flag off), before the mesh's calls
+            DispatchQueue.main.async { VoiceChatManager.shared.meshRoomSeen() }
             guard let dict = data.first as? [String: Any],
                   let peers = dict["peers"] as? [[String: Any]] else { return }
 
@@ -45,6 +48,7 @@ final class VoiceSocketHandler {
                   let username = dict["username"] as? String else { return }
             print("[Voice] Peer joined: \(socketId) \(username)")
             DispatchQueue.main.async {
+                VoiceChatManager.shared.meshRoomSeen()
                 VoiceChatManager.shared.noteAnnounced(socketId, username: username)
                 // one call per player: a call to them on an older socket id moves here or closes
                 VoiceChatManager.shared.peerJoined(socketId, username: username)
@@ -107,6 +111,17 @@ final class VoiceSocketHandler {
             DispatchQueue.main.async {
                 VoiceChatManager.shared.handleAnswer(fromSocketId: fromSocketId, answer: sdp)
             }
+        }
+
+        // The tournament room on the Cloudflare SFU (VOICE_SFU=tournament; SfuVoice): sfuRoster is
+        // TournamentSocketHandler's (the waiting note); a member's record and the replies here
+        socket.on(SocketEvents.Server.sfuMember) { data, _ in
+            guard let event = SfuMemberEvent.from(data.first) else { return }
+            DispatchQueue.main.async { VoiceChatManager.shared.applySfuMember(event) }
+        }
+        socket.on(SocketEvents.Server.sfuReply) { data, _ in
+            guard let dict = data.first as? [String: Any] else { return }
+            DispatchQueue.main.async { VoiceChatManager.shared.sfu.handleReply(dict) }
         }
 
         // ICE candidate from a peer

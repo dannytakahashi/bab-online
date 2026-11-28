@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import Combine
+import Network
 // WebRTC's ObjC types aren't annotated Sendable; its objects are thread-safe.
 @preconcurrency import WebRTC
 
@@ -117,6 +118,10 @@ final class VoiceChatManager: ObservableObject {
         /// A trickled ICE candidate (the tests wire two managers' candidates to each other).
         var sendIceCandidate: @MainActor (_ target: String, _ candidate: RTCIceCandidate) -> Void = {
             VoiceEmitter.sendIceCandidate(targetSocketId: $0, candidate: $1)
+        }
+        /// A c2s sfu* request (the SFU transport, `SfuVoice`; the tests' fake SFU server).
+        var sendSfu: @MainActor (_ event: String, _ payload: [String: Any]) -> Void = {
+            SocketService.shared.emit($0, $1)
         }
 
         static let live = Hooks(
@@ -255,12 +260,25 @@ final class VoiceChatManager: ObservableObject {
 
     /// `hooks` / `iceStore` / `audioDevice`: the unit tests' (the app has one manager,
     /// `shared`, with the defaults). `after`: the gate's grace timer (tests run it by hand).
+    /// `sfuClock`: the SFU transport's clock and timers (tests run them by hand).
     init(hooks: Hooks = .live, iceStore: IceServerStore? = nil, audioDevice: RTCAudioDevice? = nil,
-         after: ((TimeInterval, @escaping @MainActor () -> Void) -> Void)? = nil) {
+         after: ((TimeInterval, @escaping @MainActor () -> Void) -> Void)? = nil,
+         sfuClock: (now: @MainActor () -> Date, after: @MainActor (TimeInterval, @escaping @MainActor () -> Void) -> Void)? = nil,
+         sfuIceServers: [String]? = nil) {
         self.hooks = hooks
         self.factory = Self.makeFactory(audioDevice: audioDevice)
         self.iceStore = iceStore ?? IceServerStore(emit: { VoiceEmitter.getIceServers($0) })
         self.startsUnderXCTest = audioDevice != nil
+        var sfuHooks = SfuVoice.Hooks(send: hooks.sendSfu)
+        if let sfuClock {
+            sfuHooks.now = sfuClock.now
+            sfuHooks.after = sfuClock.after
+        }
+        if let sfuIceServers { sfuHooks.iceServers = sfuIceServers }
+        #if DEBUG
+        sfuHooks.rewriteRemote = SfuRelay.rewriter()
+        #endif
+        self.sfu = SfuVoice(factory: factory, hooks: sfuHooks)
         self.iceStore.onChange = { [weak self] config in self?.applyIce(config) }
         let isRunning: @MainActor () -> Bool = { [weak self] in self.map { $0.isActive || $0.startPending } ?? false }
         let start: @MainActor () -> Void = { [weak self] in self?.startFromGate() }
@@ -270,12 +288,96 @@ final class VoiceChatManager: ObservableObject {
         } else {
             gate = VoiceGate(isRunning: isRunning, start: start, suspend: suspend)
         }
-        // the app's manager (WebRTC's own audio module): the live mesh probe; never in the unit tests
-        #if DEBUG
+        sfu.owner = self
+        // the app's manager (WebRTC's own audio module): the network for the SFU's recovery
+        // (step 9) and sfuLeave when the app is terminated (step 13); never in the unit tests
         if audioDevice == nil, ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+            startPathMonitor()
+            #if DEBUG
             MeshProbe.startIfAsked(self)  // live checks only (-meshProbeFile <path>)
+            #endif
+            // the socket's state (step 8: no sfu* request sent into a dropped socket; one sent
+            // before a drop answers at once and is redone after the room's roster)
+            socketObserver = SocketService.shared.$isConnected
+                .removeDuplicates()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] up in MainActor.assumeIsolated { self?.sfu.socketChanged(connected: up) } }
+            #if os(iOS)
+            terminateObserver = NotificationCenter.default.addObserver(forName: AppPresence.willTerminateNotification, object: nil,
+                                                                       queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.appWillTerminate() }
+            }
+            #endif
         }
-        #endif
+    }
+
+    // MARK: - The SFU transport (the tournament room with VOICE_SFU=tournament; SfuVoice)
+
+    /// The tournament room's Cloudflare SFU transport (PR 3; docs/claude/voice.md "SFU voice,
+    /// iOS"): one RTCPeerConnection per session instead of one per peer. Its pulled tracks are
+    /// rows keyed `sfu:<username>` in `peerInfos` (the voice panel, mute, volume, speaking).
+    let sfu: SfuVoice
+    /// The pulled tracks by row id (`sfuId`).
+    private var sfuTracks: [String: RTCAudioTrack] = [:]
+    /// The SFU room's members (company for the tournament lobby, step 2), republished on every
+    /// roster change so the lobby's onChange sees it.
+    @Published private(set) var sfuMemberNames: [String] = []
+    /// The SFU room's line ("Voice is full (N people)"): the server's cap while waiting (0 when it
+    /// sent none), else nil.
+    @Published private(set) var sfuWaitingCap: Int?
+    private var pathMonitor: NWPathMonitor?
+    private var terminateObserver: NSObjectProtocol?
+    private var socketObserver: AnyCancellable?
+    /// For the live probe: each pulled track's packets / bytes and my own bytes sent.
+    private(set) var sfuInbound: [String: (packets: Int, bytes: Int)] = [:]
+    private(set) var sfuBytesSent = 0
+
+    /// The row id of a pulled track (never a socket id: those have no colon).
+    nonisolated static func sfuId(_ username: String) -> String { "sfu:\(username)" }
+
+    /// sfuRoster (step 1: this room is an SFU room).
+    func applySfuRoster(_ roster: SfuRoster) {
+        sfu.applyRoster(roster)
+    }
+
+    /// sfuMember.
+    func applySfuMember(_ event: SfuMemberEvent) {
+        sfu.applyMember(event)
+    }
+
+    /// A mesh event in the tournament room (voicePeerList / voicePeerJoined / tournamentVoiceStatus):
+    /// the room is a mesh; a held SFU session closes first, with no sfuLeave (step 1: a deploy
+    /// onto a process with the flag off).
+    func meshRoomSeen() {
+        guard sfu.holdsSession || sfu.status != .none else { return }
+        sfu.meshOrGone(why: "the room is a mesh")
+    }
+
+    /// tournamentLeft, the main room, a seat at a round's table: no SFU room any more (no sfuLeave).
+    func sfuRoomGone(why: String) {
+        sfu.meshOrGone(why: why)
+    }
+
+    private func startPathMonitor() {
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            let satisfied = path.status == .satisfied
+            let signature = path.availableInterfaces.first.map { "\($0.name)" } ?? "none"
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.sfu.networkPath(satisfied: satisfied, signature: signature) }
+            }
+        }
+        monitor.start(queue: DispatchQueue(label: "bab.voice.path"))
+        pathMonitor = monitor
+    }
+
+    /// The app is being terminated: sfuLeave (best effort) and the PeerConnection closed, so the
+    /// room drops my track at once instead of after the reconnect grace (step 13).
+    private func appWillTerminate() {
+        guard sfu.holdsSession else { return }
+        sfu.leave(why: "app terminating")
+        // give the socket a moment to write the sfuLeave
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
     }
 
     // MARK: - Lifecycle
@@ -323,6 +425,10 @@ final class VoiceChatManager: ObservableObject {
         // Start speaking detection (main run loop, since we're on the main actor)
         startSpeakingDetection()
 
+        // The SFU room (if this is one): the pulls a kept session holds are rows again, and the
+        // plan runs (lazy: a session only when someone publishes, or at once when unmuted)
+        sfu.voiceStarted()
+
         // The first peer connection waits for the ICE servers (<= IcePolicy.fetchTimeout, else STUN)
         awaitingIce = true
         let ice = await iceReady.value
@@ -342,6 +448,8 @@ final class VoiceChatManager: ObservableObject {
         let audioTrack = factory.audioTrack(with: audioSource, trackId: "audio0")
         audioTrack.isEnabled = false
         localAudioTrack = audioTrack
+        // a session kept across a room change sends this track from now on (no renegotiation)
+        sfu.localTrackReplaced(audioTrack)
     }
 
     /// Every live audio transceiver of a call (one per call: ours, or the offer's).
@@ -399,6 +507,9 @@ final class VoiceChatManager: ObservableObject {
     /// Shut down all voice connections and clean up: the screen no longer wants voice.
     func shutdown() {
         gate.release()
+        // off the room's screen: sfuLeave, then the PeerConnection (step 13), and the room goes
+        sfu.leave(why: "voice stopped")
+        sfu.forgetRoom()
         teardown(keepSettings: false)
     }
 
@@ -407,8 +518,18 @@ final class VoiceChatManager: ObservableObject {
     /// buffered signal of the old room ends now, in the socket's event order, so the new room's
     /// announcements that follow are kept; the screens' company words go (the new room's screen
     /// says who is there). Still wanted: the new screen's voice starts with its company.
-    func changeRoom() {
+    ///
+    /// `keepSfuFor`: the tournament of a tournamentJoined. A session held in that tournament's
+    /// SFU room survives the change (a socket reconnect, the lobby drawn again: the roster that
+    /// follows says resume it, step 11; a mesh event closes it). Anything else ends it with no
+    /// sfuLeave (a seat at the round's table: the server took me out of the room).
+    func changeRoom(keepSfuFor tournamentId: String? = nil) {
         print("[Voice] Room change: the old room's calls end")
+        if let tournamentId, sfu.holdsSession {
+            sfu.awaitRoster(tournamentId: tournamentId)
+        } else {
+            sfu.meshOrGone(why: "room change")
+        }
         teardown(keepSettings: false)
         tournamentPeers = [:]
         gate.forgetCompany()
@@ -432,7 +553,8 @@ final class VoiceChatManager: ObservableObject {
 
     /// The tournament room has another human for me.
     func tournamentCompany(me: String?) -> Bool {
-        VoiceCompany.tournament(announced: Array(tournamentPeers.values), me: me)
+        // the mesh's announced peers, or the SFU room's members (step 2: another member listed)
+        VoiceCompany.tournament(announced: Array(tournamentPeers.values) + sfuMemberNames, me: me)
     }
 
     /// The last other human left and the grace ran out (VoiceGate): the session ends (no audio
@@ -440,6 +562,8 @@ final class VoiceChatManager: ObservableObject {
     /// arrival starts it again (muted, or unmuted after an unmute by hand: `sessionUnmuted`).
     func suspend() {
         print("[Voice] Alone: voice stops")
+        // still in the SFU room (its roster says who comes back): sfuLeave, then the PeerConnection
+        sfu.leave(why: "alone")
         teardown(keepSettings: true)
     }
 
@@ -483,8 +607,11 @@ final class VoiceChatManager: ObservableObject {
         localAudioTrack?.isEnabled = false
         localAudioTrack = nil
 
-        // Deactivate audio session to remove mic indicator (only if a call ever claimed it)
-        releaseAudioSession()
+        // Deactivate audio session to remove mic indicator (only if a call ever claimed it; a
+        // kept SFU session still holds it, for the roster that follows)
+        if sfu.pc == nil { releaseAudioSession() }
+        sfuTracks.removeAll()
+        sfuInbound.removeAll()
 
         // Clear state
         latestId.removeAll()
@@ -915,6 +1042,7 @@ final class VoiceChatManager: ObservableObject {
             isSelfMuted = false
             sessionUnmuted = true
             localAudioTrack?.isEnabled = !isBackgrounded
+            sfu.publishWanted()  // the SFU room: the first unmute pushes (step 4)
             return
         }
         unmuteAfterPrompt = true
@@ -941,6 +1069,7 @@ final class VoiceChatManager: ObservableObject {
                 self.isSelfMuted = false
                 self.sessionUnmuted = true
                 self.localAudioTrack?.isEnabled = !self.isBackgrounded
+                self.sfu.publishWanted()  // the SFU room: the first unmute pushes (step 4)
             }
         }
     }
@@ -949,14 +1078,19 @@ final class VoiceChatManager: ObservableObject {
     func mutePeer(_ socketId: String) {
         peerInfos[socketId]?.isMuted = true
         if let name = peerInfos[socketId]?.username { savedMutes[name] = true }
-        peers[socketId]?.remoteTrack?.isEnabled = false
+        remoteAudioTrack(socketId)?.isEnabled = false
+    }
+
+    /// A row's remote track: a mesh call's, or a track the SFU session pulls.
+    private func remoteAudioTrack(_ id: String) -> RTCAudioTrack? {
+        peers[id]?.remoteTrack ?? sfuTracks[id]
     }
 
     /// Unmute a specific peer's remote audio.
     func unmutePeer(_ socketId: String) {
         peerInfos[socketId]?.isMuted = false
         if let name = peerInfos[socketId]?.username { savedMutes[name] = false }
-        peers[socketId]?.remoteTrack?.isEnabled = true
+        remoteAudioTrack(socketId)?.isEnabled = true
     }
 
     /// The app drops its identity (Sign Out, forceLogout, a deleted account, a failed session
@@ -1022,13 +1156,13 @@ final class VoiceChatManager: ObservableObject {
         info.volume = level
         peerInfos[socketId] = info
         savedVolumes[info.username] = level
-        peers[socketId]?.remoteTrack?.source.volume = level
+        remoteAudioTrack(socketId)?.source.volume = level
     }
 
     /// For tests: whether this peer's remote track plays (nil: no track yet).
-    func remoteTrackEnabled(_ socketId: String) -> Bool? { peers[socketId]?.remoteTrack?.isEnabled }
+    func remoteTrackEnabled(_ socketId: String) -> Bool? { remoteAudioTrack(socketId)?.isEnabled }
     /// For tests: this peer's remote track's source gain (nil: no track yet).
-    func remoteTrackVolume(_ socketId: String) -> Double? { peers[socketId]?.remoteTrack?.source.volume }
+    func remoteTrackVolume(_ socketId: String) -> Double? { remoteAudioTrack(socketId)?.source.volume }
     /// The delegate's trickled candidate, through the hooks.
     fileprivate func sendIceCandidate(_ target: String, _ candidate: RTCIceCandidate) {
         hooks.sendIceCandidate(target, candidate)
@@ -1051,6 +1185,7 @@ final class VoiceChatManager: ObservableObject {
     /// Call when app enters background — mute mic for privacy.
     func handleBackground() {
         isBackgrounded = true
+        sfu.backgrounded()
         guard isActive else { return }
         localAudioTrack?.isEnabled = false
     }
@@ -1059,10 +1194,11 @@ final class VoiceChatManager: ObservableObject {
     /// change in the background, also covers a track made there).
     func handleForeground() {
         isBackgrounded = false
+        sfu.foregrounded()
         guard isActive else { return }
         localAudioTrack?.isEnabled = !isSelfMuted
         // a call whose activation was refused (in the background, during a cellular call)
-        if !peers.isEmpty { activateAudioSessionIfNeeded() }
+        if !peers.isEmpty || sfu.pc != nil { activateAudioSessionIfNeeded() }
     }
 
     // MARK: - Private Helpers
@@ -1160,7 +1296,7 @@ final class VoiceChatManager: ObservableObject {
         let claims = audioClaims
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {
-                guard let self, self.audioClaims == claims, self.peers.isEmpty else { return }
+                guard let self, self.audioClaims == claims, self.peers.isEmpty, self.sfu.pc == nil else { return }
                 self.releaseAudioSession()
             }
         }
@@ -1329,10 +1465,15 @@ final class VoiceChatManager: ObservableObject {
     /// transport of the call, ten times a second for each of up to 19 calls), and mine from the
     /// first call's sender (its outbound-rtp and media-source). The period follows the call count.
     private func pollSpeakingLevels() {
-        let period = SpeakingPoll.interval(calls: peers.count)
+        // the mesh's calls plus the SFU session's pulled tracks (one receiver each: one PC with N
+        // receivers costs the poll what N calls did, and slows past 8 the same way)
+        let sfuReceivers = sfu.pulledReceivers
+        let calls = peers.count + sfuReceivers.count
+        let period = SpeakingPoll.interval(calls: calls)
         if period != speakingPollPeriod {
-            startSpeakingDetection(calls: peers.count)
+            startSpeakingDetection(calls: calls)
         }
+        pollSfuLevels(sfuReceivers)
         for (socketId, peer) in peers where !speakingStatsInFlight.contains(socketId) {
             // a call with no live audio transceiver yet (still negotiating): nothing to read
             guard let receiver = Self.audioTransceivers(peer.connection).first?.receiver else { continue }
@@ -1347,8 +1488,13 @@ final class VoiceChatManager: ObservableObject {
             }
         }
 
-        // My own level: the first call's sender (every call sends the one local track)
+        // My own level: the first call's sender (every call sends the one local track), or the
+        // SFU session's published sender
         if let track = localAudioTrack, track.isEnabled {
+            if peers.isEmpty, let sender = sfu.localSender, let pc = sfu.pc {
+                pollSfuSelf(pc, sender)
+                return
+            }
             guard !speakingStatsInFlight.contains("self"),
                   let (_, firstPeer) = peers.min(by: { $0.key < $1.key }),
                   let sender = Self.audioTransceivers(firstPeer.connection).first?.sender else { return }
@@ -1367,9 +1513,58 @@ final class VoiceChatManager: ObservableObject {
         }
     }
 
+    /// Each pulled track's level from its own receiver (the per-receiver path of 1.2.7, one
+    /// request in flight each), which also feeds the SFU's downlink stall detector (step 10).
+    private func pollSfuLevels(_ receivers: [(username: String, receiver: RTCRtpReceiver)]) {
+        guard let pc = sfu.pc else { return }
+        sfu.checkStall()
+        for (username, receiver) in receivers {
+            let id = Self.sfuId(username)
+            guard !speakingStatsInFlight.contains(id) else { continue }
+            speakingStatsInFlight.insert(id)
+            speakingStatsRequests.receiver += 1
+            pc.statistics(for: receiver) { [weak self] report in
+                let stats = report.statistics.values.map { ($0.type, $0.values) }
+                let level = SpeakingPoll.inboundLevel(stats)
+                let received = SpeakingPoll.inboundCounters(stats)
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        self.speakingStatsInFlight.remove(id)
+                        guard self.sfuTracks[id] != nil else { return }
+                        if let received {
+                            self.sfuInbound[username] = received
+                            self.sfu.noteInbound(username, packets: received.packets)
+                        }
+                        self.updateSpeakingState(id: id, level: level)
+                    }
+                }
+            }
+        }
+    }
+
+    private func pollSfuSelf(_ pc: RTCPeerConnection, _ sender: RTCRtpSender) {
+        guard !speakingStatsInFlight.contains("self") else { return }
+        speakingStatsInFlight.insert("self")
+        speakingStatsRequests.sender += 1
+        pc.statistics(for: sender) { [weak self] report in
+            let stats = report.statistics.values.map { ($0.type, $0.values) }
+            let level = SpeakingPoll.outboundLevel(stats)
+            let sent = SpeakingPoll.outboundBytes(stats)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.speakingStatsInFlight.remove("self")
+                    if let sent { self.sfuBytesSent = sent }
+                    self.updateSpeakingState(id: "self", level: level)
+                }
+            }
+        }
+    }
+
     private func updateSpeakingState(id: String, level: Float) {
         // Stats arrive asynchronously; drop results for a peer closed in the meantime
-        guard id == "self" || peers[id] != nil else { return }
+        guard id == "self" || peers[id] != nil || sfuTracks[id] != nil else { return }
         let now = Date()
         if level > Self.speakingThreshold {
             speakingLastActive[id] = now
@@ -1488,4 +1683,60 @@ private class PeerConnectionDelegate: NSObject, RTCPeerConnectionDelegate {
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}
+}
+
+// MARK: - SfuVoiceOwner
+
+extension VoiceChatManager: SfuVoiceOwner {
+    var sfuVoiceRunning: Bool { isActive }
+    var sfuVoiceStarting: Bool { startPending }
+    var sfuWantsToPublish: Bool { isActive && !isSelfMuted && micGranted }
+    var sfuLocalTrack: RTCAudioTrack? { localAudioTrack }
+
+    /// The session's PeerConnection takes the audio session as a call does (iOS 1.2.6: claimed
+    /// by the first connection, before its offer or answer can start playout).
+    func sfuPeerConnectionOpened() {
+        claimAudioSession()
+    }
+
+    /// Released a main-queue turn later when no call or SFU PeerConnection is left (a new session
+    /// closes the old PeerConnection and opens the next in one turn).
+    func sfuPeerConnectionClosed() {
+        // a closed PeerConnection may never answer my own level's request: ask again freely
+        speakingStatsInFlight.remove("self")
+        if peers.isEmpty { scheduleAudioSessionRelease() }
+    }
+
+    func sfuTrackPulled(_ username: String, _ track: RTCAudioTrack) {
+        let id = Self.sfuId(username)
+        sfuTracks[id] = track
+        let muted = peerInfos[id]?.isMuted ?? savedMutes[username] ?? false
+        let volume = peerInfos[id]?.volume ?? savedVolumes[username] ?? VoiceVolume.normal
+        peerInfos[id] = PeerInfo(username: username, isMuted: muted, volume: volume)
+        track.isEnabled = !muted
+        track.source.volume = volume
+    }
+
+    func sfuTrackDropped(_ username: String) {
+        let id = Self.sfuId(username)
+        sfuTracks[id] = nil
+        sfuInbound[username] = nil
+        speakingStatsInFlight.remove(id)
+        speakingLastActive.removeValue(forKey: id)
+        if speakingStates.removeValue(forKey: id) == true || speakingPeers.contains(id) {
+            speakingPeers.remove(id)
+            speakingChangedSubject.send((id, false))
+        }
+        peerInfos.removeValue(forKey: id)
+    }
+
+    func sfuRoomChanged() {
+        let names = sfu.memberNames.sorted()
+        if names != sfuMemberNames { sfuMemberNames = names }
+        let cap: Int? = sfu.isWaiting ? (sfu.waitingCap ?? 0) : nil
+        if cap != sfuWaitingCap { sfuWaitingCap = cap }
+    }
+
+    /// For tests: a pulled track by username.
+    func sfuTrack(_ username: String) -> RTCAudioTrack? { sfuTracks[Self.sfuId(username)] }
 }
