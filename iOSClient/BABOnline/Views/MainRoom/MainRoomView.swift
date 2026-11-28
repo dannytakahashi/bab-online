@@ -84,7 +84,8 @@ private struct MainRoomScreen: View {
                 .statsSheetSizing()
         }
         .sheet(isPresented: $showOnlineUsers) {
-            OnlineUsersSheet(users: mainRoomState.onlineUsers)
+            // the Players sheet: who is online, and search (owner 2026-11-27)
+            PlayersSheet()
         }
         .sheet(isPresented: $showAccountSettings, onDismiss: {
             guard openAdminAfterAccount else { return }
@@ -337,63 +338,6 @@ private struct MainRoomControlTraits: ViewModifier {
             gated.accessibilityIdentifier(id)
         } else {
             gated
-        }
-    }
-}
-
-// MARK: - Online Users Sheet
-
-private struct OnlineUsersSheet: View {
-    let users: [String]
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationView {
-            List(users, id: \.self) { username in
-                OnlineUserRow(username: username)
-            }
-            .listStyle(.plain)
-            .background(Theme.background)
-            .scrollContentBackground(.hidden)
-            .navigationTitle("Online Players")
-            .inlineNavigationTitle()
-            .toolbar {
-                ToolbarItem(placement: .barTrailing) {
-                    Button("Done") { dismiss() }
-                }
-            }
-        }
-        // a name opens that player's profile (iOS 1.2.2; the web's search is not on iOS)
-        .playerProfileHost()
-    }
-}
-
-/// One online player: a button that opens their profile (my own name is just my name).
-private struct OnlineUserRow: View {
-    let username: String
-    @EnvironmentObject var authState: AuthState
-    @Environment(\.viewPlayerProfile) private var viewProfile
-
-    var body: some View {
-        if username == authState.username || viewProfile == nil {
-            Text(username)
-                .foregroundColor(Theme.textPrimary)
-        } else {
-            Button { viewProfile?(username) } label: {
-                HStack {
-                    Text(username)
-                        .foregroundColor(Theme.textPrimary)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundColor(Theme.textDim)
-                        .accessibilityHidden(true)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityHint("Shows their profile")
-            .accessibilityIdentifier("online.\(username)")
         }
     }
 }

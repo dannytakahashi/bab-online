@@ -10,6 +10,8 @@ struct LeaderboardView: View {
     @EnvironmentObject var state: LeaderboardState
     @EnvironmentObject var authState: AuthState
     @Environment(\.dynamicTypeSize) private var typeSize
+    /// Opens a player's profile (the Stats sheet's `playerProfileHost`): a tap on a row's avatar.
+    @Environment(\.viewPlayerProfile) private var viewProfile
     /// The sort and the expanded rows live on the state, so a tab switch (which rebuilds this
     /// view) keeps them for the session, like the tab itself.
     private var sort: LeaderboardSort { state.sort }
@@ -137,6 +139,13 @@ struct LeaderboardView: View {
         !e.isPopulation && !authState.username.isEmpty && e.username == authState.username
     }
 
+    /// What a tap on the row's avatar does: open that player's profile; nil for the population
+    /// row and my own (my profile is in the Account sheet), or with no profile host.
+    private func profileOpener(_ e: LeaderboardEntry) -> (() -> Void)? {
+        guard e.offersProfile(me: authState.username), let viewProfile else { return nil }
+        return { viewProfile(e.username) }
+    }
+
     // MARK: - Table (regular width)
 
     private func tableHeader(column width: CGFloat) -> some View {
@@ -213,6 +222,7 @@ struct LeaderboardView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spokenName(e, rank: rank))
         .accessibilityValue(LeaderboardColumn.allCases.map { "\($0.spokenTitle) \($0.format(e))" }.joined(separator: ", "))
+        .modifier(AvatarProfileTarget(username: e.username, open: profileOpener(e)))
         .accessibilityIdentifier("leaderboard.row.\(e.isPopulation ? "population" : e.username)")
     }
 
@@ -292,6 +302,8 @@ struct LeaderboardView: View {
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                 chevron(open)
                             }
+                            // the avatar's target spans this line only: the stats under it expand
+                            .transformAnchorPreference(key: LeaderboardAvatarAnchor.self, value: .bounds) { $0.line = $1 }
                             Text("\(column.title) \(column.format(e))")
                                 .font(.headline)
                                 .foregroundStyle(e.isPopulation ? Theme.textPrimary : Theme.primary)
@@ -336,6 +348,8 @@ struct LeaderboardView: View {
             .accessibilityValue("\(column.spokenTitle) \(column.format(e)), \(second.spokenTitle) \(second.format(e))")
             .accessibilityHint(open ? "Hides the other stats" : "Shows all stats")
             .accessibilityAddTraits(.isButton)
+            // the avatar opens the profile; the rest of the row still expands
+            .modifier(AvatarProfileTarget(username: e.username, open: profileOpener(e)))
             .accessibilityIdentifier("leaderboard.row.\(e.isPopulation ? "population" : e.username)")
 
             if open {
@@ -430,6 +444,7 @@ private struct PlayerLabel: View {
                 AvatarImageView(pictureKey: entry.pictureKey, name: entry.username)
                     .frame(width: avatar, height: avatar)
                     .overlay(Circle().strokeBorder(isMe ? Theme.primary : Theme.inputBorder, lineWidth: isMe ? 2 : 1))
+                    .transformAnchorPreference(key: LeaderboardAvatarAnchor.self, value: .bounds) { $0.avatar = $1 }
             }
             Text(entry.isPopulation ? "Population" : entry.username)
                 .font(.subheadline.weight(entry.isPopulation || isMe ? .bold : .semibold))
@@ -440,3 +455,128 @@ private struct PlayerLabel: View {
         .accessibilityHidden(true)
     }
 }
+
+/// Where a row's avatar is drawn (PlayerLabel), for its tap target, and, when the row stacks
+/// its stats under the name (accessibility sizes), the name's line.
+private struct LeaderboardAvatarAnchor: PreferenceKey {
+    struct Value {
+        var avatar: Anchor<CGRect>?
+        var line: Anchor<CGRect>?
+    }
+    static let defaultValue = Value()
+    static func reduce(value: inout Value, nextValue: () -> Value) {
+        let next = nextValue()
+        value.avatar = value.avatar ?? next.avatar
+        value.line = value.line ?? next.line
+    }
+}
+
+/// Where a leaderboard row's avatar target goes, in the row's own points.
+enum LeaderboardAvatarTarget {
+    /// At least 44 pt wide over the avatar's column (the avatar and a little room either side).
+    /// Its height is the row's (at least 44 pt) when the row is one line; when the row stacks
+    /// its stats under the name (`line`, accessibility sizes) only that line's (at least 44 pt,
+    /// kept inside the row), so a tap on the stats under the avatar still expands the row.
+    static func frame(avatar: CGRect, line: CGRect?, row: CGSize) -> CGRect {
+        let width = max(Theme.hitTarget, avatar.width + Theme.Space.s3)
+        guard let line else {
+            let height = max(Theme.hitTarget, row.height)
+            return CGRect(x: avatar.midX - width / 2, y: (row.height - height) / 2, width: width, height: height)
+        }
+        let height = min(max(Theme.hitTarget, line.height), max(Theme.hitTarget, row.height))
+        let y = min(max(0, line.midY - height / 2), max(0, row.height - height))
+        return CGRect(x: avatar.midX - width / 2, y: y, width: width, height: height)
+    }
+}
+
+/// A tap on a row's avatar opens that player's profile (owner 2026-11-27): a clear button over
+/// the avatar's column (LeaderboardAvatarTarget: the row's full height, or the name's line when
+/// the row stacks), at least 44 x 44 pt, above the row (whose own tap still expands it), with
+/// no visual change. VoiceOver keeps the row one element and gets the custom action "View
+/// profile" instead (the target itself is hidden from it).
+private struct AvatarProfileTarget: ViewModifier {
+    let username: String
+    let open: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        if let open {
+            content
+                .accessibilityActions {
+                    Button("View profile", action: open)
+                }
+                .overlayPreferenceValue(LeaderboardAvatarAnchor.self) { anchors in
+                    if let avatarAnchor = anchors.avatar {
+                        GeometryReader { geo in
+                            let target = LeaderboardAvatarTarget.frame(
+                                avatar: geo[avatarAnchor], line: anchors.line.map { geo[$0] }, row: geo.size)
+                            Button(action: open) {
+                                Color.clear.contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .frame(width: target.width, height: target.height)
+                            #if DEBUG
+                            .background {
+                                LeaderboardAvatarProbe.Reporter(username: username, frame: target)
+                            }
+                            #endif
+                            .position(x: target.midX, y: target.midY)
+                        }
+                        .accessibilityHidden(true)
+                    }
+                }
+        } else {
+            content
+        }
+    }
+}
+
+#if DEBUG
+/// "leaderboard.avatarTargets" (fixture mode): each row's avatar tap target in its row's own
+/// points, "name:x y w h;..." (the target is hidden from VoiceOver, so UI tests read where it is
+/// here and tap it relative to the row's element: global points differ from XCUITest's on the
+/// open iPhone Duo).
+@MainActor
+final class LeaderboardAvatarProbe: ObservableObject {
+    static let shared = LeaderboardAvatarProbe()
+    @Published private(set) var frames: [String: CGRect] = [:]
+
+    var value: String {
+        frames.keys.sorted().map { k in
+            let f = frames[k]!
+            return "\(k):\(Int(f.minX.rounded())) \(Int(f.minY.rounded())) \(Int(f.width.rounded())) \(Int(f.height.rounded()))"
+        }.joined(separator: ";")
+    }
+
+    func set(_ name: String, _ frame: CGRect?) {
+        if frames[name] != frame { frames[name] = frame }
+    }
+
+    struct Reporter: View {
+        let username: String
+        let frame: CGRect
+        var body: some View {
+            Color.clear
+                .onAppear { if UIFixture.isActive { LeaderboardAvatarProbe.shared.set(username, frame) } }
+                .onChange(of: frame) { _, f in
+                    if UIFixture.isActive { LeaderboardAvatarProbe.shared.set(username, f) }
+                }
+                .onDisappear { if UIFixture.isActive { LeaderboardAvatarProbe.shared.set(username, nil) } }
+        }
+    }
+
+    /// The probe element, 1x1 and nearly transparent (only in fixture mode).
+    struct Dot: View {
+        @ObservedObject private var probe = LeaderboardAvatarProbe.shared
+        var body: some View {
+            if UIFixture.isActive {
+                Rectangle().fill(Color.black).frame(width: 1, height: 1).opacity(0.01)
+                    .accessibilityElement()
+                    .accessibilityLabel("leaderboard.avatarTargets")
+                    .accessibilityIdentifier("leaderboard.avatarTargets")
+                    .accessibilityValue(probe.value)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+}
+#endif

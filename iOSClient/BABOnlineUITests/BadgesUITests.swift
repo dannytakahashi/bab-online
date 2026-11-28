@@ -137,7 +137,7 @@ final class BadgesUITests: XCTestCase {
         let online = app.buttons.matching(NSPredicate(format: "label == %@", "7 online")).firstMatch
         XCTAssertTrue(online.waitForExistence(timeout: 5))
         online.tap()
-        XCTAssertTrue(app.navigationBars["Online Players"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Players"].waitForExistence(timeout: 5))
         var row = element(app, "online.kim")
         XCTAssertTrue(row.waitForExistence(timeout: 3))
         row.tap()

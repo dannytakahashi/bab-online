@@ -6,7 +6,7 @@
  * shows only the reply to the latest one sent.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { showPlayerSearchPage, updatePlayerSearchResults, removePlayerSearchPage } from './PlayerSearchPage.js';
+import { showPlayerSearchPage, updatePlayerSearchResults, removePlayerSearchPage, refreshPlayerSearchOnline as refreshNow } from './PlayerSearchPage.js';
 import { registerProfileHandlers } from '../../handlers/profileHandlers.js';
 
 const row = (username) => ({ username, profilePic: 1, customProfilePic: null, gamesPlayed: 2, wins: 1 });
@@ -80,5 +80,97 @@ describe('player search replies', () => {
     handlers.get('searchPlayersResponse')({ success: true, players: [row('ann')], query: 'ann' });
     handlers.get('searchPlayersResponse')({ success: false, message: 'Database error', query: 'a' });
     expect(onSearchPlayersResult.mock.calls).toEqual([[[row('ann')], 'ann'], [[], 'a']]);
+  });
+});
+
+describe('the empty box lists who is online (2026-11-27)', () => {
+  let online;
+  const heading = () => document.getElementById('playerSearchOnlineHeading');
+  const onlineButtons = () => [...document.querySelectorAll('#playerSearchResults button.search-result')];
+
+  beforeEach(() => {
+    removePlayerSearchPage();
+    document.body.replaceChildren();
+    online = ['ivy', 'kim', 'ora'];
+    showPlayerSearchPage(socket, { getOnlineUsers: () => online, me: 'ivy' });
+    input = document.getElementById('playerSearchInput');
+  });
+
+  it('opens on the online players under "Online now · N", my own name not a button', () => {
+    expect(heading().textContent).toBe('Online now · 3');
+    expect(heading().getAttribute('role')).toBe('heading');
+    expect(names()).toEqual(['ivy', 'kim', 'ora']);
+    expect(onlineButtons().map((b) => b.dataset.username)).toEqual(['kim', 'ora']);
+    expect(onlineButtons().map((b) => b.getAttribute('aria-label'))).toEqual(['kim, online', 'ora, online']);
+    expect(document.querySelector('.search-result--me').tagName).toBe('DIV');
+    expect(results()).not.toMatch(/Search for a player/);
+  });
+
+  it('a row opens that profile and closes the page', () => {
+    onlineButtons()[1].click();
+    expect(socket.emit).toHaveBeenCalledWith('getPlayerProfile', expect.objectContaining({ username: 'ora' }));
+    expect(document.getElementById('playerSearchPageOverlay')).toBeNull();
+  });
+
+  it('typing searches as before; clearing the box brings the list back', () => {
+    type('zz');
+    expect(socket.emit).toHaveBeenCalledWith('searchPlayers', { query: 'zz' });
+    updatePlayerSearchResults([], 'zz');
+    expect(results()).toMatch(/No players found/);
+    expect(heading()).toBeNull();
+    type('');
+    expect(heading().textContent).toBe('Online now · 3');
+    expect(updatePlayerSearchResults([row('zz')], 'zz')).toBe(false);
+    expect(heading()).not.toBeNull();
+  });
+
+  it('follows the main room list while the box is empty, keeping focus on a row still there', async () => {
+    const { refreshPlayerSearchOnline } = await import('./PlayerSearchPage.js');
+    onlineButtons()[1].focus();
+    online = ['ivy', 'ora', 'pat', 'kim'];
+    refreshPlayerSearchOnline();
+    expect(heading().textContent).toBe('Online now · 4');
+    expect(document.activeElement.dataset.username).toBe('ora');
+    online = ['ivy'];
+    refreshPlayerSearchOnline();
+    expect(document.activeElement).toBe(input);
+    // not while a search shows
+    type('kim');
+    updatePlayerSearchResults([row('kim')], 'kim');
+    online = ['ivy', 'kim'];
+    refreshPlayerSearchOnline();
+    expect(names()).toEqual(['kim']);
+  });
+
+  it('only a search answer is announced: the list is no live region, the status line says what was found', () => {
+    const status = document.getElementById('playerSearchStatus');
+    const container = document.getElementById('playerSearchResults');
+    expect(container.closest('[aria-live]')).toBeNull();
+    expect(status.getAttribute('role')).toBe('status');
+    expect(status.getAttribute('aria-live')).toBe('polite');
+    expect(status.contains(container)).toBe(false);
+    expect(status.textContent).toBe('');
+    // a join while the box is empty redraws the list and announces nothing
+    online = ['ivy', 'kim', 'ora', 'pat'];
+    refreshNow();
+    expect(heading().textContent).toBe('Online now · 4');
+    expect(status.textContent).toBe('');
+    type('k');
+    updatePlayerSearchResults([row('kim'), row('kit')], 'k');
+    expect(status.textContent).toBe('2 players found');
+    type('kim');
+    updatePlayerSearchResults([row('kim')], 'kim');
+    expect(status.textContent).toBe('1 player found');
+    type('kimz');
+    updatePlayerSearchResults([], 'kimz');
+    expect(status.textContent).toBe('No players found');
+    type('');
+    expect(status.textContent).toBe('');
+  });
+
+  it('nobody listed: the hint', () => {
+    removePlayerSearchPage();
+    showPlayerSearchPage(socket, { getOnlineUsers: () => [], me: 'ivy' });
+    expect(results()).toMatch(/Search for a player by username/);
   });
 });

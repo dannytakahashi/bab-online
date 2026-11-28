@@ -54,6 +54,9 @@ struct StatsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .background(Theme.background.ignoresSafeArea())
+            #if DEBUG
+            .overlay(alignment: .topLeading) { LeaderboardAvatarProbe.Dot() }
+            #endif
             // the tab on screen (review of PR #438: "Stats" was the name the header no longer uses)
             .navigationTitle(leaderboardState.tab.title)
             .inlineNavigationTitle()
@@ -63,6 +66,8 @@ struct StatsView: View {
         }
         .sensoryFeedback(.selection, trigger: leaderboardState.tab)
         .sensoryFeedback(.selection, trigger: leaderboardState.scope)
+        // a leaderboard row's avatar opens that player's profile (owner 2026-11-27)
+        .playerProfileHost()
     }
 }
 

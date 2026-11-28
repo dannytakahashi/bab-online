@@ -1325,7 +1325,7 @@ async function searchPlayers(socket, io, data) {
     }
     // Every answer echoes the query as sent (additive 2026-11-15): web
     // search-as-you-type drops a reply to an older query (they can finish
-    // out of order). iOS never sends searchPlayers
+    // out of order); the iOS Players sheet does the same (2026-11-27)
     const echo = { query };
 
     // No username is longer than 50 characters, so a longer query matches
