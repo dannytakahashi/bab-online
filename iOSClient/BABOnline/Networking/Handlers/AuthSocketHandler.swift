@@ -98,6 +98,7 @@ final class AuthSocketHandler {
             print("[Auth] Retrying the session restore (attempt \(self.restoreRetryAttempt))")
             self.socket.emit(SocketEvents.Client.restoreSession,
                              ["username": self.authState.username, "sessionToken": self.authState.sessionToken])
+            if let current = self.socket.socket { self.socket.restoreSent(on: current) }
         }
     }
 
@@ -287,6 +288,7 @@ final class AuthSocketHandler {
                 // after the follow-up emit: a tap from now on reaches the server behind it
                 self.socket.noteSessionEstablished()
             } else if RestoreRetry.isRetryable(data), self.authState.hasStoredSession {
+                self.socket.restoreAnswered()
                 // passing (a database error, an admin action holding the name): keep the token
                 // and the screen, and ask again
                 print("[Auth] Session restore failed, retrying: \(data["message"] as? String ?? "")")
@@ -294,6 +296,7 @@ final class AuthSocketHandler {
             } else {
                 let message = data["message"] as? String ?? "Session expired"
                 print("[Auth] Session restore failed: \(message)")
+                self.socket.restoreAnswered()
                 self.stopRestoreRetry()
                 self.lobbyState.rejoiningLobbyId = nil
                 self.tournamentState.rejoiningTournamentId = nil
