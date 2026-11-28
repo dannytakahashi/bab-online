@@ -889,10 +889,16 @@ enum UIFixture {
 }
 
 /// No network in fixture mode: every avatar shows its initial, unless `UI_FIXTURE_AVATARS`
-/// names a folder with the stock art (`profile<N>.png`, the repo's client/assets: screenshots).
+/// names a folder with the stock art (`profile<N>.png`, the repo's client/assets: screenshots);
+/// then a custom picture (an `/avatar/` path, e.g. kim's) is the generated sample photo.
 struct FixtureAvatarLoader: AvatarLoading {
     func load(_ picNumber: Int, completion: @escaping (PlatformImage?) -> Void) {
         completion(UIFixture.avatarFolder.flatMap { PlatformImage(contentsOfFile: "\($0)/profile\(picNumber).png") })
+    }
+
+    func load(path: String, completion: @escaping (PlatformImage?) -> Void) {
+        guard UIFixture.avatarFolder != nil, path.hasPrefix("/avatar/") else { return completion(nil) }
+        completion(PlatformImage(data: UIFixture.samplePhotoData()))
     }
 }
 

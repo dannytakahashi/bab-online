@@ -181,6 +181,7 @@ export function foldAvatarPayload(event, data) {
       foldRows(data.leaderboard, urls);
       break;
     case 'searchPlayersResponse':
+    case 'playerCardsResponse':
       foldRows(data.players, urls);
       break;
     case 'profileResponse':

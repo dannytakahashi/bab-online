@@ -78,12 +78,17 @@ final class PlayersSearchUITests: XCTestCase {
 
     /// Brings `e` on screen in the sheet's list (large text pushes rows down).
     /// Scrolls the list down (never up: a pull at the top would close the sheet) until `e` is
-    /// wholly on screen.
+    /// wholly on screen, a quarter of the list at a time: at accessibility sizes a row (with its
+    /// avatar over the name) can be taller than a swipe would move, so a swipe could carry a row
+    /// past the top before it was ever wholly on screen (the closed iPhone Duo's outer screen).
     private func reveal(_ app: XCUIApplication, _ e: XCUIElement, in container: XCUIElement? = nil) {
         let list = container ?? element(app, "players.list")
         let window = app.windows.firstMatch.frame
-        for _ in 0..<8 where !(e.exists && e.isHittable && window.contains(e.frame)) {
-            list.swipeUp(velocity: .slow)
+        for _ in 0..<24 {
+            if e.exists && e.isHittable && window.contains(e.frame) { break }
+            let from = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.65))
+            let to = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
+            from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.3)
         }
     }
 
@@ -108,6 +113,91 @@ final class PlayersSearchUITests: XCTestCase {
         pat.tap()
         XCTAssertTrue(element(app, "profile.name").waitForExistence(timeout: 5), "an online row opens the profile")
         XCTAssertEqual(element(app, "profile.name").label, "pat")
+        app.terminate()
+    }
+
+    // MARK: - The online list's pictures (playerCards, 2026-11-27)
+
+    private func probe(_ app: XCUIApplication, _ id: String) -> String {
+        let e = element(app, id)
+        guard e.waitForExistence(timeout: 3) else { return "" }
+        return e.value as? String ?? ""
+    }
+
+    /// Waits until the "players.onlinePictures" probe satisfies `ok` (true when it did).
+    private func waitForPictures(_ app: XCUIApplication, timeout: TimeInterval = 5, _ ok: (String) -> Bool) -> Bool {
+        let end = Date().addingTimeInterval(timeout)
+        repeat {
+            if ok(probe(app, "players.onlinePictures")) { return true }
+            usleep(200_000)
+        } while Date() < end
+        return false
+    }
+
+    func testTheOnlineListShowsEachPlayersPicture() {
+        let app = openPlayers()
+        XCTAssertTrue(element(app, "players.onlineHeader").waitForExistence(timeout: 3))
+        let all = "ivy:31,kim:/avatar/kim?v=3,hal:22,jon:5,ora:9,max:50,pat:-"
+        XCTAssertTrue(waitForPictures(app) { $0 == all }, "the cards' pictures (kim's custom one by its URL), pat (no account) its initial: \(probe(app, "players.onlinePictures"))")
+        XCTAssertEqual(probe(app, "players.cardsSent"), "ivy,kim,hal,jon,ora,max,pat", "one request on open, every listed name")
+        sleep(1)
+        shot("players-online-avatars")
+        // labels and my own row unchanged
+        let kim = element(app, "online.kim")
+        XCTAssertTrue(kim.waitForExistence(timeout: 3))
+        XCTAssertEqual(kim.label, "kim, online")
+        XCTAssertFalse(element(app, "online.ivy").exists, "my own row is still not a button")
+        XCTAssertTrue(app.descendants(matching: .any)["ivy, you, online"].exists)
+        // the same row height with a picture (kim) or an initial (pat, the last row)
+        let kimHeight = kim.frame.height
+        let pat = element(app, "online.pat")
+        reveal(app, pat)
+        XCTAssertEqual(pat.frame.height, kimHeight, accuracy: 0.5, "a picture and an initial take the same room")
+        app.terminate()
+    }
+
+    func testTheInitialsComeFirstAndThePicturesReplaceThemInPlace() {
+        let app = openPlayers(["-uiPlayerCards", "slow"])
+        XCTAssertTrue(element(app, "players.onlineHeader").waitForExistence(timeout: 3))
+        let initials = "ivy:-,kim:-,hal:-,jon:-,ora:-,max:-,pat:-"
+        XCTAssertEqual(probe(app, "players.onlinePictures"), initials, "initials until the cards come")
+        shot("players-online-initials")
+        // the rows on screen (at accessibility sizes only the first ones)
+        let rows = ["kim", "hal", "jon", "ora", "max"].map { element(app, "online.\($0)") }.filter(\.exists)
+        XCTAssertFalse(rows.isEmpty)
+        let before = rows.map(\.frame)
+        // still the initials after the frames were read: `before` is the layout before the
+        // pictures, so the comparison below spans their arrival (review of PR #454: under load at
+        // AX5 the frames were read after a shorter delay's pictures had already come)
+        XCTAssertEqual(probe(app, "players.onlinePictures"), initials, "the frames were read before the pictures came")
+        XCTAssertTrue(waitForPictures(app, timeout: 25) { $0.contains("kim:/avatar/kim?v=3") && $0.contains("hal:22") })
+        XCTAssertEqual(rows.map(\.frame), before, "nothing moved when the pictures came")
+        app.terminate()
+    }
+
+    func testARefusedRequestIsAskedOnceMoreAndThePicturesCome() {
+        let app = openPlayers(["-uiPlayerCards", "refuse"])
+        XCTAssertTrue(element(app, "players.onlineHeader").waitForExistence(timeout: 3))
+        let all = "ivy:31,kim:/avatar/kim?v=3,hal:22,jon:5,ora:9,max:50,pat:-"
+        XCTAssertTrue(waitForPictures(app, timeout: 10) { $0 == all }, "the retry's pictures: \(probe(app, "players.onlinePictures"))")
+        XCTAssertEqual(probe(app, "players.cardsSent"), "ivy,kim,hal,jon,ora,max,pat|ivy,kim,hal,jon,ora,max,pat", "refused, then asked once more")
+        XCTAssertFalse(element(app, "serverErrorToast").exists, "never a toast")
+        sleep(3)
+        XCTAssertEqual(probe(app, "players.cardsSent").split(separator: "|").count, 2, "and nothing after")
+        app.terminate()
+    }
+
+    func testAServerThatNeverAnswersLeavesTheInitialsQuietly() {
+        let app = openPlayers(["-uiPlayerCards", "silent"])
+        XCTAssertTrue(element(app, "players.onlineHeader").waitForExistence(timeout: 3))
+        sleep(3)
+        XCTAssertEqual(probe(app, "players.onlinePictures"), "ivy:-,kim:-,hal:-,jon:-,ora:-,max:-,pat:-")
+        XCTAssertEqual(probe(app, "players.cardsSent"), "ivy,kim,hal,jon,ora,max,pat", "asked once, never again")
+        XCTAssertFalse(app.alerts.firstMatch.exists, "never an error")
+        // the rows still open profiles
+        let kim = element(app, "online.kim")
+        kim.tap()
+        XCTAssertTrue(element(app, "profile.name").waitForExistence(timeout: 5))
         app.terminate()
     }
 

@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { showMainRoom, removeMainRoom, updateMainRoomOnlineCount } from './MainRoom.js';
-import { removePlayerSearchPage } from './PlayerSearchPage.js';
+import { removePlayerSearchPage, _resetPlayerCardsForTests } from './PlayerSearchPage.js';
 
 const socket = { emit: vi.fn(() => socket), on: vi.fn(), off: vi.fn() };
 const byText = (text) => [...document.querySelectorAll('button')].find((b) => b.textContent === text);
@@ -14,6 +14,7 @@ const listed = () => [...document.querySelectorAll('#playerSearchResults .search
 const heading = () => document.getElementById('playerSearchOnlineHeading')?.textContent;
 
 beforeEach(() => {
+  _resetPlayerCardsForTests();
   document.body.replaceChildren();
   socket.emit.mockClear();
   showMainRoom({ onlineCount: 3, onlineUsers: ['Owner', 'Bea', 'Cy'], messages: [], lobbies: [] }, socket, 'Owner');
@@ -58,5 +59,19 @@ describe('the Players page from the main room', () => {
     const call = socket.emit.mock.calls.find(([e]) => e === 'getPlayerProfile');
     expect(call[1]).toMatchObject({ username: 'Cy' });
     expect(document.getElementById('playerSearchPageOverlay')).toBeNull();
+  });
+
+  it('asks for the listed players\' pictures on open and for a joiner after the pause (playerCards)', () => {
+    vi.useFakeTimers();
+    try {
+      byText('Players').click();
+      const cards = () => socket.emit.mock.calls.filter(([e]) => e === 'playerCards').map(([, d]) => d.usernames);
+      expect(cards()).toEqual([['Owner', 'Bea', 'Cy']]);
+      updateMainRoomOnlineCount(4, ['Owner', 'Bea', 'Cy', 'Dee']);
+      vi.advanceTimersByTime(300);
+      expect(cards()).toEqual([['Owner', 'Bea', 'Cy'], ['Dee']]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

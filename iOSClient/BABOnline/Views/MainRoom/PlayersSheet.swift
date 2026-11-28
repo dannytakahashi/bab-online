@@ -3,8 +3,9 @@ import SwiftUI
 /// The main room's Players sheet (owner 2026-11-27: the web's Players page on iOS), opened by
 /// the header's "N online" and the vertical bar's people item. A search field at the top
 /// (PlayerSearchState: search as you type, as the web's PlayerSearchPage); with nothing typed
-/// it lists who is online, as the old Online Players sheet did. A row opens that player's
-/// profile (`playerProfileHost`); my own name is just my name (my profile is in Account).
+/// it lists who is online, as the old Online Players sheet did, each row with its picture
+/// (PlayerSearchState's player cards; the initial until a card is known). A row opens that
+/// player's profile (`playerProfileHost`); my own name is just my name (my profile is in Account).
 struct PlayersSheet: View {
     @EnvironmentObject var mainRoomState: MainRoomState
     @EnvironmentObject var authState: AuthState
@@ -26,6 +27,12 @@ struct PlayersSheet: View {
             .background(Theme.background)
             .scrollContentBackground(.hidden)
             .accessibilityIdentifier("players.list")
+            #if DEBUG
+            .overlay(alignment: .topLeading) {
+                PlayerCardsProbe.Dots(pictures: PlayerSearchState.onlineRows(mainRoomState.onlineUsers, me: authState.username, cards: search.cards)
+                    .map { "\($0.username):\($0.pictureKey ?? "-")" }.joined(separator: ","))
+            }
+            #endif
             .searchable(text: text, placement: .navigationBarDrawer(displayMode: .always), prompt: Self.prompt)
             .autocorrectionDisabled()
             .textInputAutocapitalization(.never)
@@ -40,6 +47,14 @@ struct PlayersSheet: View {
             }
         }
         .accessibilityIdentifier("players.sheet")
+        // the online list's pictures: every listed card on open, a joiner's after the pause
+        .onAppear { search.sheetOpened(online: mainRoomState.onlineUsers) }
+        .onChange(of: mainRoomState.onlineUsers) { _, online in search.onlineChanged(online) }
+        // a reconnect while the sheet is up: the names whose answer never came are asked again
+        // (a publisher, not an observed SocketService, so its other changes never redraw the list)
+        .onReceive(SocketService.shared.$isSessionReady.removeDuplicates().dropFirst()) { ready in
+            if ready { search.sessionRestored() }
+        }
         .onDisappear { search.reset() }
         // a row opens that player's profile (iOS 1.2.2)
         .playerProfileHost()
@@ -49,7 +64,7 @@ struct PlayersSheet: View {
     private var content: some View {
         switch search.phase {
         case .idle:
-            let rows = PlayerSearchState.onlineRows(mainRoomState.onlineUsers, me: authState.username)
+            let rows = PlayerSearchState.onlineRows(mainRoomState.onlineUsers, me: authState.username, cards: search.cards)
             Section {
                 ForEach(rows) { PlayerRow(row: $0) }
             } header: {
@@ -95,10 +110,11 @@ struct PlayersSheet: View {
     }
 }
 
-/// One player: avatar (search results), name and a small online dot; a button that opens their
-/// profile, except my own name, which is marked "You" (as the web's Players page). At
-/// accessibility sizes a result's avatar goes above the name, so a long name has the row's
-/// width and is never cut.
+/// One player: avatar, name and (a search result) a small online dot; a button that opens their
+/// profile, except my own name, which is marked "You" (as the web's Players page). An online
+/// row is laid out as a result row, its avatar the name's initial until the player's card is
+/// known (the same size, so nothing moves when the picture comes). At accessibility sizes the
+/// avatar goes above the name, so a long name has the row's width and is never cut.
 private struct PlayerRow: View {
     let row: PlayerSearchState.Row
     @Environment(\.viewPlayerProfile) private var viewProfile
@@ -121,13 +137,13 @@ private struct PlayerRow: View {
             .accessibilityLabel(row.spokenLabel)
             .accessibilityHint("Opens their profile")
             .accessibilityAddTraits(.isButton)
-            .accessibilityIdentifier(row.pictureKey == nil ? "online.\(row.username)" : "players.result.\(row.username)")
+            .accessibilityIdentifier(row.inOnlineList ? "online.\(row.username)" : "players.result.\(row.username)")
         }
     }
 
     private func label(chevron: Bool) -> some View {
         Group {
-            if typeSize.isAccessibilitySize, row.pictureKey != nil {
+            if typeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: Theme.Space.s2) {
                     HStack(spacing: Theme.Space.s3) {
                         avatarView
@@ -150,12 +166,11 @@ private struct PlayerRow: View {
         .frame(minHeight: 44)
     }
 
-    @ViewBuilder
+    /// The search results' avatar; on an online row with no card yet, its initial (AvatarImageView
+    /// with no key), which the picture replaces in place.
     private var avatarView: some View {
-        if let key = row.pictureKey {
-            AvatarImageView(pictureKey: key, name: row.username)
-                .frame(width: avatar, height: avatar)
-        }
+        AvatarImageView(pictureKey: row.pictureKey, name: row.username)
+            .frame(width: avatar, height: avatar)
     }
 
     /// The name (whole at accessibility sizes), and "You" on my own row.
@@ -176,7 +191,7 @@ private struct PlayerRow: View {
     /// The online dot on a result (the online list itself needs none).
     @ViewBuilder
     private var onlineDot: some View {
-        if row.isOnline && row.pictureKey != nil {
+        if row.isOnline && !row.inOnlineList {
             Circle()
                 .fill(Theme.success)
                 .frame(width: dot, height: dot)
