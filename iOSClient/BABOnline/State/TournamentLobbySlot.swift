@@ -101,10 +101,14 @@ struct TournamentLobbySlot: Equatable {
 /// for a spectator. One action = one button, never a menu within a menu (owner 2026-11-26 on the
 /// open Duo, "it shouldn't be a menu within a menu within a menu", then "I think you're right
 /// tournament host should get two separate icons"): a member, a spectator and the host during the
-/// cut get that one choice's button; the host outside the cut gets two, Leave and End Tournament,
-/// side by side (on the open Duo the vertical bar's column: Leave alone in the top pill as the game's
-/// Exit is, End in a pill of its own under it, `barPill`). A "…" menu of the two survives only as
-/// the fallback where a header row cannot fit both icons (`fallbackIdentifier`; the lobby's
+/// cut get that one choice's button; the host outside the cut gets two. Leave (and Stop Watching)
+/// is the game lobby's back control exactly (owner 2026-11-27 on the open Duo: "This back arrow is
+/// also the one used elsewhere in iOS for the duo, maybe we should use it instead of our rectangle
+/// with arrow?"): a back chevron with its word on the header's leading side, before the title
+/// (`LobbyBackButton`), and on the open Duo the vertical bar's leading item alone in the top pill;
+/// End Tournament on the trailing side (the header's trailing corner; the bar's second pill,
+/// `side`). A "…" menu of the two survives only as the fallback where the accessibility sizes'
+/// controls row cannot fit Leave's words and End's icon (`fallbackIdentifier`; the lobby's
 /// ViewThatFits). Each opens a centred alert that says what happens (`confirmMessage`) with a
 /// destructive button and a keep button. End is not offered during Cut for a buck (as before), and
 /// the complete phase has none (its back control reads "Main Room"). The wire event stays
@@ -140,34 +144,31 @@ enum TournamentLobbyMenu {
         }
     }
 
-    /// The buttons in the order they are laid out: the vertical bar's column reads them top down
-    /// (Leave first, where a member's Leave is, and where the game's Exit is), a header row leading
-    /// to trailing with Leave last (the trailing corner, where a member's Leave is), End Tournament
-    /// before it.
-    static func displayOrder(_ entry: Entry, inBar: Bool) -> [Item] {
+    /// Which side of the lobby's controls an item sits on (owner 2026-11-27, the game lobby as the
+    /// reference): Leave and Stop Watching are the back control, the leading side (a header's
+    /// leading edge, before the title, as the game lobby's Leave; the Duo's vertical bar's top
+    /// pill, a leading item alone as the game lobby's bar Leave); End Tournament, which ends the
+    /// tournament for everyone, the trailing side (a header's trailing corner, after the mic and
+    /// the count; a trailing item in a pill of its own under Leave's, never beside it).
+    enum Side: Equatable { case leading, trailing }
+
+    static func side(_ item: Item) -> Side { item == .end ? .trailing : .leading }
+
+    /// The items on one side, in order.
+    static func items(_ entry: Entry, on side: Side) -> [Item] {
+        displayOrder(entry).filter { Self.side($0) == side }
+    }
+
+    /// The buttons in the order they are laid out, leading side first: a header row reads Leave,
+    /// the title, then End Tournament; the vertical bar's column Leave's pill above End's.
+    static func displayOrder(_ entry: Entry) -> [Item] {
         switch entry {
         case .none: return []
         case .button(let item): return [item]
         case .buttons(let items):
-            let leaveFirst = items.filter { $0 == .leave } + items.filter { $0 != .leave }
-            return inBar ? leaveFirst : leaveFirst.reversed()
+            return items.filter { side($0) == .leading } + items.filter { side($0) == .trailing }
         }
     }
-
-    /// The vertical bar's pills (owner 2026-11-27 on the open Duo, the game's bar as the reference:
-    /// "The standard game icons"): the bar draws its leading items in one pill at the top and its
-    /// trailing items in a second pill under it. Leave (or Stop Watching) is the leading item, alone
-    /// in its own pill as the game's Exit is; End Tournament, which ends the tournament for everyone,
-    /// is a trailing item, in a pill of its own under it, never beside Leave.
-    enum BarPill: Equatable { case leading, trailing }
-
-    static func barPill(_ item: Item) -> BarPill { item == .end ? .trailing : .leading }
-
-    /// Leave and Stop Watching are the game's Exit glyph exactly: the Exit symbol mirrored, its
-    /// arrow pointing left, out (in the header a mirrored symbol; in the vertical bar, which
-    /// ignores SwiftUI transforms, the game's `ExitIcon.barImage`). A spectator gets the same Exit
-    /// door as a member, as in the game, where a seated player and a pure spectator share one Exit.
-    static func isMirrored(_ item: Item) -> Bool { item != .end }
 
     /// A button's accessibility identifier: `tournament.leave`, `tournament.end`,
     /// `tournament.stopWatching`.
@@ -179,8 +180,8 @@ enum TournamentLobbyMenu {
         }
     }
 
-    /// The fallback "…" menu (a header row with no room for two icons): `tournament.more`, its
-    /// rows `tournament.menu.<item>`.
+    /// The fallback "…" menu of Leave and End (an accessibility controls row with no room for
+    /// Leave's words and End's icon): `tournament.more`, its rows `tournament.menu.<item>`.
     static let fallbackIdentifier = "tournament.more"
     static func menuIdentifier(_ item: Item) -> String { "tournament.menu.\(item)" }
 
@@ -200,8 +201,9 @@ enum TournamentLobbyMenu {
     static func menuTitle(_ item: Item) -> String { title(item) + "…" }
 
     /// A button's visible words (the full `title` is its VoiceOver label): "Leave" / "End
-    /// Tournament" / "Stop Watching". In the default one-row header it is the icon alone, the words
-    /// in the accessibility sizes' controls row, the bar, and the Large Content Viewer.
+    /// Tournament" / "Stop Watching". Leave and Stop Watching always show theirs beside the chevron
+    /// (the game lobby's Leave); End Tournament is its icon alone in the default one-row header, its
+    /// words in the accessibility sizes' controls row, the bar, and the Large Content Viewer.
     static func buttonTitle(_ item: Item) -> String {
         switch item {
         case .end: return "End Tournament"
@@ -210,17 +212,16 @@ enum TournamentLobbyMenu {
         }
     }
 
-    /// End Tournament is a stop, never an xmark (it reads as close / dismiss). Leave and Stop
-    /// Watching are the game's Exit symbol (`ExitIcon.symbolName`), drawn mirrored (`isMirrored`);
-    /// the label and the alert say which (a spectator's was `eye.slash` before 2026-11-27). End's stop.circle is the
-    /// bar's own symbol at the bar's size: measured on the open Duo (iOS 27.2) its ink is within
-    /// 0.7 pt of the game's chat glyph's height at the default size, AX3 and Bold Text, so it is not
-    /// redrawn into a bitmap as Leave is.
+    /// Leave and Stop Watching are the back chevron, the game lobby's Leave's symbol (in its header
+    /// and its vertical bar item; owner 2026-11-27: the game's mirrored Exit door before, which sat
+    /// off centre in the Duo's bar). End Tournament is a stop, never an xmark (it reads as close /
+    /// dismiss); its stop.circle is the bar's own symbol at the bar's size: measured on the open
+    /// Duo (iOS 27.2) its ink is within 0.7 pt of the game's chat glyph's height at the default
+    /// size, AX3 and Bold Text.
     static func icon(_ item: Item) -> String {
         switch item {
         case .end: return "stop.circle"
-        case .leave: return "rectangle.portrait.and.arrow.right"
-        case .stopWatching: return "rectangle.portrait.and.arrow.right"
+        case .leave, .stopWatching: return "chevron.left"
         }
     }
 
@@ -237,9 +238,10 @@ enum TournamentLobbyMenu {
     static let fallbackLabel = "More"
     static let fallbackHint = "Leave or end the tournament"
 
-    /// The accessibility sizes' controls row tries the host's two buttons' words at the reader's
-    /// size, then capped at these sizes in turn (the largest that fits the row), before the icons
-    /// alone: "End Tournament" and "Leave" at AX1 to AX5 do not fit a phone's row beside the mic.
+    /// The accessibility sizes' controls row tries End Tournament's words at the reader's size,
+    /// then capped at these sizes in turn (the largest that fits the row), before its icon alone;
+    /// Leave keeps its word at the reader's size on the row's leading side ("Leave" and "End
+    /// Tournament" at AX1 to AX5 do not fit a phone's row beside the mic).
     static let wordCaps: [DynamicTypeSize] = [.accessibility1, .xxxLarge, .xLarge]
 
     /// End Tournament ends the tournament for everyone: it alone is drawn in the danger colour.

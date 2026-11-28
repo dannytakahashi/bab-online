@@ -1,12 +1,13 @@
 import SwiftUI
 
-/// The tournament lobby (owner 2026-11-26 layout): the header (title, round line, the host's
-/// Rounds picker in the lobby phase, the mic and Leave (the host's Leave and End Tournament, an icon
-/// each), the players and standings, the chat, then ONE action slot at the bottom
-/// (TournamentLobbySlot: Ready / Unready, or the host's Begin). Where the system shows the vertical
-/// bar (the iPhone Duo), Leave / End Tournament (or the complete phase's Main Room) are toolbar
-/// items in that column (VerticalBarHost), laid out as the game's bar: Leave (the game's Exit glyph)
-/// alone in the top pill, End Tournament in its own pill under it.
+/// The tournament lobby (owner 2026-11-26 layout): the header (as the game lobby's: Leave, a back
+/// chevron and its word, on the leading side, then the title, round line and count, the mic and the
+/// host's End Tournament on the trailing side; the host's Rounds picker in the lobby phase), the
+/// players and standings, the chat, then ONE action slot at the bottom (TournamentLobbySlot: Ready
+/// / Unready, or the host's Begin). Where the system shows the vertical bar (the iPhone Duo), Leave
+/// / End Tournament (or the complete phase's Main Room) are toolbar items in that column
+/// (VerticalBarHost), laid out as the game lobby's bar: Leave (its back chevron) alone in the top
+/// pill, End Tournament in its own pill under it.
 struct TournamentLobbyView: View {
     var body: some View {
         VerticalBarHost { TournamentLobbyScreen(bar: $0) }
@@ -21,8 +22,6 @@ private struct TournamentLobbyScreen: View {
     @EnvironmentObject var tournamentState: TournamentState
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.dynamicTypeSize) private var typeSize
-    /// The vertical bar's Leave follows the bar's symbol size and weight (ExitIcon.barImage).
-    @Environment(\.legibilityWeight) private var legibilityWeight
     /// Bumped by every hinge change so the fold is read again at the same size.
     @State private var hingeTick = 0
     @ObservedObject private var socketService = SocketService.shared
@@ -132,12 +131,12 @@ private struct TournamentLobbyScreen: View {
                         }
                     }
                 } else {
-                    // as the game's bar (owner 2026-11-27, "The standard game icons"): Leave alone
-                    // in the top pill (a leading item), the host's End Tournament in its own pill
-                    // under it (a trailing item; TournamentLobbyMenu.barPill)
-                    ForEach(TournamentLobbyMenu.displayOrder(menuEntry, inBar: true), id: \.self) { item in
-                        ToolbarItem(placement: TournamentLobbyMenu.barPill(item) == .leading ? .barLeading : .barTrailing) {
-                            entryButton(item, inBar: true)
+                    // as the game lobby's bar (owner 2026-11-27): Leave (Stop Watching) its back
+                    // chevron alone in the top pill (a leading item), the host's End Tournament in
+                    // its own pill under it (a trailing item; TournamentLobbyMenu.side)
+                    ForEach(TournamentLobbyMenu.displayOrder(menuEntry), id: \.self) { item in
+                        ToolbarItem(placement: TournamentLobbyMenu.side(item) == .leading ? .barLeading : .barTrailing) {
+                            entryButton(item)
                                 .tint(TournamentLobbyMenu.isDestructiveForEveryone(item) ? Theme.error : nil)
                         }
                     }
@@ -452,7 +451,7 @@ private struct TournamentLobbyScreen: View {
     /// scroll at the top of the players instead (`headerDetails`, compactLayout).
     private func header(scrollsDetails: Bool = false) -> some View {
         let controlsOnly = scrollsDetails
-        let hasControls = showsHeaderBack || showsMic || (!bar.usesVerticalBar && menuEntry != .none)
+        let hasControls = showsHeaderBack || showsMic || headerEnd != nil
         return VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: Theme.Space.s2) {
                 Group {
@@ -466,17 +465,19 @@ private struct TournamentLobbyScreen: View {
                         }
                     } else {
                         HStack {
-                            // Main Room (complete phase only), the count, the mic and Leave / End keep
-                            // their size and the title gives way (one line, shrunk, then cut)
+                            // as the game lobby's row (Leave | title | mic, count), then the host's
+                            // End: the back control (Leave / Stop Watching, Main Room on the
+                            // results), the mic, the count and End keep their size and the title
+                            // gives way (one line, shrunk, then cut)
                             if showsHeaderBack {
-                                mainRoomButton.lineLimit(1).fixedSize()
+                                headerBack.fixedSize()
                                 Spacer(minLength: Theme.Space.s2)
                             }
                             titleBlock(alignment: showsHeaderBack ? .center : .leading, oneLine: true)
                             Spacer(minLength: Theme.Space.s2)
-                            countText.lineLimit(1).fixedSize()
                             headerMic
-                            headerEntry(withText: false)
+                            countText.lineLimit(1).fixedSize()
+                            headerEndButton(withText: false)
                         }
                     }
                 }
@@ -501,14 +502,23 @@ private struct TournamentLobbyScreen: View {
         .zIndex(1)  // the tip hangs over the player list
     }
 
-    /// The accessibility sizes' controls row: Main Room (complete phase), the mic and Leave / Stop
-    /// Watching / End Tournament with their words (the one-row header has the icons alone).
+    /// The accessibility sizes' controls row: the back control with its words on the leading side
+    /// (Leave / Stop Watching, Main Room on the results; one line, scaled down rather than
+    /// wrapped: at AX5 "Stop / Watching" doubled the row, review of PR #437), then the mic and the
+    /// host's End Tournament (its words where they fit, `headerEndButton`). The back control lays
+    /// out first (`layoutPriority(2)`), so Leave keeps its words at the reader's size and End gives
+    /// way.
     private var accessibilityControlsRow: some View {
         HStack {
-            if showsHeaderBack { mainRoomButton.lineLimit(1).fixedSize() }
-            Spacer()
+            if showsHeaderBack {
+                headerBack
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    .layoutPriority(2)
+            }
+            Spacer(minLength: Theme.Space.s2)
             headerMic
-            headerEntry(withText: true)
+            headerEndButton(withText: true)
         }
     }
 
@@ -524,18 +534,43 @@ private struct TournamentLobbyScreen: View {
         .padding(.top, Theme.Space.s3)
     }
 
-    /// The complete phase's back control in the content (the vertical bar has its own).
-    private var showsHeaderBack: Bool { showsFinal && !bar.usesVerticalBar }
+    /// The header's back control on its leading side, before the title, as the game lobby's Leave
+    /// (`LobbyBackButton`; owner 2026-11-27): Main Room on the results, else Leave / Stop
+    /// Watching. None in the vertical bar, which has its own.
+    private var showsHeaderBack: Bool {
+        !bar.usesVerticalBar && (showsFinal || headerBackItem != nil)
+    }
 
-    private var mainRoomButton: some View {
-        Button(action: returnToMainRoom) {
-            HStack(spacing: Theme.Space.s1) {
-                Image(systemName: "chevron.left")
-                    .accessibilityHidden(true)
-                Text("Main Room")
-            }
-            .foregroundColor(Theme.textSecondary)
+    /// Leave or Stop Watching, the leading side's item (TournamentLobbyMenu.side).
+    private var headerBackItem: TournamentLobbyMenu.Item? {
+        TournamentLobbyMenu.items(menuEntry, on: .leading).first
+    }
+
+    /// The host's End Tournament on the trailing side (none in the bar, which has its own).
+    private var headerEnd: TournamentLobbyMenu.Item? {
+        bar.usesVerticalBar ? nil : TournamentLobbyMenu.items(menuEntry, on: .trailing).first
+    }
+
+    @ViewBuilder
+    private var headerBack: some View {
+        if showsFinal {
+            LobbyBackButton(title: "Main Room", action: returnToMainRoom)
+        } else if let item = headerBackItem {
+            backButton(item)
         }
+    }
+
+    /// Leave / Stop Watching in a header: the game lobby's Leave (a back chevron and the word, in
+    /// the header's grey), asking first as every choice does; VoiceOver hears the whole choice
+    /// ("Leave Tournament"), and the Large Content Viewer shows the words with the chevron.
+    private func backButton(_ item: TournamentLobbyMenu.Item) -> some View {
+        LobbyBackButton(title: TournamentLobbyMenu.buttonTitle(item)) { ask(item) }
+            .accessibilityLabel(TournamentLobbyMenu.title(item))
+            .accessibilityHint(TournamentLobbyMenu.hint(item))
+            .accessibilityIdentifier(TournamentLobbyMenu.identifier(item))
+            .accessibilityShowsLargeContentViewer {
+                Label(TournamentLobbyMenu.buttonTitle(item), systemImage: TournamentLobbyMenu.icon(item))
+            }
     }
 
     // MARK: - Leave / End Tournament / Stop Watching
@@ -547,62 +582,37 @@ private struct TournamentLobbyScreen: View {
                                   isSpectator: tournamentState.isSpectator)
     }
 
-    /// In the content header (the vertical bar has them as toolbar items). `withText`: the
-    /// accessibility sizes' controls row shows the words beside the icons; the one-row header the
-    /// icons alone (the words would crowd the title). The host's two buttons go down a ViewThatFits:
-    /// in the controls row the words at the reader's size, then the words at smaller sizes
-    /// (`TournamentLobbyMenu.wordCaps`: the largest that fits, as the member's one word shrinks to
-    /// fit; review of PR #438: at every AX size the words went straight to two bare icons), then
-    /// the icons, then, only where a row cannot fit two icons, the "…" menu of both (no device
-    /// reaches it in the UI tests: the title gives way first). The entry lays out before the title
-    /// (`layoutPriority`), so it is offered all the room the title can give up, and the menu is
-    /// never picked while the title could still shrink. A gap from the mic keeps the pair a group
-    /// of its own (a stop beside a mic could read as a media control).
+    /// The host's End Tournament on the header's trailing side, after the mic (the vertical bar
+    /// has it as a toolbar item). `withText`: the accessibility sizes' controls row tries its
+    /// words, at the reader's size and then at smaller sizes (`TournamentLobbyMenu.wordCaps`: the
+    /// largest that fits; review of PR #438: at every AX size the words went straight to a bare
+    /// icon), then the icon, then, only where the row cannot fit even that beside Leave's words,
+    /// the "…" menu of Leave and End (no tested device reaches it). The one-row header has the icon
+    /// alone after the count (the title gives way first). In the controls row a gap from the mic
+    /// keeps End apart from it (a stop beside a mic could read as a media control); in the one-row
+    /// header the count sits between them.
     @ViewBuilder
-    private func headerEntry(withText: Bool) -> some View {
-        if !bar.usesVerticalBar {
-            switch menuEntry {
-            case .none:
-                EmptyView()
-            case .button(let item):
-                if withText {
-                    // one line, as Main Room beside it (review of PR #437: at AX5 "Stop Watching"
-                    // wrapped to two and doubled the row); the Large Content Viewer and VoiceOver
-                    // keep the whole words
-                    headerButton(item, withText: true).minimumScaleFactor(0.5)
-                } else {
-                    headerButton(item, withText: false)
-                }
-            case .buttons(let items):
+    private func headerEndButton(withText: Bool) -> some View {
+        if let end = headerEnd {
+            if withText {
                 ViewThatFits(in: .horizontal) {
-                    if withText {
-                        headerButtons(withText: true)
-                        headerButtons(withText: true).dynamicTypeSize(...TournamentLobbyMenu.wordCaps[0])
-                        headerButtons(withText: true).dynamicTypeSize(...TournamentLobbyMenu.wordCaps[1])
-                        headerButtons(withText: true).dynamicTypeSize(...TournamentLobbyMenu.wordCaps[2])
-                    }
-                    headerButtons(withText: false)
-                    fallbackMenu(items)
+                    headerButton(end, withText: true)
+                    headerButton(end, withText: true).dynamicTypeSize(...TournamentLobbyMenu.wordCaps[0])
+                    headerButton(end, withText: true).dynamicTypeSize(...TournamentLobbyMenu.wordCaps[1])
+                    headerButton(end, withText: true).dynamicTypeSize(...TournamentLobbyMenu.wordCaps[2])
+                    headerButton(end, withText: false)
+                    fallbackMenu(TournamentLobbyMenu.displayOrder(menuEntry))
                 }
                 .layoutPriority(1)
                 .padding(.leading, showsMic ? Theme.Space.s2 : 0)
+            } else {
+                headerButton(end, withText: false)
             }
         }
     }
 
-    /// The host's two buttons in a header row, End Tournament then Leave (Leave in the trailing
-    /// corner, as a member's). Icons alone at the accessibility sizes get a gap: their glyphs fill
-    /// the hit target there and would touch.
-    private func headerButtons(withText: Bool) -> some View {
-        HStack(spacing: withText || typeSize.isAccessibilitySize ? Theme.Space.s3 : 0) {
-            ForEach(TournamentLobbyMenu.displayOrder(menuEntry, inBar: false), id: \.self) { item in
-                headerButton(item, withText: withText)
-            }
-        }
-    }
-
-    /// One header button: the icon alone, or with its words (one line) in the controls row. End
-    /// Tournament in the danger colour (it ends the tournament for everyone; review of PR #438: in
+    /// End Tournament's header button: the icon alone, or with its words (one line) in the
+    /// controls row, in the danger colour (it ends the tournament for everyone; review of PR #438: in
     /// grey beside the mic a stop glyph read as a media control). A long press at the
     /// accessibility sizes shows the words in the Large Content Viewer.
     private func headerButton(_ item: TournamentLobbyMenu.Item, withText: Bool) -> some View {
@@ -629,20 +639,13 @@ private struct TournamentLobbyScreen: View {
     /// at the chat (owner 2026-11-26, "the same fix you did for game selection"). End Tournament
     /// waits for the session and the re-entry like the slot; Leave never waits (during the
     /// re-entry it is TournamentRejoin.abandon).
-    private func entryButton(_ item: TournamentLobbyMenu.Item, inBar: Bool = false) -> some View {
+    private func entryButton(_ item: TournamentLobbyMenu.Item) -> some View {
         Button {
             ask(item)
         } label: {
-            // a Label, so the Large Content Viewer and the bar have the words
-            if TournamentLobbyMenu.isMirrored(item) {
-                Label {
-                    Text(TournamentLobbyMenu.buttonTitle(item))
-                } icon: {
-                    mirroredIcon(item, inBar: inBar)
-                }
-            } else {
-                Label(TournamentLobbyMenu.buttonTitle(item), systemImage: TournamentLobbyMenu.icon(item))
-            }
+            // a Label, so the Large Content Viewer and the bar have the words (the bar's Leave is
+            // the game lobby's `Label("Leave", systemImage: "chevron.left")`)
+            Label(TournamentLobbyMenu.buttonTitle(item), systemImage: TournamentLobbyMenu.icon(item))
         }
         .disabled(!TournamentLobbyMenu.isEnabled(item, canSend: canSendTournamentActions))
         .accessibilityLabel(TournamentLobbyMenu.title(item))
@@ -650,32 +653,10 @@ private struct TournamentLobbyScreen: View {
         .accessibilityIdentifier(TournamentLobbyMenu.identifier(item))
     }
 
-    /// Leave's and Stop Watching's icon, the game's Exit exactly (its arrow points left, out): in the vertical bar the
-    /// game's bar image (the bar draws a toolbar item's symbol itself and drops SwiftUI transforms,
-    /// so the mirror is in the bitmap, ExitIcon.barImage), in a header the symbol mirrored as the
-    /// game's corner Exit is. Hidden: the button reads "Leave Tournament" / "Stop Watching", not the
-    /// symbol's name.
-    @ViewBuilder
-    private func mirroredIcon(_ item: TournamentLobbyMenu.Item, inBar: Bool) -> some View {
-        #if os(iOS)
-        if inBar {
-            Image(platformImage: ExitIcon.barImage(dynamicTypeSize: typeSize, legibilityWeight: legibilityWeight))
-                .accessibilityHidden(true)
-        } else {
-            Image(systemName: TournamentLobbyMenu.icon(item))
-                .scaleEffect(x: -1, y: 1)
-                .accessibilityHidden(true)
-        }
-        #else
-        Image(systemName: TournamentLobbyMenu.icon(item))
-            .scaleEffect(x: -1, y: 1)
-            .accessibilityHidden(true)
-        #endif
-    }
-
-    /// The fallback where a header row cannot fit the host's two icons: ONE level, a "…" menu of
-    /// plain destructive rows, words alone (with the icon "End Tournament…" could break over two
-    /// lines, as "Cancel Tournament…" did in #437), rebuilt (`.id`) when its choices change.
+    /// The fallback where the accessibility controls row cannot fit Leave's words and End's icon:
+    /// ONE level, a "…" menu of plain destructive rows, words alone (with the icon "End
+    /// Tournament…" could break over two lines, as "Cancel Tournament…" did in #437), rebuilt
+    /// (`.id`) when its choices change.
     private func fallbackMenu(_ items: [TournamentLobbyMenu.Item]) -> some View {
         Menu {
             ForEach(items, id: \.self) { item in
