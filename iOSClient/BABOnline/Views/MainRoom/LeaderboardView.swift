@@ -302,6 +302,8 @@ struct LeaderboardView: View {
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                 chevron(open)
                             }
+                            // the avatar's target spans this line only: the stats under it expand
+                            .transformAnchorPreference(key: LeaderboardAvatarAnchor.self, value: .bounds) { $0.line = $1 }
                             Text("\(column.title) \(column.format(e))")
                                 .font(.headline)
                                 .foregroundStyle(e.isPopulation ? Theme.textPrimary : Theme.primary)
@@ -442,7 +444,7 @@ private struct PlayerLabel: View {
                 AvatarImageView(pictureKey: entry.pictureKey, name: entry.username)
                     .frame(width: avatar, height: avatar)
                     .overlay(Circle().strokeBorder(isMe ? Theme.primary : Theme.inputBorder, lineWidth: isMe ? 2 : 1))
-                    .anchorPreference(key: LeaderboardAvatarAnchor.self, value: .bounds) { $0 }
+                    .transformAnchorPreference(key: LeaderboardAvatarAnchor.self, value: .bounds) { $0.avatar = $1 }
             }
             Text(entry.isPopulation ? "Population" : entry.username)
                 .font(.subheadline.weight(entry.isPopulation || isMe ? .bold : .semibold))
@@ -454,18 +456,44 @@ private struct PlayerLabel: View {
     }
 }
 
-/// Where a row's avatar is drawn (PlayerLabel), for its tap target.
+/// Where a row's avatar is drawn (PlayerLabel), for its tap target, and, when the row stacks
+/// its stats under the name (accessibility sizes), the name's line.
 private struct LeaderboardAvatarAnchor: PreferenceKey {
-    static let defaultValue: Anchor<CGRect>? = nil
-    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
-        value = value ?? nextValue()
+    struct Value {
+        var avatar: Anchor<CGRect>?
+        var line: Anchor<CGRect>?
+    }
+    static let defaultValue = Value()
+    static func reduce(value: inout Value, nextValue: () -> Value) {
+        let next = nextValue()
+        value.avatar = value.avatar ?? next.avatar
+        value.line = value.line ?? next.line
     }
 }
 
-/// A tap on a row's avatar opens that player's profile (owner 2026-11-27): a clear button the
-/// row's full height over the avatar's column, at least 44 pt wide, above the row (whose own
-/// tap still expands it), with no visual change. VoiceOver keeps the row one element and gets
-/// the custom action "View profile" instead (the target itself is hidden from it).
+/// Where a leaderboard row's avatar target goes, in the row's own points.
+enum LeaderboardAvatarTarget {
+    /// At least 44 pt wide over the avatar's column (the avatar and a little room either side).
+    /// Its height is the row's (at least 44 pt) when the row is one line; when the row stacks
+    /// its stats under the name (`line`, accessibility sizes) only that line's (at least 44 pt,
+    /// kept inside the row), so a tap on the stats under the avatar still expands the row.
+    static func frame(avatar: CGRect, line: CGRect?, row: CGSize) -> CGRect {
+        let width = max(Theme.hitTarget, avatar.width + Theme.Space.s3)
+        guard let line else {
+            let height = max(Theme.hitTarget, row.height)
+            return CGRect(x: avatar.midX - width / 2, y: (row.height - height) / 2, width: width, height: height)
+        }
+        let height = min(max(Theme.hitTarget, line.height), max(Theme.hitTarget, row.height))
+        let y = min(max(0, line.midY - height / 2), max(0, row.height - height))
+        return CGRect(x: avatar.midX - width / 2, y: y, width: width, height: height)
+    }
+}
+
+/// A tap on a row's avatar opens that player's profile (owner 2026-11-27): a clear button over
+/// the avatar's column (LeaderboardAvatarTarget: the row's full height, or the name's line when
+/// the row stacks), at least 44 x 44 pt, above the row (whose own tap still expands it), with
+/// no visual change. VoiceOver keeps the row one element and gets the custom action "View
+/// profile" instead (the target itself is hidden from it).
 private struct AvatarProfileTarget: ViewModifier {
     let username: String
     let open: (() -> Void)?
@@ -476,24 +504,22 @@ private struct AvatarProfileTarget: ViewModifier {
                 .accessibilityActions {
                     Button("View profile", action: open)
                 }
-                .overlayPreferenceValue(LeaderboardAvatarAnchor.self) { anchor in
-                    if let anchor {
+                .overlayPreferenceValue(LeaderboardAvatarAnchor.self) { anchors in
+                    if let avatarAnchor = anchors.avatar {
                         GeometryReader { geo in
-                            let avatar = geo[anchor]
-                            let size = CGSize(width: Self.width(avatar: avatar.width), height: max(Theme.hitTarget, geo.size.height))
+                            let target = LeaderboardAvatarTarget.frame(
+                                avatar: geo[avatarAnchor], line: anchors.line.map { geo[$0] }, row: geo.size)
                             Button(action: open) {
                                 Color.clear.contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
-                            .frame(width: size.width, height: size.height)
+                            .frame(width: target.width, height: target.height)
                             #if DEBUG
                             .background {
-                                LeaderboardAvatarProbe.Reporter(username: username, frame: CGRect(
-                                    x: avatar.midX - size.width / 2, y: (geo.size.height - size.height) / 2,
-                                    width: size.width, height: size.height))
+                                LeaderboardAvatarProbe.Reporter(username: username, frame: target)
                             }
                             #endif
-                            .position(x: avatar.midX, y: geo.size.height / 2)
+                            .position(x: target.midX, y: target.midY)
                         }
                         .accessibilityHidden(true)
                     }
@@ -502,9 +528,6 @@ private struct AvatarProfileTarget: ViewModifier {
             content
         }
     }
-
-    /// The target's width: the avatar's and a little room either side, never under 44 pt.
-    static func width(avatar: CGFloat) -> CGFloat { max(Theme.hitTarget, avatar + Theme.Space.s3) }
 }
 
 #if DEBUG

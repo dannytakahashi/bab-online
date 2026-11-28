@@ -38,8 +38,17 @@ final class PlayerSearchState: ObservableObject {
         /// The latest answered query's players (empty: "No players found"); they stay up while
         /// the next search runs, so a keystroke never blanks the list.
         case results([PlayerSearchResult])
-        /// No search can be made or none answered: a quiet line, never an error.
+        /// No search can be made or none answered: a quiet line, never an error. It stays up
+        /// while the next search runs, as results do.
         case unavailable(String)
+
+        /// Something is on screen that the next reply replaces (so no spinner over it).
+        var keepsWhileSearching: Bool {
+            switch self {
+            case .results, .unavailable: return true
+            case .idle, .searching: return false
+            }
+        }
     }
 
     /// What the field holds (the sheet's `.searchable` text).
@@ -98,8 +107,13 @@ final class PlayerSearchState: ObservableObject {
             clear()
             return
         }
-        // the last results (or "No players found") stay up until the new reply
-        if case .results = phase {} else { phase = .searching }
+        // offline: the quiet line at once (no search can be sent, so no spinner either)
+        guard isConnected() else {
+            goOffline()
+            return
+        }
+        // the last results (or "No players found", or a quiet line) stay up until the new reply
+        if !phase.keepsWhileSearching { phase = .searching }
         startProgress()
         cancelDebounce = schedule(debounce) { [weak self] in self?.search() }
     }
@@ -136,13 +150,11 @@ final class PlayerSearchState: ObservableObject {
             return
         }
         guard isConnected() else {
-            latestQuery = nil
-            stopTimers()
-            phase = .unavailable(Self.offlineLine)
+            goOffline()
             return
         }
         latestQuery = q
-        if case .results = phase {} else { phase = .searching }
+        if !phase.keepsWhileSearching { phase = .searching }
         startProgress()
         cancelTimeout?()
         cancelTimeout = schedule(timeout) { [weak self] in
@@ -152,6 +164,13 @@ final class PlayerSearchState: ObservableObject {
             self.phase = .unavailable(Self.noAnswerLine)
         }
         send(q)
+    }
+
+    private func goOffline() {
+        latestQuery = nil
+        stopTimers()
+        let line = Phase.unavailable(Self.offlineLine)
+        if phase != line { phase = line }
     }
 
     private func startProgress() {

@@ -141,11 +141,17 @@ export function showPlayerSearchPage(socket, { getOnlineUsers = () => [], me = n
     children: [searchInput, createButton({ label: 'Search', variant: 'primary', onClick: doSearch })],
   });
 
-  // Results container
+  // Results container. Not a live region: the online list redraws on every
+  // join and leave, and a screen reader would read it all out each time. A
+  // search's answer is announced by the status line alone ("3 players found").
   const results = el('div', {
     className: 'search-results',
-    attrs: { id: 'playerSearchResults', 'aria-live': 'polite' },
+    attrs: { id: 'playerSearchResults' },
     children: onlineChildren(),
+  });
+  const status = el('div', {
+    className: 'visually-hidden',
+    attrs: { id: 'playerSearchStatus', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' },
   });
 
   searchModal = openModal({
@@ -155,7 +161,7 @@ export function showPlayerSearchPage(socket, { getOnlineUsers = () => [], me = n
     id: 'playerSearchPageOverlay',
     dialogId: 'playerSearchPageModal',
     className: 'page-modal',
-    body: [searchRow, results],
+    body: [searchRow, status, results],
     initialFocus: searchInput,
     onClose: () => {
       clearTimeout(debounceTimer);
@@ -182,6 +188,12 @@ export function updatePlayerSearchResults(players, query) {
   return true;
 }
 
+/** The visually hidden status line: what a search found, or nothing. */
+function announce(text) {
+  const status = document.getElementById('playerSearchStatus');
+  if (status && status.textContent !== text) status.textContent = text;
+}
+
 function renderResults(players) {
   const container = document.getElementById('playerSearchResults');
   if (!container) return;
@@ -191,10 +203,16 @@ function renderResults(players) {
   if (!players || players.length === 0) {
     const input = document.getElementById('playerSearchInput');
     const query = input?.value?.trim();
-    if (query) container.appendChild(hint('No players found'));
-    else container.replaceChildren(...onlineChildren());
+    if (query) {
+      container.appendChild(hint('No players found'));
+      announce('No players found');
+    } else {
+      container.replaceChildren(...onlineChildren());
+      announce('');
+    }
     return;
   }
+  announce(players.length === 1 ? '1 player found' : `${players.length} players found`);
 
   players.forEach((player) => {
     const gp = player.gamesPlayed || 0;

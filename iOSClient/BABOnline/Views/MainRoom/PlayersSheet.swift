@@ -65,6 +65,7 @@ struct PlayersSheet: View {
                         .foregroundStyle(Theme.textSecondary)
                 }
                 .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("players.searching")
             }
@@ -88,15 +89,20 @@ struct PlayersSheet: View {
             .font(.subheadline)
             .foregroundStyle(Theme.textSecondary)
             .listRowBackground(Color.clear)
+            // a quiet line, not an empty table cell
+            .listRowSeparator(.hidden)
             .accessibilityIdentifier(id)
     }
 }
 
 /// One player: avatar (search results), name and a small online dot; a button that opens their
-/// profile, except my own name.
+/// profile, except my own name, which is marked "You" (as the web's Players page). At
+/// accessibility sizes a result's avatar goes above the name, so a long name has the row's
+/// width and is never cut.
 private struct PlayerRow: View {
     let row: PlayerSearchState.Row
     @Environment(\.viewPlayerProfile) private var viewProfile
+    @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .body) private var avatar: CGFloat = 32
     @ScaledMetric(relativeTo: .body) private var dot: CGFloat = 8
 
@@ -120,27 +126,69 @@ private struct PlayerRow: View {
     }
 
     private func label(chevron: Bool) -> some View {
-        HStack(spacing: Theme.Space.s3) {
-            if let key = row.pictureKey {
-                AvatarImageView(pictureKey: key, name: row.username)
-                    .frame(width: avatar, height: avatar)
-            }
-            Text(row.username)
-                .foregroundColor(Theme.textPrimary)
-                .lineLimit(2)
-            if row.isOnline && row.pictureKey != nil {
-                // the online dot (the online list itself needs none)
-                Circle()
-                    .fill(Theme.success)
-                    .frame(width: dot, height: dot)
-            }
-            Spacer(minLength: 0)
-            if chevron {
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundColor(Theme.textDim)
+        Group {
+            if typeSize.isAccessibilitySize, row.pictureKey != nil {
+                VStack(alignment: .leading, spacing: Theme.Space.s2) {
+                    HStack(spacing: Theme.Space.s3) {
+                        avatarView
+                        onlineDot
+                        Spacer(minLength: 0)
+                        chevronView(chevron)
+                    }
+                    name
+                }
+            } else {
+                HStack(spacing: Theme.Space.s3) {
+                    avatarView
+                    name
+                    onlineDot
+                    Spacer(minLength: 0)
+                    chevronView(chevron)
+                }
             }
         }
         .frame(minHeight: 44)
+    }
+
+    @ViewBuilder
+    private var avatarView: some View {
+        if let key = row.pictureKey {
+            AvatarImageView(pictureKey: key, name: row.username)
+                .frame(width: avatar, height: avatar)
+        }
+    }
+
+    /// The name (whole at accessibility sizes), and "You" on my own row.
+    private var name: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s2) {
+            Text(row.username)
+                .foregroundColor(Theme.textPrimary)
+                .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
+            if row.isMe {
+                Text("You")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize()
+            }
+        }
+    }
+
+    /// The online dot on a result (the online list itself needs none).
+    @ViewBuilder
+    private var onlineDot: some View {
+        if row.isOnline && row.pictureKey != nil {
+            Circle()
+                .fill(Theme.success)
+                .frame(width: dot, height: dot)
+        }
+    }
+
+    @ViewBuilder
+    private func chevronView(_ shown: Bool) -> some View {
+        if shown {
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundColor(Theme.textDim)
+        }
     }
 }

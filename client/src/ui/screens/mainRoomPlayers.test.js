@@ -43,6 +43,15 @@ describe('the Players page from the main room', () => {
     expect(listed()).toEqual(['Owner', 'Dee']);
   });
 
+  it('a rebuild in place (a reconnect) keeps the open page and its list follows the fresh one', () => {
+    byText('Players').click();
+    expect(heading()).toBe('Online now · 3');
+    showMainRoom({ onlineCount: 2, onlineUsers: ['Owner', 'Bea'], messages: [], lobbies: [] }, socket, 'Owner');
+    expect(document.getElementById('playerSearchPageOverlay')).not.toBeNull();
+    expect(heading()).toBe('Online now · 2');
+    expect(listed()).toEqual(['Owner', 'Bea']);
+  });
+
   it('a row opens the profile with the stats scope, as a search result does', () => {
     byText('Players').click();
     document.querySelector('#playerSearchResults button.search-result[data-username="Cy"]').click();

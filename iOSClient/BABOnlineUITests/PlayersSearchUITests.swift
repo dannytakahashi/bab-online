@@ -165,6 +165,15 @@ final class PlayersSearchUITests: XCTestCase {
         XCTAssertTrue(line.waitForExistence(timeout: 5))
         XCTAssertEqual(line.label, "Search is available once you're connected.")
         XCTAssertFalse(app.alerts.firstMatch.exists, "never an error alert")
+        // typing on: the line stays, never blank, never "Searching..."
+        for letter in ["b", "e", "r"] {
+            app.typeText(letter)
+            XCTAssertTrue(line.exists, "the line stays at \(letter)")
+            XCTAssertFalse(element(app, "players.searching").exists, "no spinner with no search to send")
+        }
+        sleep(1)
+        XCTAssertTrue(line.exists)
+        XCTAssertFalse(element(app, "players.searching").exists)
         app.terminate()
     }
 
@@ -179,8 +188,8 @@ final class PlayersSearchUITests: XCTestCase {
 
     // MARK: - Leaderboard avatars
 
-    private func openLeaderboard() -> XCUIApplication {
-        let app = Fixture.launch("main-room", extra: typeSize, env: env)
+    private func openLeaderboard(_ size: [String]? = nil) -> XCUIApplication {
+        let app = Fixture.launch("main-room", extra: size ?? typeSize, env: env)
         XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 20))
         let trophy = StatsUITests.trophy(app)
         XCTAssertTrue(trophy.waitForExistence(timeout: 5))
@@ -218,7 +227,13 @@ final class PlayersSearchUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(kim.width, 44, "a 44 pt target")
         XCTAssertGreaterThanOrEqual(kim.height, 44)
         let rowFrame = row.frame
-        XCTAssertEqual(kim.height, rowFrame.height, accuracy: 1, "the row's full height")
+        let isTable = element(app, "leaderboard.sort.winRate").exists
+        if ProcessInfo.processInfo.environment["BAB_TYPE_SIZE"]?.contains("Accessibility") == true && !isTable {
+            // the row stacks its stats under the name: the target is the name's line only
+            XCTAssertLessThan(kim.maxY, rowFrame.height - 20, "the stats under the avatar are not the target")
+        } else {
+            XCTAssertEqual(kim.height, rowFrame.height, accuracy: 1, "the row's full height")
+        }
         XCTAssertTrue(CGRect(origin: .zero, size: rowFrame.size).insetBy(dx: -1, dy: -1).contains(kim), "inside the row: \(kim) in \(rowFrame)")
         XCTAssertLessThan(kim.minX, rowFrame.width / 3, "over the avatar's column, near the leading edge")
 
@@ -232,7 +247,6 @@ final class PlayersSearchUITests: XCTestCase {
         XCTAssertFalse(element(app, "profile.name").waitForExistence(timeout: 2))
 
         // the rest of the row: expands as before (the list; the iPad's table has no expansion)
-        let isTable = element(app, "leaderboard.sort.winRate").exists
         tap(row, at: CGPoint(x: rowFrame.width - 40, y: rowFrame.height / 2))
         if isTable {
             XCTAssertFalse(element(app, "profile.name").waitForExistence(timeout: 2), "the table row's body opens nothing")
@@ -252,7 +266,37 @@ final class PlayersSearchUITests: XCTestCase {
         app.terminate()
     }
 
-    func testTheLeaderboardRowIsOneElementWithAViewProfileAction() {
+    /// Accessibility sizes stack each row's stats under the name (on every device: the table
+    /// is never used there). A tap on those stats, under the avatar, still expands the row.
+    func testAtAccessibilitySizesTheStatsUnderTheAvatarStillExpandTheRow() {
+        let app = openLeaderboard(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        XCTAssertFalse(element(app, "leaderboard.sort.winRate").exists, "the list, not the table")
+        // the first row, on screen without a scroll on every device (the open Duo's screen is
+        // short, and XCUITest's window points there differ from the app's)
+        let name = "Christopher Johnson1"
+        let row = element(app, "leaderboard.row.\(name)")
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        guard let target = avatarTargets(app)[name] else { return XCTFail("no avatar target for \(name)") }
+        let rowFrame = row.frame
+        XCTAssertGreaterThanOrEqual(target.width, 44)
+        XCTAssertGreaterThanOrEqual(target.height, 44)
+        XCTAssertLessThan(target.maxY, rowFrame.height - 20, "the target is the name's line: \(target) in \(rowFrame)")
+        shot("leaderboard-ax5")
+        // the stats, straight under the avatar: the row expands, no profile
+        tap(row, at: CGPoint(x: target.midX, y: (target.maxY + rowFrame.height) / 2))
+        XCTAssertTrue(element(app, "leaderboard.details.\(name)").waitForExistence(timeout: 3), "the stats under the avatar expand the row")
+        XCTAssertFalse(element(app, "profile.name").exists, "no profile from the stats")
+        shot("leaderboard-ax5-stats-expand")
+        // the avatar itself still opens the profile
+        tap(row, at: CGPoint(x: target.midX, y: target.midY))
+        XCTAssertTrue(element(app, "profile.name").waitForExistence(timeout: 5), "the avatar opens the profile")
+        XCTAssertEqual(element(app, "profile.name").label, name)
+        app.terminate()
+    }
+
+    /// The row stays one element (the "View profile" action and the expand hint are checked in
+    /// PlayerSearchTests: XCUITest cannot read them).
+    func testTheLeaderboardRowStaysOneElement() {
         let app = openLeaderboard()
         let row = element(app, "leaderboard.row.kim")
         XCTAssertEqual(row.label, "Rank 2, kim", "one element, as before")

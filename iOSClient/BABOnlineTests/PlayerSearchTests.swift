@@ -1,4 +1,5 @@
 import XCTest
+import Combine
 @testable import BAB_Online
 
 /// The main room's Players sheet (owner 2026-11-27): search as you type over searchPlayers ->
@@ -174,6 +175,41 @@ final class PlayerSearchTests: XCTestCase {
         XCTAssertEqual(sent, ["kimb"], "back online, the next keystroke searches")
     }
 
+    func testTypingWhileOfflineNeverBlanksTheLineOrShowsASpinner() {
+        let s = makeState()
+        connected = false
+        var phases: [PlayerSearchState.Phase] = []
+        var progress: [Bool] = []
+        let watch = [s.$phase.sink { phases.append($0) }, s.$showsProgress.sink { progress.append($0) }]
+        s.setText("k")
+        XCTAssertEqual(s.phase, .unavailable(PlayerSearchState.offlineLine), "the quiet line at once, not after the pause")
+        for text in ["ki", "kim", "kimb", "kimbe", "kimber"] {
+            s.setText(text)
+            clock.advance(0.2)
+            XCTAssertEqual(s.phase, .unavailable(PlayerSearchState.offlineLine), "still the line at \(text)")
+        }
+        clock.advance(2)
+        XCTAssertEqual(sent, [])
+        XCTAssertFalse(phases.contains(.searching), "never \"Searching\" with no search to send: \(phases)")
+        XCTAssertFalse(progress.contains(true), "never a spinner")
+        watch.forEach { $0.cancel() }
+    }
+
+    func testAQuietLineStaysWhileTheNextSearchRuns() {
+        let s = makeState()
+        s.setText("kim"); clock.advance(0.3)
+        clock.advance(s.timeout)
+        XCTAssertEqual(s.phase, .unavailable(PlayerSearchState.noAnswerLine))
+        s.setText("kimb")
+        XCTAssertEqual(s.phase, .unavailable(PlayerSearchState.noAnswerLine), "a keystroke never blanks the line")
+        clock.advance(0.3)
+        XCTAssertEqual(sent, ["kim", "kimb"])
+        clock.advance(2)
+        XCTAssertFalse(s.showsProgress, "no spinner over the line")
+        s.apply(response: reply("kimb", ["kimberly"]))
+        XCTAssertEqual(names(s), ["kimberly"])
+    }
+
     func testNoAnswerAndAFailureAreQuietLines() {
         let s = makeState()
         s.setText("kim"); clock.advance(0.3)
@@ -261,6 +297,39 @@ final class PlayerSearchTests: XCTestCase {
     }
 
     // MARK: - Leaderboard avatars
+
+    func testTheLeaderboardAvatarTargetIsTheRowOrTheNameLine() {
+        let avatar = CGRect(x: 40, y: 12, width: 28, height: 28)
+        // one line: the row's full height, 44 pt wide over the avatar
+        let row = LeaderboardAvatarTarget.frame(avatar: avatar, line: nil, row: CGSize(width: 360, height: 60))
+        XCTAssertEqual(row, CGRect(x: 32, y: 0, width: 44, height: 60))
+        // a short row still gets 44 x 44
+        XCTAssertEqual(LeaderboardAvatarTarget.frame(avatar: avatar, line: nil, row: CGSize(width: 360, height: 40)).size,
+                       CGSize(width: 44, height: 44))
+        // stacked (accessibility sizes): the name's line only, never the stats under it
+        let big = CGRect(x: 60, y: 20, width: 70, height: 70)
+        let line = CGRect(x: 12, y: 10, width: 330, height: 90)
+        let stacked = LeaderboardAvatarTarget.frame(avatar: big, line: line, row: CGSize(width: 360, height: 260))
+        XCTAssertEqual(stacked, CGRect(x: 54, y: 10, width: 82, height: 90))
+        XCTAssertLessThanOrEqual(stacked.maxY, line.maxY, "the stats below the line expand the row")
+        // a one-line name at a small avatar: 44 pt, centred on the line, kept inside the row
+        let thin = LeaderboardAvatarTarget.frame(avatar: CGRect(x: 40, y: 4, width: 20, height: 20),
+                                                 line: CGRect(x: 0, y: 4, width: 300, height: 20), row: CGSize(width: 360, height: 120))
+        XCTAssertEqual(thin.height, 44)
+        XCTAssertEqual(thin.minY, 0, "never above the row")
+    }
+
+    func testTheLeaderboardRowKeepsItsHintAndGainsTheViewProfileAction() throws {
+        // XCUITest cannot read custom actions or hints: the source is the check
+        let ios = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let src = try String(contentsOf: ios.appendingPathComponent("BABOnline/Views/MainRoom/LeaderboardView.swift"), encoding: .utf8)
+        let squashed = src.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        XCTAssertTrue(squashed.contains(".accessibilityActions { Button(\"View profile\", action: open) }"), "the custom action")
+        XCTAssertTrue(squashed.contains(".accessibilityHint(open ? \"Hides the other stats\" : \"Shows all stats\")"), "the expand hint")
+        // on both row kinds, after the row's own label (one element)
+        XCTAssertEqual(src.components(separatedBy: ".modifier(AvatarProfileTarget(username: e.username, open: profileOpener(e)))").count - 1, 2)
+        XCTAssertTrue(squashed.contains(".accessibilityHidden(true) } } } else { content }"), "the clear target is hidden from VoiceOver")
+    }
 
     func testWhichLeaderboardRowsOpenAProfile() {
         let rows = LeaderboardEntry.rows(fromResponse: ["success": true, "leaderboard": [

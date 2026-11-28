@@ -6,7 +6,7 @@
  * shows only the reply to the latest one sent.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { showPlayerSearchPage, updatePlayerSearchResults, removePlayerSearchPage } from './PlayerSearchPage.js';
+import { showPlayerSearchPage, updatePlayerSearchResults, removePlayerSearchPage, refreshPlayerSearchOnline as refreshNow } from './PlayerSearchPage.js';
 import { registerProfileHandlers } from '../../handlers/profileHandlers.js';
 
 const row = (username) => ({ username, profilePic: 1, customProfilePic: null, gamesPlayed: 2, wins: 1 });
@@ -140,6 +140,32 @@ describe('the empty box lists who is online (2026-11-27)', () => {
     online = ['ivy', 'kim'];
     refreshPlayerSearchOnline();
     expect(names()).toEqual(['kim']);
+  });
+
+  it('only a search answer is announced: the list is no live region, the status line says what was found', () => {
+    const status = document.getElementById('playerSearchStatus');
+    const container = document.getElementById('playerSearchResults');
+    expect(container.closest('[aria-live]')).toBeNull();
+    expect(status.getAttribute('role')).toBe('status');
+    expect(status.getAttribute('aria-live')).toBe('polite');
+    expect(status.contains(container)).toBe(false);
+    expect(status.textContent).toBe('');
+    // a join while the box is empty redraws the list and announces nothing
+    online = ['ivy', 'kim', 'ora', 'pat'];
+    refreshNow();
+    expect(heading().textContent).toBe('Online now · 4');
+    expect(status.textContent).toBe('');
+    type('k');
+    updatePlayerSearchResults([row('kim'), row('kit')], 'k');
+    expect(status.textContent).toBe('2 players found');
+    type('kim');
+    updatePlayerSearchResults([row('kim')], 'kim');
+    expect(status.textContent).toBe('1 player found');
+    type('kimz');
+    updatePlayerSearchResults([], 'kimz');
+    expect(status.textContent).toBe('No players found');
+    type('');
+    expect(status.textContent).toBe('');
   });
 
   it('nobody listed: the hint', () => {
