@@ -57,6 +57,11 @@
  * here as null (no counter: that game's record carries no bags, the
  * superlatives use the net per seat). Its pins in
  * gameCodec.fieldGuard.test.js were re-taken for v3.
+ * `state.scorecard` (2026-11-27, the scorecard's rows, game/scorecard.js)
+ * joined SAVED the same way, still v3: the release before drops the extra
+ * state key, and a v3 doc without it restores here as [] (that game's
+ * scorecard starts with the hands after the restore; each row keeps its
+ * handNo, so the card shows which hands it lacks).
  * A log entry's optional `help` {position} (2026-11-23, the /help room
  * notice "<name> used /help.", drawn gold by the clients) joined the same
  * way, still v3: the release before writes and reads log entries whole
@@ -122,6 +127,7 @@ const { isStockPic } = require('../../avatar/stockAvatars');
 const { ASSIST_SEAT_KEYS, normalizeAssist } = require('../assistState');
 const { normalizeTrack: normalizeBadgeTrack } = require('../badges');
 const { normalizeSeatBags, normalizeSeatCounter } = require('../rules');
+const { normalizeScorecard } = require('../scorecard');
 
 /** Bump on any change to what is saved (SAVED) or how it is read back. */
 const CODEC_V = 3;
@@ -160,6 +166,7 @@ const SAVED = deepFreeze({
         'seatBags',                                   // the superlatives' bag counter (2026-11-20, still v3): below
         'seatExact',                                  // the superlatives' spot-on bid counter (2026-11-20, still v3): below
         'badgeTrack',                                 // the badges' per-game tracker (2026-11-25, still v3): header
+        'scorecard',                                  // the scorecard's rows (2026-11-27, still v3): header
         'hands', 'seats', 'gameLog', 'logTotal',
         'players',                                    // only its key order, as state.seatOrder (the deal order)
         'casualVoice', 'lobbyOrigin',                 // a lobby-born casual game (null otherwise): below
@@ -391,6 +398,7 @@ function serialize(game, { tournamentId, getBot } = {}) {
         seatBags: normalizeSeatBags(game.seatBags),
         seatExact: normalizeSeatCounter(game.seatExact),
         badgeTrack: normalizeBadgeTrack(game.badgeTrack),
+        scorecard: normalizeScorecard(game.scorecard),
         handTricks: json(game.handTricks),
         hsiValues: json(game.hsiValues) || {},
         hands,
@@ -519,6 +527,7 @@ function expectedAfterRestore(doc) {
     out.state.seatBags = normalizeSeatBags(out.state.seatBags);
     out.state.seatExact = normalizeSeatCounter(out.state.seatExact);
     out.state.badgeTrack = normalizeBadgeTrack(out.state.badgeTrack);
+    out.state.scorecard = normalizeScorecard(out.state.scorecard);
     for (const ps of Object.values(out.state.playerStats || {})) if (ps && typeof ps === 'object') delete ps.totalBags;
     out.state.eventSeq += EVENT_SEQ_OFFSET;
     for (const s of Object.values(out.state.seats)) {

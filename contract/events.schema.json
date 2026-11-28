@@ -1715,6 +1715,105 @@
       ],
       "additionalProperties": false
     },
+    "scorecardHand": {
+      "type": "object",
+      "properties": {
+        "handNo": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 13
+        },
+        "handSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 13
+        },
+        "trump": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/card"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dealer": {
+          "$ref": "#/$defs/position"
+        },
+        "bids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/bidString"
+          },
+          "minItems": 3,
+          "maxItems": 4
+        },
+        "took": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 13
+          },
+          "minItems": 3,
+          "maxItems": 4
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 2,
+          "maxItems": 3
+        },
+        "scores": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 2,
+          "maxItems": 3
+        },
+        "faults": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/position"
+          },
+          "maxItems": 4
+        },
+        "set": {
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "forbidden": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/gybForbidden"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "handNo",
+        "handSize",
+        "trump",
+        "dealer",
+        "bids",
+        "took",
+        "points",
+        "scores",
+        "faults"
+      ],
+      "additionalProperties": false
+    },
     "gybEnd": {
       "type": "object",
       "properties": {
@@ -2665,6 +2764,13 @@
             "durationMs"
           ],
           "additionalProperties": false
+        },
+        "scorecard": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/scorecardHand"
+          },
+          "maxItems": 13
         }
       },
       "required": [
@@ -8517,6 +8623,11 @@
                 ],
                 "additionalProperties": false
               },
+              "scorecardRows": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 13
+              },
               "seq": {
                 "$ref": "#/$defs/seq"
               }
@@ -8592,6 +8703,11 @@
                 ],
                 "additionalProperties": false
               },
+              "scorecardRows": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 13
+              },
               "seq": {
                 "$ref": "#/$defs/seq"
               }
@@ -8618,6 +8734,7 @@
         "avatarUrls",
         "shoulder",
         "gyb",
+        "scorecardRows",
         "seq"
       ],
       "clientReads": {
@@ -8632,7 +8749,7 @@
       "emittedFrom": [
         "server/socket/gameHandlers.js:dealHand"
       ],
-      "notes": "One per connected seat owner (seat) and per spectator (spectator), each deal. The seat variant's players (seat socket ids in deal order) went with V1_REMOVALS #6 (2026-11-12): web maps a voice peer to a seat by username (voice/speakingSlot.js) and keeps the ids positionUpdate gave (GameState.applyDeal); iOS 1.2.0 decodes it optionally and never reads it. playerInfo: web reads it only when present; iOS 1.2.0 needs it (its loop is what clears, each deal, the owner custom-picture avatarUrl a lazy / resign bot keeps, and its only read of gameStart avatarUrls), so it stays (V1_REMOVALS #5)."
+      "notes": "One per connected seat owner (seat) and per spectator (spectator), each deal. The seat variant's players (seat socket ids in deal order) went with V1_REMOVALS #6 (2026-11-12): web maps a voice peer to a seat by username (voice/speakingSlot.js) and keeps the ids positionUpdate gave (GameState.applyDeal); iOS 1.2.0 decodes it optionally and never reads it. playerInfo: web reads it only when present; iOS 1.2.0 needs it (its loop is what clears, each deal, the owner custom-picture avatarUrl a lazy / resign bot keeps, and its only read of gameStart avatarUrls), so it stays (V1_REMOVALS #5). scorecardRows (additive 2026-11-27, the scorecard; server/game/scorecard.js): how many hands the game's scorecard holds (0 on the first deal); its presence tells a client the server keeps a scorecard (the score bar opens it from the first deal; the rows come as handComplete.scorecardRow and in every snapshot), and the rows themselves are never on it: a handComplete the client missed is a seq gap, whose resync snapshot carries every row."
     },
     "bidReceived": {
       "payload": {
@@ -9087,6 +9204,9 @@
           "gyb": {
             "$ref": "#/$defs/gybHand"
           },
+          "scorecardRow": {
+            "$ref": "#/$defs/scorecardHand"
+          },
           "seq": {
             "$ref": "#/$defs/seq"
           }
@@ -9106,9 +9226,10 @@
       "seq": true,
       "added": [
         "gyb",
+        "scorecardRow",
         "seq"
       ],
-      "notes": "At a Get Your Bid table the team keys keep their shape and carry nothing: the hand is gyb (each seat's bid, tricks and points, the scores before and after, the Forbidden Bid). gyb (additive 2026-11-24, Get Your Bid: server/game/gameMode.js): present only at a Get Your Bid table, which only clients with the clientHello cap getYourBid ever sit at or watch (the web, and iOS from 1.2.7 (42)).",
+      "notes": "At a Get Your Bid table the team keys keep their shape and carry nothing: the hand is gyb (each seat's bid, tricks and points, the scores before and after, the Forbidden Bid). gyb (additive 2026-11-24, Get Your Bid: server/game/gameMode.js): present only at a Get Your Bid table, which only clients with the clientHello cap getYourBid ever sit at or watch (the web, and iOS from 1.2.7 (42)). scorecardRow (additive 2026-11-27, the scorecard; server/game/scorecard.js): the row of the hand just scored, built from the values the hand was scored with; clients append it to the rows gameStart / the snapshot gave (by handNo). Every game, both modes; old clients ignore it.",
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -9175,6 +9296,13 @@
           "gyb": {
             "$ref": "#/$defs/gybEnd"
           },
+          "scorecard": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/scorecardHand"
+            },
+            "maxItems": 13
+          },
           "seq": {
             "$ref": "#/$defs/seq"
           }
@@ -9192,6 +9320,7 @@
       "seq": true,
       "added": [
         "gyb",
+        "scorecard",
         "seq"
       ],
       "reserved": [

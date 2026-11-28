@@ -407,7 +407,7 @@ describe('purity and options', () => {
         const { game } = seated();
         expect(Object.keys(game.getSnapshotV2(null))).toEqual(['v', 'gameId', 'seq', 'serverTime', 'stage', 'partial', 'viewer',
             'hand', 'deal', 'trump', 'trumpBroken', 'turn', 'bids', 'trick', 'tricks', 'tricksByPosition', 'trickHistory', 'score', 'rainbows',
-            'hsi', 'seats', 'entrants', 'draw', 'spectatorCount', 'watching', 'tournament', 'log', 'resume']);
+            'hsi', 'seats', 'entrants', 'draw', 'spectatorCount', 'watching', 'tournament', 'log', 'resume', 'scorecard']);
     });
 
     test('the builder requires only rules (itself requiring only hsi), GamePhase, SeatState, assistState (none) and spectatorWire (itself requiring only the stock avatar count)', () => {

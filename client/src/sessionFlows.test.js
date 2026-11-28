@@ -67,7 +67,7 @@ function gameEndPayload(tournamentId = null) {
 }
 
 function returnButton() {
-  return document.querySelector('#finalScoreOverlay button, #finalScore button');
+  return document.querySelector('#finalScoreOverlay .kit-modal__actions button, #finalScore button');
 }
 
 beforeEach(async () => {

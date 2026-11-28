@@ -1,8 +1,8 @@
 {
   "oneHuman": {
     "emits": 1016,
-    "bytes": 68873,
-    "wireSha256": "0867547a9055172edfaf3974a29e0fc00bf3d0590aee1e36bf1da29118e11a1b",
+    "bytes": 74133,
+    "wireSha256": "602e6a366e48950d3f87b761d545f55adffd21e4b7a3e89e111e2ed1e5cbf6b0",
     "seatPics": [
       5,
       35,
@@ -124,8 +124,8 @@
   },
   "collidingPics": {
     "emits": 1023,
-    "bytes": 78702,
-    "wireSha256": "8ffa3a8f0c3eee2c02f22a1bb564ca454c1f60fa2124fb88824fa0e8b63ca948",
+    "bytes": 84191,
+    "wireSha256": "db688d924e3847f172e29641e41ac91e4a97f2ce5f76c9e3ec35ffa107aad3fa",
     "seatPics": [
       5,
       1,

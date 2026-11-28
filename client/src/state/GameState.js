@@ -16,6 +16,8 @@ import { bidClockNow, clockFrom, parseBidClockEvent } from './bidClock.js';
 import { isShoulder, validShoulder } from './shoulder.js';
 import { helpNoticeSeat, tutorialTag } from './seatBadges.js';
 import { teamPlayerDataOf } from './teamPlayerData.js';
+import { parseRows, mergeRow, validRow } from './scorecard.js';
+import { HAND_PROGRESSION } from '../constants/ranks.js';
 
 export { teamPlayerDataOf };
 
@@ -76,6 +78,13 @@ export class GameState {
     // (handComplete.gyb) and the game's (gameEnd.gyb)
     this.mode = null;
     this.gyb = null;
+
+    // The scorecard (owner 2026-11-27; state/scorecard.js): the server's
+    // rows of this game's completed hands, or null while the server has
+    // sent none (an older server: no Scorecard tab, no score-bar hint).
+    // [] from the first deal's gameStart.scorecardRows; a handComplete
+    // appends its scorecardRow; a snapshot or gameEnd brings them all
+    this.scorecard = null;
 
     // Game info
     this.gameId = null;
@@ -962,6 +971,13 @@ export class GameState {
   /** gameStart: a new deal (a zero-bid redeal keeps the hand number). */
   applyDeal(data) {
     if (data.position) this.position = data.position;
+    // the scorecard: a deal says how many rows the server has (its presence
+    // is the feature); another game's deal starts a new card
+    const otherGame = !!data.gameId && !!this.gameId && data.gameId !== this.gameId;
+    if (otherGame) this.scorecard = null;
+    // (a missed handComplete is a seq gap: the resync's snapshot brings
+    // every row, so the count is only the feature flag here)
+    if (Number.isInteger(data.scorecardRows) && !this.scorecard) this.scorecard = [];
     // a Get Your Bid table's deal says so, with the scores; another game's
     // deal without them is the base game
     if (data.gyb) this._applyGybTotals(data.gyb);
@@ -1141,6 +1157,7 @@ export class GameState {
 
   /** handComplete: the scores (the hand's bids and tricks reset with resetForNewHand). */
   applyHandComplete(data) {
+    if (validRow(data.scorecardRow)) this.scorecard = mergeRow(this.scorecard || [], data.scorecardRow);
     if (data.gyb) {
       // a Get Your Bid hand: each seat's result and the new scores
       this._applyGybTotals({ scores: data.gyb.scores });
@@ -1175,8 +1192,25 @@ export class GameState {
     this._changed();
   }
 
+  /**
+   * The hand in play for the scorecard's last row (bids only), or null
+   * between hands and before the first deal.
+   */
+  scorecardCurrent() {
+    if (!['BIDDING', 'PLAYING', 'TRICK_RESOLVING', 'HAND_RESOLVING'].includes(this.stage) || !this.currentHand) return null;
+    const handNo = HAND_PROGRESSION.indexOf(this.currentHand) + 1;
+    const seats = this.mode === 'gyb' ? 3 : 4;
+    const bids = Array.from({ length: seats }, (_, i) => {
+      const b = this.bids?.[i + 1];
+      return b === undefined || b === null ? null : String(b);
+    });
+    return { handNo: handNo || null, handSize: this.currentHand, trump: this.trump, dealer: this.dealer, bids };
+  }
+
   /** gameEnd */
   applyGameEnd(data) {
+    const rows = parseRows(data?.scorecard);
+    if (rows) this.scorecard = rows;
     if (data?.gyb) {
       this._applyGybTotals(data.gyb);
       this.gyb.end = data.gyb;
@@ -1375,6 +1409,11 @@ export class GameState {
     const prevHistory = this.trickHistory;
 
     const sameGame = !!snap.gameId && snap.gameId === this.gameId;
+    // the scorecard: the snapshot's rows (parseSnapshotV2 kept the valid
+    // ones); without them this game's card stays, another game has none
+    if (Array.isArray(snap.scorecard)) {
+      this.scorecard = snap.scorecard.map((r) => JSON.parse(JSON.stringify(r)));
+    } else if (!sameGame) this.scorecard = null;
     if (snap.gameId) this.gameId = snap.gameId;
     this.stage = snap.stage || null;
     // who is watching: the snapshot's list; without one (an older server, a

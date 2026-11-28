@@ -89,7 +89,7 @@ function lobbyReturn({ gameId = 'g1', position = 1, ...rest } = {}) {
 }
 
 const modal = () => document.getElementById('finalScoreOverlay');
-const returnButton = () => document.querySelector('#finalScoreOverlay button');
+const returnButton = () => document.querySelector('#finalScoreOverlay .kit-modal__actions button');
 const toasts = () => [...document.querySelectorAll('.kit-toast')].map((t) => t.textContent);
 const rowOf = (name) => [...document.querySelectorAll('#lobbyPlayersList .seat-row')].find((r) => r.querySelector('.seat-row__name')?.title === name);
 const chatLines = () => [...document.querySelectorAll('#lobbyChatArea .chat-line, #lobbyChatArea > *')].map((l) => l.textContent);

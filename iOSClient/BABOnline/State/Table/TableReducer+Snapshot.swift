@@ -75,6 +75,12 @@ extension TableReducer {
         if let t = snap.tournament { s.table.tournamentId = t.tournamentId }
         else if let hinted = hints?.tournamentId { s.table.tournamentId = hinted }
         else if sameGame { s.table.tournamentId = prev.table.tournamentId }
+        // the scorecard: the snapshot's rows; without them (an older server) this game's stay
+        if let rows = snap.scorecard {
+            s.table.scorecard = rows.map(ScorecardRow.init).filter(\.isValid)
+        } else if sameGame {
+            s.table.scorecard = prev.table.scorecard
+        }
 
         s.table.viewer = ViewerState(role: role(snap.viewer.role), position: Position.valid(snap.viewer.position),
                                      ownerView: snap.viewer.ownerView?.rawValue)

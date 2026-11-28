@@ -226,7 +226,8 @@
           },
           "tournament": null,
           "log": [],
-          "resume": null
+          "resume": null,
+          "scorecard": []
         },
         "reason": "watchHand",
         "requestId": "w1"
@@ -384,7 +385,8 @@
             }
           ],
           "hsi": 148.2
-        }
+        },
+        "scorecardRows": 0
       }
     }
   ]

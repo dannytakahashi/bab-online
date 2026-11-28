@@ -211,6 +211,7 @@ import { resetAssistUses, forgetAssistUses, noteAssistUses, assistHintRoute, ass
 import { resetTutorial, forgetTutorial, noteTutorialState, resetTutorialRows, tutorialFeedRow } from './state/tutorial.js';
 import { clearChatBubbles, showSpectatorChatBubble } from './ui/components/ChatBubble.js';
 import { getTeamNames, scoreHeaderNames, formatHandCompleteMessages, formatGameEndMessages, showFinalScoreOverlay, removeFinalScoreOverlay, setScoreModalCut } from './ui/components/ScoreModal.js';
+import { hasScorecard, openScorecardModal, closeScorecardModal, refreshScorecardModal, renderScorecard, scorecardModelFor } from './ui/components/Scorecard.js';
 
 // Bridge for GameScene (phaser/scenes/GameScene.js), its only reader: it
 // registers itself through setGameScene and reads the rest from here
@@ -352,7 +353,23 @@ window.updateHandIndicatorFromLegacy = function(handSize) {
   if (gameLogInstance && gameLogInstance.updateHandIndicator) {
     gameLogInstance.updateHandIndicator(handSize);
   }
+  syncScorecard();
 };
+
+/**
+ * The scorecard (owner 2026-11-27; ui/components/Scorecard.js): while the
+ * server keeps one (GameState.scorecard, from the deal's scorecardRows, a
+ * handComplete's row or a snapshot), the score header opens it; an open
+ * scorecard redraws with the new bids and rows. Called after every event
+ * that changes them (a deal, a bid, a hand's end, a snapshot's render).
+ */
+function syncScorecard() {
+  const gameState = getGameState();
+  const on = hasScorecard(gameState) && gameState.phase !== PHASE.ENDED;
+  gameLogInstance?.setScorecard?.(on ? () => openScorecardModal(gameState) : null);
+  if (on) refreshScorecardModal();
+  else closeScorecardModal();
+}
 
 // ============================================
 // Application Initialization
@@ -1102,6 +1119,7 @@ function initializeApp() {
     clearChatBubbles();
     document.querySelectorAll('.chat-bubble').forEach((el) => el.remove());
     removeFinalScoreOverlay();
+    closeScorecardModal();
     uiManager.clearUI();
 
     document.getElementById('gameFeed')?.remove();
@@ -1526,6 +1544,7 @@ function initializeApp() {
     } else {
       feed?.hideTrickIndicator?.();
     }
+    syncScorecard();
     scene.renderScoreHeader?.();
     const role = model.viewer?.role;
     setSpectatingIndicator(role === 'lazyWatcher' ? 'lazy' : (role === 'spectator' ? 'spectator' : null));
@@ -2128,6 +2147,7 @@ function initializeApp() {
         // Update game log trick indicator
         gameLogInstance?.updateTrickIndicator?.();
       });
+      syncScorecard();
     },
     onDoneBidding: (data) => {
       withScene((scene) => {
@@ -2175,6 +2195,8 @@ function initializeApp() {
       if (gameLogInstance && gameLogInstance.hideTrickIndicator) {
         gameLogInstance.hideTrickIndicator();
       }
+      // the hand's scorecard row (an open scorecard shows it)
+      syncScorecard();
     },
     onGameEnd: (data) => {
       const scene = getGameScene();
@@ -2191,6 +2213,9 @@ function initializeApp() {
       scene?.syncTutorial?.();
       // the over-the-shoulder view's selection ends with the game
       getShoulderWatch().ended();
+      // the mid-game scorecard gives way to the results' Scorecard tab
+      syncScorecard();
+      const scorecard = hasScorecard(gameState) ? renderScorecard(scorecardModelFor(gameState, { current: false })) : null;
 
       // Determine which team the player is on (positions 1,3 = Team 1, positions 2,4 = Team 2)
       // Spectators view from position 1 but aren't on either team
@@ -2206,6 +2231,7 @@ function initializeApp() {
         showFinalScoreOverlay({
           solo: { end: data.gyb, playerData: pd, myPosition: isSpectator ? null : position },
           isSpectator,
+          scorecard,
           onReturnToLobby: () => {
             if (returnToReopenedLobby()) return;
             session.exitTable(EXIT.GAME_END_RETURN);
@@ -2262,6 +2288,7 @@ function initializeApp() {
         isSpectator: isSpectator,
         teamName: teamName,
         oppName: oppName,
+        scorecard,
         // exitTable routes by the tournament at click time (a cancel
         // meanwhile already sent this player to the main room)
         // Play again: a casual game whose lobby reopened goes back there

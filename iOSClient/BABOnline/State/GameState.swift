@@ -185,6 +185,33 @@ final class GameState: ObservableObject {
 
     var bidBook: BidBook? { table.phase.bids }
 
+    // MARK: The scorecard (State/Table/Scorecard.swift)
+
+    /// The server's rows, or nil while it has sent none (an older server: no scorecard).
+    var scorecardRows: [ScorecardRow]? { table.scorecard }
+    /// The server keeps a scorecard: the score bar opens it, the results have the tab.
+    var hasScorecard: Bool { table.scorecard != nil }
+
+    /// The hand in play for the card's last row (bids only), nil between deals.
+    var scorecardCurrent: Scorecard.Current? {
+        guard let deal = table.deal else { return nil }
+        switch table.phase.kind {
+        case .bidding, .playing, .handResolving: break
+        default: return nil
+        }
+        let bids = (0..<seatCount).map { bidBook?.bid(at: $0 + 1) }
+        return Scorecard.Current(handNo: deal.handNo, handSize: deal.handSize, trump: deal.trump, dealer: deal.dealer, bids: bids)
+    }
+
+    /// The card for this viewer: a seat's own pairs first (a watcher's from the watched seat), a
+    /// plain spectator's seats 1 and 3 first; seats named by their owners (the owner rule).
+    func scorecardModel(rows: [ScorecardRow]? = nil, current: Bool = true) -> Scorecard.Model {
+        let me: Int? = isPlainSpectator ? nil : (watchedSeat ?? position)
+        let names = isGyb ? players.ownerNames : players.teamNames
+        return Scorecard.model(rows: rows ?? table.scorecard ?? [], solo: isGyb, me: me, name: { names[$0] ?? "" },
+                               current: current ? scorecardCurrent : nil)
+    }
+
     // MARK: Get Your Bid (State/Table/GetYourBid.swift)
 
     /// A Get Your Bid table: three seats, no teams, no HSI / /help / tutorial.

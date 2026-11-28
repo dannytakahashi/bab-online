@@ -490,7 +490,9 @@ const s2c = {
                 avatarUrls: ref('avatarUrlsByPosition'),
                 // additive (2026-11-24): a Get Your Bid table's scores
                 gyb: obj({ scores: ref('gybBySeat') }),
-            }, { optional: ['avatarUrls', 'gyb'] })),
+                // additive (2026-11-27): how many scorecard rows the game has
+                scorecardRows: int({ minimum: 0, maximum: 13 }),
+            }, { optional: ['avatarUrls', 'gyb', 'scorecardRows'] })),
             variant('spectator', obj({
                 gameId: str(),
                 trump: ref('card'),
@@ -505,13 +507,15 @@ const s2c = {
                 shoulder: ref('shoulderHand'),
                 // additive (2026-11-24): a Get Your Bid table's scores
                 gyb: obj({ scores: ref('gybBySeat') }),
-            }, { optional: ['avatarUrls', 'shoulder', 'gyb'] })),
+                // additive (2026-11-27): how many scorecard rows the game has
+                scorecardRows: int({ minimum: 0, maximum: 13 }),
+            }, { optional: ['avatarUrls', 'shoulder', 'gyb', 'scorecardRows'] })),
         ),
         status: 'active', to: 'socket', seq: false,
-        added: ['avatarUrls', 'shoulder', 'gyb'],
+        added: ['avatarUrls', 'shoulder', 'gyb', 'scorecardRows'],
         clientReads: reads([W.game, 'client/src/state/GameState.js:applyDeal'], I.game('handleGameStart')),
         emittedFrom: ['server/socket/gameHandlers.js:dealHand'],
-        notes: 'One per connected seat owner (seat) and per spectator (spectator), each deal. The seat variant\'s players (seat socket ids in deal order) went with V1_REMOVALS #6 (2026-11-12): web maps a voice peer to a seat by username (voice/speakingSlot.js) and keeps the ids positionUpdate gave (GameState.applyDeal); iOS 1.2.0 decodes it optionally and never reads it. playerInfo: web reads it only when present; iOS 1.2.0 needs it (its loop is what clears, each deal, the owner custom-picture avatarUrl a lazy / resign bot keeps, and its only read of gameStart avatarUrls), so it stays (V1_REMOVALS #5).',
+        notes: 'One per connected seat owner (seat) and per spectator (spectator), each deal. The seat variant\'s players (seat socket ids in deal order) went with V1_REMOVALS #6 (2026-11-12): web maps a voice peer to a seat by username (voice/speakingSlot.js) and keeps the ids positionUpdate gave (GameState.applyDeal); iOS 1.2.0 decodes it optionally and never reads it. playerInfo: web reads it only when present; iOS 1.2.0 needs it (its loop is what clears, each deal, the owner custom-picture avatarUrl a lazy / resign bot keeps, and its only read of gameStart avatarUrls), so it stays (V1_REMOVALS #5). scorecardRows (additive 2026-11-27, the scorecard; server/game/scorecard.js): how many hands the game\'s scorecard holds (0 on the first deal); its presence tells a client the server keeps a scorecard (the score bar opens it from the first deal; the rows come as handComplete.scorecardRow and in every snapshot), and the rows themselves are never on it: a handComplete the client missed is a seq gap, whose resync snapshot carries every row.',
     },
     bidReceived: {
         payload: obj({ bid: ref('bidString'), position: ref('position'), bidArray: ref('bidArray') }),
@@ -594,10 +598,10 @@ const s2c = {
         emittedFrom: ['server/socket/gameHandlers.js:resumeTrick'],
     },
     handComplete: {
-        payload: obj({ score: ref('teamPair'), team1Tricks: int({ minimum: 0 }), team2Tricks: int({ minimum: 0 }), team1OldScore: int(), team2OldScore: int(), gyb: ref('gybHand') }, { optional: ['gyb'] }),
+        payload: obj({ score: ref('teamPair'), team1Tricks: int({ minimum: 0 }), team2Tricks: int({ minimum: 0 }), team1OldScore: int(), team2OldScore: int(), gyb: ref('gybHand'), scorecardRow: ref('scorecardHand') }, { optional: ['gyb', 'scorecardRow'] }),
         status: 'active', to: 'room', seq: false,
-        added: ['gyb'],
-        notes: 'At a Get Your Bid table the team keys keep their shape and carry nothing: the hand is gyb (each seat\'s bid, tricks and points, the scores before and after, the Forbidden Bid).' + GYB_NOTE,
+        added: ['gyb', 'scorecardRow'],
+        notes: 'At a Get Your Bid table the team keys keep their shape and carry nothing: the hand is gyb (each seat\'s bid, tricks and points, the scores before and after, the Forbidden Bid).' + GYB_NOTE + ' scorecardRow (additive 2026-11-27, the scorecard; server/game/scorecard.js): the row of the hand just scored, built from the values the hand was scored with; clients append it to the rows gameStart / the snapshot gave (by handNo). Every game, both modes; old clients ignore it.',
         clientReads: reads(W.game, I.game('handleHandComplete')),
         emittedFrom: ['server/socket/gameHandlers.js:handleHandComplete'],
     },
@@ -609,9 +613,13 @@ const s2c = {
             // additive (2026-11-24): a Get Your Bid game's result (score
             // then carries nothing; playerStats has its three seats)
             gyb: ref('gybEnd'),
-        }, { optional: ['gyb'] }),
+            // additive (2026-11-27): every hand's scorecard row (the
+            // results' Scorecard tab). Its own key, not the reserved
+            // handHistory, which shipped iOS reads as its own opaque list
+            scorecard: arr(ref('scorecardHand'), { maxItems: 13 }),
+        }, { optional: ['gyb', 'scorecard'] }),
         status: 'active', to: 'room', seq: false,
-        added: ['gyb'],
+        added: ['gyb', 'scorecard'],
         reserved: ['winner', 'winningTeam', 'team1Score', 'team1Players', 'team2Players', 'handHistory']
             .map((key) => ({ key, why: 'the iOS game-end screen reads it ahead of score/playerStats' })),
         clientReads: reads([W.game, W.main('onGameEnd')], I.game('registerGameEnd')),

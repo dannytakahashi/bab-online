@@ -116,6 +116,16 @@ enum WirePayload {
         /// Get Your Bid (additive 2026-11-24): each seat's score before this deal; its presence
         /// marks the table as a Get Your Bid one (GetYourBid.swift).
         var gyb: GybStart?
+        /// The scorecard (additive 2026-11-27): how many rows the server's scorecard holds; its
+        /// presence says the server keeps one (Scorecard.swift). Lenient: a wrong type is nil.
+        var scorecardRows: LenientInt?
+    }
+
+    /// An Int decoded with `try?` (a field of another type is nil, never a failed event).
+    struct LenientInt: Decodable, Equatable {
+        var value: Int?
+        init(_ value: Int?) { self.value = value }
+        init(from decoder: Decoder) throws { value = try? decoder.singleValueContainer().decode(Int.self) }
     }
 
     /// `{position, hand, hsi}` (gameStart.shoulder), decoded with `try?`.
@@ -176,6 +186,8 @@ enum WirePayload {
         var seq: Int?
         /// Get Your Bid (additive): the hand seat by seat (the team keys carry nothing there).
         var gyb: GybHand?
+        /// The scorecard (additive 2026-11-27): this hand's row (lenient: a bad row is nil).
+        var scorecardRow: LenientScorecardRow?
     }
 
     struct GameEnd: Decodable, Equatable { var tournamentId: String?; var seq: Int? }

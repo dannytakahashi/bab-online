@@ -125,6 +125,7 @@
     },
     "tournament": null,
     "log": [],
-    "resume": null
+    "resume": null,
+    "scorecard": []
   }
 }

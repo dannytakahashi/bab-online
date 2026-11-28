@@ -230,7 +230,7 @@ describe('a tournament table', () => {
     expect(page.session.screen).toBe('gameEnd');
     expect(page.voice.shutdown).not.toHaveBeenCalled();
     socket.clearEmits();
-    document.querySelector('#finalScoreOverlay button').click();
+    document.querySelector('#finalScoreOverlay .kit-modal__actions button').click();
     await settle();
     expect(socket.emitted('returnToTournament')).toHaveLength(1);
     expect(page.session.screen).toBe('tournamentLobby');
