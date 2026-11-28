@@ -213,6 +213,10 @@ final class SocketService: ObservableObject {
             if let authState = self?.authState, authState.hasStoredSession {
                 print("[Socket] Auto-restoring session for: \(authState.username)")
                 AuthEmitter.restoreSession(username: authState.username, sessionToken: authState.sessionToken)
+                // the session gate opens only on its answer: wait for it, bounded (restoreSent)
+                if let socket = self?.socket {
+                    DispatchQueue.main.async { self?.restoreSent(on: socket) }
+                }
             }
             // error reports made while disconnected, once the restore has had time to answer
             // (so the server can name the signed-in user); new ones wait with them until then
@@ -346,6 +350,7 @@ final class SocketService: ObservableObject {
         Self.retire(manager: manager, socket: socket)
         self.manager = nil
         self.socket = nil
+        restoreWait = nil
         isConnected = false
         isSessionReady = false
         DispatchQueue.main.async { RestartNotices.shared.disconnected() }  // as the old .disconnect would have
@@ -511,6 +516,8 @@ final class SocketService: ObservableObject {
     /// UI fixtures only (`-uiForegroundProbe YES`): hold the moment a foreground probe is in
     /// flight, with no socket.
     func holdForegroundProbeForFixture() { isForegroundProbing = true }
+    /// UI fixtures only (`-uiGateFlip`): the probe answered.
+    func releaseForegroundProbeForFixture() { isForegroundProbing = false }
     #endif
 
     private func rebuildAfterForeground(reason: String) {
@@ -536,10 +543,87 @@ final class SocketService: ObservableObject {
     /// that the joinMainRoom then left at once).
     func noteSessionEstablished() {
         isSessionReady = true
+        restoreWait = nil
+        unansweredRebuilds = 0
+    }
+
+    // MARK: - The restore's answer
+
+    /// How long a restore sent on a connected socket may go unanswered before the connection
+    /// is rebuilt (`restoreSent`), the first time. The server answers every restore it
+    /// receives (a failure too) unless the socket closed meanwhile; well under a second on a
+    /// live link.
+    static var restoreAnswerWait: TimeInterval = 5
+    /// The longest wait (`currentRestoreAnswerWait`).
+    static var restoreAnswerWaitCap: TimeInterval = 30
+
+    /// Connections rebuilt in a row because their restore went unanswered, since the last
+    /// session (`noteSessionEstablished`) or sign-out (`disconnect`). Each one doubles the next
+    /// wait, so a server that answers, but later than `restoreAnswerWait` (a restore waits on
+    /// the database: up to 10 s while the server starts, and each Mongo operation up to its
+    /// 5 s server selection timeout in a blip), is still waited for long enough to be heard:
+    /// with a fixed wait every restore was cut off just before its answer and the gate never
+    /// opened, the app building a new connection every 5 s against a server already slow.
+    /// A failure answered (`restoreAnswered`) keeps it: a "Database error" can come as late.
+    private var unansweredRebuilds = 0
+    /// The wait for the next restore: `restoreAnswerWait`, doubled per unanswered rebuild in
+    /// a row, at most `restoreAnswerWaitCap` (5, 10, 20, 30, 30 s...).
+    var currentRestoreAnswerWait: TimeInterval {
+        min(Self.restoreAnswerWait * pow(2, Double(min(unansweredRebuilds, 16))), Self.restoreAnswerWaitCap)
+    }
+
+    /// The restore waiting for its answer: the connection it went out on (`connectionsOpened`
+    /// when it was built: a socket's address can be reused by the next one), its round, and
+    /// how long it is given.
+    private var restoreWait: (connection: Int, round: Int, seconds: TimeInterval)?
+    private var restoreWaitRounds = 0
+
+    /// A restore went out on `socket` (`.connect`, or a retry after a retryable failure).
+    /// The session gate (`isSessionReady`) opens only on the server's answer, and nothing
+    /// else asks again on a socket that stays connected: a restore lost on the way (owner
+    /// 2026-11-27 on the open Duo: "the start game spade can be greyed out" after a
+    /// reconnect, with the connection toast gone) left New Game, Join and Spectate off until
+    /// the app was backgrounded past the keep-alive. Socket.IO-Client-Swift can lose it while
+    /// it overlaps handshakes on a slow link (iOSClient/CLAUDE.md, iOS reconnect after a
+    /// background): `SocketEngine.write` drops a packet while the engine is between two
+    /// sessions, and a namespace connect answered on the session being replaced raises
+    /// `.connect` for a socket the next session never joins. Unanswered after
+    /// `currentRestoreAnswerWait` on the same connection, still connected: a new connection
+    /// (`forceReconnect`), whose own restore opens the gate, and given twice as long (a slow
+    /// server, not a lost restore, is heard on a later round). Nothing is let through early.
+    func restoreSent(on socket: SocketIOClient) {
+        guard socket === self.socket else { return }
+        restoreWaitRounds += 1
+        let wait = (connection: connectionsOpened, round: restoreWaitRounds, seconds: currentRestoreAnswerWait)
+        restoreWait = wait
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait.seconds) { [weak self] in
+            self?.restoreWaitEnded(wait)
+        }
+    }
+
+    /// The server answered the restore (a failure too: the retry or the sign-in screen takes
+    /// it from there).
+    func restoreAnswered() {
+        restoreWait = nil
+    }
+
+    private func restoreWaitEnded(_ wait: (connection: Int, round: Int, seconds: TimeInterval)) {
+        guard let pending = restoreWait, pending.connection == wait.connection, pending.round == wait.round else { return }
+        restoreWait = nil
+        guard let socket, connectionsOpened == wait.connection, isConnected, !isSessionReady,
+              authState?.hasStoredSession == true else { return }
+        let state = "manager \(manager.map { "\($0.status)" } ?? "-"), socket \(socket.status)"
+        unansweredRebuilds += 1
+        print("[Socket] Restore unanswered after \(wait.seconds) s (\(state)): rebuilding connection, next wait \(currentRestoreAnswerWait) s")
+        ErrorReporter.shared.report(kind: "restoreUnanswered",
+                                    message: "no restore answer after \(Int(wait.seconds)) s (\(state))")
+        forceReconnect()
     }
 
     func disconnect() {
         cancelForegroundProbe()
+        restoreWait = nil
+        unansweredRebuilds = 0
         if let manager, let socket { Self.retire(manager: manager, socket: socket) }
         socket = nil
         manager = nil

@@ -62,12 +62,27 @@ Socket.prototype._onclose = function (reason) {
 // event names only (and a requestSnapshot's requestId / log flag): never a payload
 const IN = new Set(['restoreSession', 'requestSnapshot', 'rejoinGame', 'joinMainRoom', 'signUp', 'signIn',
     'createLobby', 'playerBid', 'playCard', 'addBot', 'playerReady']);
+// BAB_LIVE_RESTORE_DELAY_MS: each restoreSession is handled that much later (a production
+// database's latency: the restore's answer is still on its way when the app comes to the front).
+// BAB_LIVE_DROP_RESTORES=<n>: the first n restoreSession packets are dropped unanswered (a
+// restore lost on its way: the app's connection is up, its session gate stays closed)
+const restoreDelay = Number(process.env.BAB_LIVE_RESTORE_DELAY_MS) || 0;
+let restoresToDrop = Number(process.env.BAB_LIVE_DROP_RESTORES) || 0;
 const origOnevent = Socket.prototype.onevent;
 Socket.prototype.onevent = function (packet) {
     const [name, data] = packet.data || [];
     if (IN.has(name)) {
         const extra = name === 'requestSnapshot' ? ` requestId=${data && data.requestId} log=${data && data.log}` : '';
         log('IN ', this.id, name + extra);
+    }
+    if (restoresToDrop > 0 && name === 'restoreSession') {
+        restoresToDrop -= 1;
+        log('DROP', this.id, 'restoreSession');
+        return undefined;
+    }
+    if (restoreDelay > 0 && name === 'restoreSession') {
+        setTimeout(() => origOnevent.call(this, packet), restoreDelay);
+        return undefined;
     }
     return origOnevent.call(this, packet);
 };
