@@ -282,7 +282,8 @@ export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onRetu
     actions: [returnBtn],
     dismissible: false,
     initialFocus: returnBtn,
-    className: `result-modal ${tone}`,
+    // one width for both tabs while it has a Scorecard (the dialog and its control never jump)
+    className: `result-modal ${tone}${scorecard ? ' has-scorecard' : ''}`,
   });
   scoreModal = modal;
 
@@ -335,7 +336,8 @@ function showSoloResult({ solo, onReturnToLobby, buttonText, isSpectator, scorec
     actions: [returnBtn],
     dismissible: false,
     initialFocus: returnBtn,
-    className: `result-modal ${tone}`,
+    // one width for both tabs while it has a Scorecard (the dialog and its control never jump)
+    className: `result-modal ${tone}${scorecard ? ' has-scorecard' : ''}`,
   });
   scoreModal = modal;
   const destroy = () => {

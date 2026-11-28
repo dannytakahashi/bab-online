@@ -73,13 +73,12 @@ struct ScorecardRow: Equatable, Codable, Identifiable {
 }
 
 /// handComplete.scorecardRow, decoded with `try?`: a malformed row is nil, never a failed event.
+/// The one-line wrapper the contract's Swift reader understands (contract/lib/swiftDecodes.js);
+/// `isValid` is checked where the rows are used (the reducer, `Scorecard.rows(fromJSON:)`).
 struct LenientScorecardRow: Decodable, Equatable {
     var value: ScorecardRow?
     init(_ value: ScorecardRow?) { self.value = value }
-    init(from decoder: Decoder) throws {
-        let row = try? ScorecardRow(from: decoder)
-        value = (row?.isValid ?? false) ? row : nil
-    }
+    init(from decoder: Decoder) throws { value = try? ScorecardRow(from: decoder) }
 }
 
 enum Scorecard {
@@ -93,13 +92,35 @@ enum Scorecard {
     static func rows(fromJSON raw: Any?) -> [ScorecardRow]? {
         guard let list = raw as? [Any], let data = try? JSONSerialization.data(withJSONObject: list),
               let decoded = try? JSONDecoder().decode([LenientScorecardRow].self, from: data) else { return nil }
-        return decoded.compactMap(\.value).reduce(into: [ScorecardRow]()) { $0 = merge($0, $1) }
+        return decoded.compactMap(\.value).filter(\.isValid).reduce(into: [ScorecardRow]()) { $0 = merge($0, $1) }
     }
 
     /// "+41", "−50" (a true minus, as the mockup), "0".
     static func signed(_ n: Int) -> String { n > 0 ? "+\(n)" : n < 0 ? "\u{2212}\(-n)" : "0" }
 
+    /// A name without the bot persona's "🤖 " (the Dealer column and every spoken name: the player
+    /// columns' headers keep it, so a bot is still marked once on the card).
+    static func plainName(_ name: String) -> String {
+        guard name.hasPrefix("\u{1F916}") else { return name }
+        let rest = name.dropFirst().drop { $0 == " " || $0 == "\u{FE0F}" }
+        return rest.isEmpty ? name : String(rest)
+    }
+
+    /// A bore bid in words: "a bore", "a double bore", "a triple bore", "a quadruple bore".
+    static func boreWords(_ bid: String) -> String {
+        switch bid {
+        case "2B": return "a double bore"
+        case "3B": return "a triple bore"
+        case "4B": return "a quadruple bore"
+        default: return "a bore"
+        }
+    }
+
     // MARK: the model ScorecardView draws
+
+    /// A cell's text colour (ScorecardCellView maps it to Theme): gold only for extra tricks, red
+    /// only at fault (a set bore too), green only for a bore.
+    enum Ink: String, Equatable { case plain, gold, red, green }
 
     /// What a cell is drawn as (the colours mean only these).
     enum Role: Equatable {
@@ -122,6 +143,18 @@ enum Scorecard {
         /// Get Your Bid: the seat's Forbidden Bid this deal (struck)
         let forbidden: Int?
 
+        /// The whole cell's colour: its role's (bid, arrow and took alike).
+        var ink: Ink {
+            switch role {
+            case .plain: return .plain
+            case .fault, .boreSet: return .red
+            case .bore: return .green
+            }
+        }
+        /// The took number's colour: gold for extra tricks, else the cell's own (a fault pill's or a
+        /// bore chip's took is red / green like the rest of it, as the mockup draws it).
+        var tookInk: Ink { extra ? .gold : ink }
+
         /// "2 → 3" ("2 → –" for the hand in play; "–" before the seat bids).
         var text: String {
             guard let bid else { return "\u{2013}" }
@@ -141,7 +174,8 @@ enum Scorecard {
     struct Player: Equatable { let position: Int; let name: String; let colour: Int; let mine: Bool }
     /// A pair over its two players and its Score column (never "Team 1": the names are the label).
     struct Pair: Equatable { let positions: [Int]; let label: String; let spoken: String; let colour: Int; let teamIndex: Int }
-    struct ScoreColumn: Equatable { let index: Int; let label: String; let spoken: String; let colour: Int }
+    /// `lines`: the label over two lines where one is too narrow ("ivy &" / "hal"; a player's name alone).
+    struct ScoreColumn: Equatable { let index: Int; let label: String; let lines: [String]; let spoken: String; let colour: Int }
 
     struct HandLabel: Equatable {
         let size: Int
@@ -204,17 +238,24 @@ enum Scorecard {
         if solo {
             let order = GybRules.order(viewer: me)
             let players = order.map { Player(position: $0, name: n($0), colour: Positions.colour($0, seats: GybRules.seats), mine: $0 == me) }
-            return (players, [], order.map { ScoreColumn(index: $0 - 1, label: n($0), spoken: n($0), colour: Positions.colour($0, seats: GybRules.seats)) })
+            return (players, [], order.map {
+                ScoreColumn(index: $0 - 1, label: plainName(n($0)), lines: [plainName(n($0))], spoken: plainName(n($0)),
+                            colour: Positions.colour($0, seats: GybRules.seats))
+            })
         }
         let viewer = me.flatMap { (1...4).contains($0) ? $0 : nil } ?? 1
         let r = Positions.getRelativePositions(myPos: viewer)
         let pairs = [[viewer, r.partner], [r.opp1, r.opp2]].map { pair -> Pair in
             let team = Positions.getTeamNumber(pair[0])
-            return Pair(positions: pair, label: "\(n(pair[0])) & \(n(pair[1]))", spoken: "\(n(pair[0])) and \(n(pair[1]))",
-                        colour: team, teamIndex: team - 1)
+            return Pair(positions: pair, label: "\(n(pair[0])) & \(n(pair[1]))",
+                        spoken: "\(plainName(n(pair[0]))) and \(plainName(n(pair[1])))", colour: team, teamIndex: team - 1)
         }
         let players = pairs.flatMap { p in p.positions.map { Player(position: $0, name: n($0), colour: p.colour, mine: $0 == me) } }
-        return (players, pairs, pairs.map { ScoreColumn(index: $0.teamIndex, label: $0.label, spoken: $0.spoken, colour: $0.colour) })
+        return (players, pairs, pairs.map { p in
+            // the Score column's names without the bot mark (the pair's header over its players keeps it)
+            let a = plainName(n(p.positions[0])), b = plainName(n(p.positions[1]))
+            return ScoreColumn(index: p.teamIndex, label: "\(a) & \(b)", lines: ["\(a) &", b], spoken: p.spoken, colour: p.colour)
+        })
     }
 
     /// One seat's cell (the web's cellOf).
@@ -237,7 +278,7 @@ enum Scorecard {
 
     private static func words(_ name: String, _ c: Cell) -> String {
         guard let bid = c.bid else { return "\(name) not bid yet" }
-        let bidWord = bid.contains("B") ? (bid == "B" ? "bid a bore" : "bid bore \(bid)") : "bid \(bid)"
+        let bidWord = bid.contains("B") ? "bid \(boreWords(bid))" : "bid \(bid)"
         guard let took = c.took else { return "\(name) \(bidWord)" }
         var s = "\(name) \(bidWord), took \(took)"
         if c.extra {
@@ -275,14 +316,15 @@ enum Scorecard {
             }
             return cell(r, p.position, current: current)
         }
-        let dealerName = (1...4).contains(r.dealer) ? { let s = name(r.dealer); return s.isEmpty ? "P\(r.dealer)" : s }() : ""
+        // the dealer's plain name (the column is narrow; the player columns already mark a bot)
+        let dealerName = (1...4).contains(r.dealer) ? { let s = plainName(name(r.dealer)); return s.isEmpty ? "P\(r.dealer)" : s }() : ""
         let scores: [ScoreCell]? = current ? nil : cols.scores.map {
             ScoreCell(total: r.scores.indices.contains($0.index) ? r.scores[$0.index] : 0,
                       delta: r.points.indices.contains($0.index) ? r.points[$0.index] : 0,
                       showDelta: r.handNo != 1, colour: $0.colour)
         }
         var parts = ["\(hand.spoken).", dealerName.isEmpty ? "" : "Dealer \(dealerName)."]
-        for (i, c) in cells.enumerated() { parts.append(words(cols.players[i].name, c) + ".") }
+        for (i, c) in cells.enumerated() { parts.append(words(plainName(cols.players[i].name), c) + ".") }
         if let scores {
             for (i, sc) in scores.enumerated() {
                 parts.append("\(cols.scores[i].spoken) \(spokenNumber(sc.total))\(sc.showDelta ? ", \(spokenDelta(sc.delta))" : "").")

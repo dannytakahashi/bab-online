@@ -4,8 +4,10 @@ import XCTest
 /// score bar's mid-game sheet, in fixture mode (`-uiScorecard YES`: UIFixture+Scorecard; the
 /// rows follow the server's rules: a fault, extra tricks, a made bore, a set 2B, a joker hand, a
 /// rainbow; Get Your Bid with its Forbidden Bid). `-uiScorecardNone YES`: an older server (no key).
-/// Run on the iPhone 18 Pro, the iPhone Duo closed and open and the iPad, default and AX5.
-/// `TEST_RUNNER_BAB_SHOTS=<folder>` (+ `TEST_RUNNER_BAB_DEVICE=<tag>`) saves PNGs.
+/// Run on the iPhone 18 Pro, the iPhone Duo closed, open portrait and open landscape and the iPad,
+/// default and AX5 (`TEST_RUNNER_BAB_POSE=<closed|open-portrait|open-landscape>` makes the run
+/// assert the Duo's pose, as FixtureScreenshotTests). `TEST_RUNNER_BAB_SHOTS=<folder>`
+/// (+ `TEST_RUNNER_BAB_DEVICE=<tag>`) saves PNGs.
 final class ScorecardUITests: XCTestCase {
     static let ax5 = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
 
@@ -15,7 +17,22 @@ final class ScorecardUITests: XCTestCase {
         let app = Fixture.launch(fixture, extra: ["-uiScorecard", "YES"] + extra)
         let ready = fixture.hasSuffix("-end") ? app.descendants(matching: .any)["gameEnd"] : Fixture.readyElement(app, fixture)
         XCTAssertTrue(ready.waitForExistence(timeout: 20), "\(fixture) did not come up")
+        if let expected = ProcessInfo.processInfo.environment["BAB_POSE"] {
+            XCTAssertEqual(Fixture.poseName(Fixture.probe(app, "ui.pose")), expected, "the simulator is not in the expected pose")
+        }
         return app
+    }
+
+    /// The table's DEBUG layout probe: "fits|scrolls labels=one|two|cut dealer=whole|cut".
+    private func layout(_ app: XCUIApplication) -> String { any(app, "scorecard").value as? String ?? "" }
+
+    /// At the default size the table fits, and no Score column's names or dealer is cut (review of
+    /// PR #455: "jon & k…" on every device, "🤖 …" for a bot dealer).
+    private func checkWholeLabels(_ app: XCUIApplication, _ tag: String) {
+        let v = layout(app)
+        XCTAssertTrue(v.hasPrefix("fits "), "\(tag): the columns fit at the default size: \(v)")
+        XCTAssertFalse(v.contains("labels=cut"), "\(tag): a Score column's names cut: \(v)")
+        XCTAssertTrue(v.contains("dealer=whole"), "\(tag): a dealer's name cut: \(v)")
     }
 
     private func any(_ app: XCUIApplication, _ id: String) -> XCUIElement {
@@ -23,7 +40,11 @@ final class ScorecardUITests: XCTestCase {
     }
 
     private func shot(_ name: String) {
-        let s = XCUIScreen.main.screenshot()
+        // the Duo open (or half open) lights its inner display, the last screen; XCUIScreen.main is
+        // the outer one, black then
+        let pose = ProcessInfo.processInfo.environment["BAB_POSE"] ?? ""
+        let screen = pose.isEmpty || pose == "closed" ? XCUIScreen.main : (XCUIScreen.screens.last ?? XCUIScreen.main)
+        let s = screen.screenshot()
         let a = XCTAttachment(screenshot: s)
         a.name = name
         a.lifetime = .keepAlways
@@ -62,20 +83,21 @@ final class ScorecardUITests: XCTestCase {
         app.buttons["Scorecard"].tap()
         XCTAssertTrue(any(app, "scorecard").waitForExistence(timeout: 5))
         XCTAssertFalse(any(app, "gameEnd.stats").exists, "the summary goes while the scorecard shows")
-        XCTAssertEqual(any(app, "scorecard").value as? String, "fits", "the columns fit at the default size")
+        checkWholeLabels(app, "game-end")
         shot("game-end-scorecard")
         checkRows(app, Array(1...13), "game-end")
         // the ledger: no delta on the first hand, then "+41/92"-style, and the roles
         let first = any(app, "scorecard.row.1").value as? String ?? ""
         XCTAssertTrue(first.contains("=51") && first.contains("=33"), "hand 1: totals only: \(first)")
         let second = any(app, "scorecard.row.2").value as? String ?? ""
-        XCTAssertTrue(second.contains("fault:3 \u{2192} 1"), "kim at fault: \(second)")
+        XCTAssertTrue(second.contains("fault:3 \u{2192} 1@red"), "kim at fault, the took number red too: \(second)")
         XCTAssertTrue(second.contains("+43/94") && second.contains("\u{2212}50/-17"), "delta above total: \(second)")
-        XCTAssertTrue((any(app, "scorecard.row.5").value as? String ?? "").contains("bore:B \u{2192} 4"), "a made bore")
-        XCTAssertTrue((any(app, "scorecard.row.9").value as? String ?? "").contains("boreSet:2B \u{2192} 4"), "a set 2B")
-        XCTAssertTrue((any(app, "scorecard.row.1").value as? String ?? "").contains("plain+:2 \u{2192} 3"), "extra tricks gold")
+        XCTAssertTrue((any(app, "scorecard.row.5").value as? String ?? "").contains("bore:B \u{2192} 4@green"), "a made bore, all green")
+        XCTAssertTrue((any(app, "scorecard.row.9").value as? String ?? "").contains("boreSet:2B \u{2192} 4@red"), "a set 2B, all red")
+        XCTAssertTrue((any(app, "scorecard.row.1").value as? String ?? "").contains("plain+:2 \u{2192} 3@gold"), "extra tricks gold")
         XCTAssertTrue(any(app, "scorecard.row.7").label.hasPrefix("Hand 1, no trump, low joker."), any(app, "scorecard.row.7").label)
         XCTAssertTrue(any(app, "scorecard.row.2").label.contains("kim bid 3, took 1, at fault."), any(app, "scorecard.row.2").label)
+        XCTAssertTrue(any(app, "scorecard.row.9").label.contains("bid a double bore, took 4, set."), any(app, "scorecard.row.9").label)
         // back to the summary
         app.buttons["Summary"].tap()
         XCTAssertTrue(any(app, "gameEnd.stats").waitForExistence(timeout: 3))
@@ -96,6 +118,7 @@ final class ScorecardUITests: XCTestCase {
         XCTAssertTrue(seg.waitForExistence(timeout: 5))
         seg.tap()
         XCTAssertTrue(any(app, "scorecard").waitForExistence(timeout: 5))
+        XCTAssertFalse(layout(app).contains("labels=cut"), "scrolling, nothing need be cut: \(layout(app))")
         shot("game-end-scorecard-ax5")
         checkRows(app, [1, 2, 3], "AX5")
     }
@@ -119,9 +142,11 @@ final class ScorecardUITests: XCTestCase {
         let v = current.value as? String ?? ""
         XCTAssertTrue(v.contains("\u{2192} \u{2013}") && v.hasSuffix("-"), "bids only, no score: \(v)")
         XCTAssertTrue(current.label.contains("Hand in play"), current.label)
+        checkWholeLabels(app, "sheet")
         shot("midgame-sheet")
-        // a swipe down closes it
-        sheet.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        // a swipe down from its top closes it (from the middle, the open Duo's short landscape sheet
+        // moved too little to close)
+        sheet.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.03))
             .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.99)))
         let gone = NSPredicate(format: "exists == false")
         expectation(for: gone, evaluatedWith: sheet)
@@ -160,6 +185,11 @@ final class ScorecardUITests: XCTestCase {
         let row1 = any(app, "scorecard.row.1")
         XCTAssertFalse((row1.value as? String ?? "").contains("fault"), "no fault in Get Your Bid")
         XCTAssertTrue((1...13).contains { (any(app, "scorecard.row.\($0)").value as? String ?? "").contains("~") }, "the Forbidden Bid")
+        checkWholeLabels(app, "gyb-end")
+        // a bot dealer by its plain name, never "🤖 …" (review of PR #455)
+        let botDealt = (1...13).map { any(app, "scorecard.row.\($0)").label }.filter { $0.contains("Dealer Mary.") }
+        XCTAssertFalse(botDealt.isEmpty, "the bot's deals read its plain name")
+        XCTAssertFalse((1...13).contains { any(app, "scorecard.row.\($0)").label.contains("\u{1F916}") }, "no robot face spoken")
         shot("gyb-end-scorecard")
 
         let mid = Fixture.launch("gyb-bidding", extra: ["-uiScorecard", "YES"])

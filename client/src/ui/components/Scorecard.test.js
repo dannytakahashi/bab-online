@@ -84,13 +84,31 @@ describe('the table', () => {
     expect(renderScorecard(buildScorecard({ rows: [], me: 1 })).textContent).toBe('No hands played yet.');
   });
 
-  it('Get Your Bid: no pair row, one Score column per player in its colour, the Forbidden Bid struck', () => {
+  it('Get Your Bid: no pairs; each player\'s name over its Score column with "Score" under it; the Forbidden Bid under its cell', () => {
     const row = { handNo: 9, handSize: 5, trump: H('clubs'), dealer: 3, bids: ['2', '1', '1'], took: [2, 0, 3], points: [12, 0, 0], scores: [40, 21, 7], faults: [], forbidden: { position: 3, bid: 2 } };
-    const node = renderScorecard(buildScorecard({ rows: [row], solo: true, me: 1, name: (p) => NAMES[p] }));
-    expect(node.querySelector('.scorecard__groups')).toBeNull();
-    expect([...node.querySelectorAll('.scorecard__scorehead')].map((n) => n.textContent)).toEqual(['ivy', 'kim', 'hal']);
-    expect(node.querySelector('s.scorecard__forbidden').textContent).toBe('2');
+    const node = renderScorecard(buildScorecard({ rows: [row], solo: true, me: 1, name: (p) => (p === 3 ? '🤖 Mary' : NAMES[p]) }));
+    expect(node.querySelectorAll('.scorecard__pair')).toHaveLength(0);
+    // review of PR #455: the second set of names said nothing about being scores
+    expect([...node.querySelectorAll('.scorecard__pairname')].map((n) => [n.textContent, n.className.match(/is-team-(\w)/)[1]])).toEqual([['ivy', 'a'], ['kim', 'b'], ['Mary', 'c']]);
+    expect([...node.querySelectorAll('.scorecard__scorehead')].map((n) => n.textContent)).toEqual(['Score', 'Score', 'Score']);
+    expect([...node.querySelectorAll('.scorecard__player')].map((n) => n.textContent)).toEqual(['ivy', 'kim', '🤖 Mary']);
+    // the Forbidden Bid: under the cell (its own line), never inside the "bid → took" pill
+    const cell = node.querySelectorAll('.scorecard__seat')[2].firstChild;
+    expect(cell.className).toBe('scorecard__stack');
+    expect(cell.querySelector('.scorecard__cell').textContent).toBe('1→3');
+    expect(cell.querySelector('.scorecard__cell s')).toBeNull();
+    expect(cell.lastChild.tagName).toBe('S');
+    expect(cell.lastChild.textContent).toBe('2');
     expect(node.querySelectorAll('.is-fault')).toHaveLength(0);
+    expect(node.querySelector('.scorecard__dealer').textContent).toBe('Mary'); // the dealer without the bot mark
+  });
+
+  it('a pair\'s names over its Score column can wrap at " & " ("ivy &" / "hal"), without the bot mark', () => {
+    const node = renderScorecard(buildScorecard({ rows: ROWS, me: 1, name: (p) => (p === 2 ? '🤖 Mike' : NAMES[p]) }));
+    const heads = [...node.querySelectorAll('.scorecard__pairname')];
+    expect(heads.map((h) => [...h.querySelectorAll('.scorecard__line')].map((l) => l.textContent))).toEqual([['ivy &', 'hal'], ['Mike &', 'jon']]);
+    expect(heads.map((h) => h.textContent)).toEqual(['ivy & hal', 'Mike & jon']);
+    expect(node.querySelector('.scorecard__pair.is-team-b').textContent).toBe('🤖 Mike & jon');
   });
 });
 
@@ -118,11 +136,14 @@ describe('the results modal', () => {
     expect(panel('summary').hidden).toBe(false);
     // the Return button stays outside the tabs
     expect(modal.querySelector('.kit-modal__actions button').textContent).toBe('Return to Lobby');
+    // one width for both tabs (the dialog never jumps between them)
+    expect(modal.querySelector('[role="dialog"]').classList.contains('has-scorecard')).toBe(true);
   });
 
   it('without a scorecard (an older server): no control, the summary as before', () => {
     showFinalScoreOverlay({ teamScore: 10, oppScore: 0, playerStats: null, onReturnToLobby: () => {}, teamName: 'a/b', oppName: 'c/d' });
     expect(document.querySelector('.result-tabs')).toBeNull();
+    expect(document.querySelector('.has-scorecard')).toBeNull();
   });
 
   it('Get Your Bid\'s results get the control too', () => {
@@ -134,21 +155,30 @@ describe('the results modal', () => {
 });
 
 describe('mid-game: the score header opens it', () => {
-  it('the header is a "Scorecard" button with a "›" only while the server keeps one', () => {
+  it('the hand indicator is a "Scorecard" button with a "›" only while the server keeps one; the scores stay readable text', () => {
     const log = createGameLog();
     document.body.appendChild(log.container);
     const header = log.container.querySelector('#gameLogScore');
-    expect(header.getAttribute('role')).toBeNull();
+    const hand = header.querySelector('#handIndicator');
+    expect(hand.getAttribute('role')).toBeNull();
     let opened = 0;
     log.setScorecard(() => { opened++; });
-    expect(header.getAttribute('role')).toBe('button');
-    expect(header.getAttribute('aria-label')).toBe('Scorecard');
-    expect(header.querySelector('.log-hand__more').textContent).toBe('›');
+    // review of PR #455: the whole header as the button hid the scores from screen readers
+    expect(header.getAttribute('role')).toBeNull();
+    expect(header.getAttribute('aria-label')).toBeNull();
+    expect(hand.getAttribute('role')).toBe('button');
+    expect(hand.getAttribute('tabindex')).toBe('0');
+    expect(hand.getAttribute('aria-label')).toBe('Scorecard');
+    const described = hand.getAttribute('aria-describedby').split(' ').map((id) => document.getElementById(id)?.textContent);
+    expect(described).toEqual(['Hand›', '-']);
+    expect(hand.querySelector('.log-hand__more').getAttribute('aria-hidden')).toBe('true');
+    expect(header.querySelector('#teamScoreDisplay').closest('[role="button"]')).toBeNull();
     header.click();
-    header.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    hand.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     expect(opened).toBe(2);
     log.setScorecard(null);
-    expect(header.getAttribute('role')).toBeNull();
+    expect(hand.getAttribute('role')).toBeNull();
+    expect(hand.getAttribute('aria-describedby')).toBeNull();
     expect(header.querySelector('.log-hand__more')).toBeNull();
     header.click();
     expect(opened).toBe(2);

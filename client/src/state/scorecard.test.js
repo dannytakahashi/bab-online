@@ -5,7 +5,7 @@
  * hand), the hand in play with bids only, and one sentence per row.
  */
 import { describe, it, expect } from 'vitest';
-import { validRow, parseRows, mergeRow, signed, handLabel, buildScorecard, cellOf, scorecardColumns } from './scorecard.js';
+import { boreWords, plainName, validRow, parseRows, mergeRow, signed, handLabel, buildScorecard, cellOf, scorecardColumns } from './scorecard.js';
 import { GameState } from './GameState.js';
 
 const H = (suit, rank = '7') => ({ suit, rank });
@@ -114,7 +114,22 @@ describe('buildScorecard', () => {
   it('a bore set reads as set; a made bore as a bore', () => {
     const m = buildScorecard({ rows: ROWS, me: 1, name });
     expect(m.rows[2].spoken).toContain('ivy bid a bore, took 4.');
-    expect(m.rows[3].spoken).toContain('kim bid bore 2B, took 4, set.');
+    expect(m.rows[3].spoken).toContain('kim bid a double bore, took 4, set.');
+    expect(['B', '2B', '3B', '4B'].map(boreWords)).toEqual(['a bore', 'a double bore', 'a triple bore', 'a quadruple bore']);
+  });
+
+  it('a bot is marked once, on its column: its plain name as dealer, on the Score column and in every sentence', () => {
+    const bots = (p) => ({ 1: 'ivy', 2: '🤖 Mary', 3: 'hal', 4: 'jon' })[p];
+    const m = buildScorecard({ rows: ROWS.slice(0, 1), me: 1, name: bots });
+    expect(m.players.find((p) => p.position === 2).name).toBe('🤖 Mary');
+    expect(m.groups[1].label).toBe('🤖 Mary & jon');
+    expect(m.scores.map((s) => [s.label, s.lines])).toEqual([['ivy & hal', ['ivy &', 'hal']], ['Mary & jon', ['Mary &', 'jon']]]);
+    expect(m.rows[0].dealerName).toBe('Mary');
+    expect(m.rows[0].spoken).not.toContain('🤖');
+    expect(m.rows[0].spoken).toContain('Dealer Mary. ');
+    expect(m.rows[0].spoken).toContain('Mary and jon 33.');
+    expect(plainName('🤖')).toBe('🤖');
+    expect(plainName('kim')).toBe('kim');
   });
 
   it('the hand in play: its row last, bids only, no score; not when its row already came', () => {
@@ -153,7 +168,7 @@ describe('GameState keeps the server\'s rows', () => {
     gs.applyHandComplete({ score: { team1: 51, team2: 33 }, scorecardRow: { bad: true } });
     expect(gs.scorecard).toHaveLength(1);
     gs.applyDeal({ gameId: 'g1', currentHand: 10, dealer: 1, hand: [], trump: H('spades'), scorecardRows: 2 });
-    expect(gs.scorecardBehind).toBe(true);
+    expect(gs.scorecard).toHaveLength(1); // the count is the feature flag only (a missed row is a seq gap)
     gs.applyGameEnd({ score: { team1: 182, team2: -143 }, scorecard: ROWS });
     expect(gs.scorecard).toEqual(ROWS);
     // another game's deal starts a new card

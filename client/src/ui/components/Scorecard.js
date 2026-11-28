@@ -81,8 +81,14 @@ function cellNode(c) {
     ],
   });
   if (c.forbidden !== null) {
-    // Get Your Bid: the last bidder's Forbidden Bid, struck as on the bid sheet
-    node.appendChild(el('s', { className: 'scorecard__forbidden', attrs: { title: `Forbidden Bid: ${c.forbidden}` }, text: String(c.forbidden) }));
+    // Get Your Bid: the last bidder's Forbidden Bid, struck as on the bid
+    // sheet, muted (red is the fault's) and under the cell, so it never
+    // reads as a took digit
+    return el('span', {
+      className: 'scorecard__stack',
+      attrs: hidden,
+      children: [node, el('s', { className: 'scorecard__forbidden', attrs: { title: `Forbidden Bid: ${c.forbidden}` }, text: String(c.forbidden) })],
+    });
   }
   return node;
 }
@@ -105,26 +111,28 @@ export function renderScorecard(model) {
   table.appendChild(colgroup);
 
   const thead = el('thead', { attrs: hidden });
-  if (!model.solo) {
-    // the pairs over their players, then a Score column per pair under its names
-    const grp = el('tr', { className: 'scorecard__groups' });
-    grp.append(el('th'), el('th'));
+  // the pairs over their players (Get Your Bid: nothing, its players' names
+  // head their bid columns), then over each Score column its names, with
+  // "Score" under them in the next row, both modes
+  const grp = el('tr', { className: 'scorecard__groups' });
+  grp.append(el('th'), el('th'));
+  if (model.solo) {
+    grp.appendChild(el('th', { attrs: { colspan: String(model.players.length) } }));
+  } else {
     for (const g of model.groups) {
       grp.appendChild(el('th', { className: `scorecard__pair is-team-${g.letter}`, attrs: { colspan: '2', title: g.label }, text: g.label }));
     }
-    for (const s of model.scores) {
-      grp.appendChild(el('th', { className: `scorecard__pairname is-team-${s.letter}`, attrs: { title: s.label }, text: s.label }));
-    }
-    thead.appendChild(grp);
   }
+  for (const s of model.scores) {
+    grp.appendChild(el('th', { className: `scorecard__pairname is-team-${s.letter}`, attrs: { title: s.label }, children: scoreNames(s) }));
+  }
+  thead.appendChild(grp);
   const head = el('tr', { className: 'scorecard__head' });
-  head.append(el('th', { className: 'scorecard__hand', text: 'Hand' }), el('th', { text: 'Dealer' }));
+  head.append(el('th', { className: 'scorecard__hand', text: 'Hand' }), el('th', { className: 'scorecard__dealerhead', text: 'Dealer' }));
   for (const p of model.players) {
     head.appendChild(el('th', { className: `scorecard__player is-team-${p.letter}${p.mine ? ' is-me' : ''}`, attrs: { title: p.name }, text: p.name }));
   }
-  for (const s of model.scores) {
-    head.appendChild(el('th', { className: `scorecard__scorehead${model.solo ? ` is-team-${s.letter}` : ''}`, attrs: { title: model.solo ? s.label : 'Score' }, text: model.solo ? s.label : 'Score' }));
-  }
+  for (let i = 0; i < model.scores.length; i++) head.appendChild(el('th', { className: 'scorecard__scorehead', text: 'Score' }));
   thead.appendChild(head);
   table.appendChild(thead);
 
@@ -158,6 +166,17 @@ export function renderScorecard(model) {
   table.appendChild(tbody);
   wrap.appendChild(table);
   return wrap;
+}
+
+/** A Score column's names: one line, wrapping at " & " where the column is narrow ("ivy &" / "hal"). */
+function scoreNames(s) {
+  const lines = Array.isArray(s.lines) && s.lines.length ? s.lines : [s.label];
+  const children = [];
+  lines.forEach((line, i) => {
+    if (i) children.push(document.createTextNode(' '));
+    children.push(el('span', { className: 'scorecard__line', text: line }));
+  });
+  return children;
 }
 
 /** The scorecard modal open mid-game (one at a time). */

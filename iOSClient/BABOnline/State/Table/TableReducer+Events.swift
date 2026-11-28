@@ -632,7 +632,7 @@ extension TableReducer {
         s.table.watchedAssist = nil
         clearHelpBadges(&s)
         s.scores.score = TeamPair(team1: t1, team2: t2)
-        if let row = p.scorecardRow?.value { s.table.scorecard = Scorecard.merge(s.table.scorecard ?? [], row) }
+        if let row = p.scorecardRow?.value, row.isValid { s.table.scorecard = Scorecard.merge(s.table.scorecard ?? [], row) }
         s.table.phase = .handResolving(HandResolvingState(bids: bids,
             outcome: HandOutcome(team1Tricks: t1Tricks, team2Tricks: t2Tricks, team1OldScore: old1, team2OldScore: old2)))
         if let hand = p.gyb {

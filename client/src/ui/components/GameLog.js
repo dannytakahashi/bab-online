@@ -526,7 +526,8 @@ export function createGameLog({ onChatSubmit } = {}) {
 
   /**
    * The scorecard's entry (owner 2026-11-27): while the server keeps a
-   * scorecard, the whole score header is a button that opens it
+   * scorecard, the hand indicator is a button that opens it (a click
+   * anywhere on the score header too)
    * (Scorecard.openScorecardModal), named "Scorecard" for screen readers,
    * with a small muted "›" after the hand label as the only visual hint.
    * null: an older server, no scorecard: the header is as it was.
@@ -550,9 +551,15 @@ export function createGameLog({ onChatSubmit } = {}) {
     scoreSection.classList.toggle('has-scorecard', on);
     const label = handIndicator.querySelector('.log-hand__label');
     if (on) {
-      scoreSection.setAttribute('role', 'button');
-      scoreSection.setAttribute('tabindex', '0');
-      scoreSection.setAttribute('aria-label', 'Scorecard');
+      // the button is the hand indicator only, named "Scorecard" and
+      // described by its hand ("Hand 12", as iOS gives the value): the
+      // score cells stay plain text a screen reader reads (a button's
+      // content is presentational). A click anywhere on the header opens it.
+      if (label && !label.id) label.id = 'hand-indicator-label';
+      handIndicator.setAttribute('role', 'button');
+      handIndicator.setAttribute('tabindex', '0');
+      handIndicator.setAttribute('aria-label', 'Scorecard');
+      handIndicator.setAttribute('aria-describedby', 'hand-indicator-label hand-indicator-value');
       scoreSection.title = 'Scorecard';
       const more = document.createElement('span');
       more.className = 'log-hand__more';
@@ -560,7 +567,8 @@ export function createGameLog({ onChatSubmit } = {}) {
       more.textContent = '›';
       label?.appendChild(more);
     } else {
-      for (const a of ['role', 'tabindex', 'aria-label', 'title']) scoreSection.removeAttribute(a);
+      for (const a of ['role', 'tabindex', 'aria-label', 'aria-describedby']) handIndicator.removeAttribute(a);
+      scoreSection.removeAttribute('title');
       label?.querySelector('.log-hand__more')?.remove();
     }
   };

@@ -450,8 +450,9 @@ const defs = {
     // fault (rules.handFaults, the "Fault:" lines; [] in Get Your Bid);
     // set the base game's [team1 set, team2 set]; forbidden Get Your Bid's
     // Forbidden Bid of the deal (null under 5 cards). Sent as
-    // handComplete.scorecardRow, and as the rows so far on gameStart,
-    // snapshot v2 and gameEnd (`scorecard`)
+    // handComplete.scorecardRow, and as the rows so far in snapshot v2 and
+    // gameEnd (`scorecard`); gameStart carries only their count
+    // (`scorecardRows`)
     scorecardHand: obj({
         handNo: int({ minimum: 1, maximum: 13 }),
         handSize: int({ minimum: 1, maximum: 13 }),

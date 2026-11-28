@@ -1051,6 +1051,8 @@ body > .voice-btn {
 .result-modal.is-neutral .kit-modal__title { color: var(--text-secondary); }
 
 .result-modal .kit-modal__body { width: 100%; }
+/* with a Summary | Scorecard control: the scorecard's width on both tabs, so switching never moves the dialog */
+.result-modal.has-scorecard { width: min(720px, 100%); max-width: min(720px, 100%); }
 .result-modal .kit-modal__actions { justify-content: center; }
 
 /* the team names wrap anywhere (a long name breaks inside, as the log's .log-score__names) */
@@ -2061,21 +2063,31 @@ body > #spectating-indicator.is-watching {
 /* the score header opens it while the server keeps one (GameLog.setScorecard) */
 .log-score.has-scorecard { cursor: pointer; border-radius: var(--radius-sm); }
 .log-score.has-scorecard:hover { background: rgb(var(--text-primary-rgb) / 0.04); }
-.log-score.has-scorecard:focus-visible { outline: 2px solid var(--primary-base); outline-offset: 2px; }
+.log-score.has-scorecard .log-hand:focus-visible { outline: 2px solid var(--primary-base); outline-offset: 2px; border-radius: var(--radius-sm); }
 .log-hand__more { margin-left: 3px; color: var(--text-dim); }
 
-.scorecard-modal { width: min(640px, 100%); }
+.scorecard-modal { width: min(720px, 100%); max-width: min(720px, 100%); }
 .scorecard-modal__body { width: 100%; }
 
 .result-tabs.scope-control { max-width: 320px; margin-bottom: var(--space-4); }
 .result-tabs__panel[hidden] { display: none; }
 
-.scorecard { width: 100%; overflow-x: auto; color: var(--text-primary); }
+.scorecard { width: 100%; overflow-x: auto; color: var(--text-primary); container-type: inline-size; }
 .scorecard__empty { margin: var(--space-4) 0; color: var(--text-dim); text-align: center; }
 .scorecard__table { width: 100%; min-width: 360px; border-collapse: collapse; table-layout: fixed; font-size: var(--type-sm); font-variant-numeric: tabular-nums; }
 .scorecard__col-hand { width: 48px; }
-.scorecard__col-dealer { width: 56px; }
-.scorecard__col-score { width: 68px; }
+/* the Dealer and Score columns wide enough for their names on a dialog-size card (the bot mark is
+   dropped there); narrower cards wrap a pair's names at " & " ("ivy &" / "hal") */
+.scorecard__col-dealer { width: 64px; }
+.scorecard__col-score { width: 96px; }
+.scorecard.is-solo .scorecard__col-score { width: 72px; }
+@container (min-width: 640px) {
+    .scorecard:not(.is-solo) .scorecard__col-score { width: 112px; }
+}
+@container (max-width: 520px) {
+    .scorecard__col-dealer { width: 56px; }
+    .scorecard__col-score, .scorecard.is-solo .scorecard__col-score { width: 64px; }
+}
 .scorecard th {
     padding: 3px 2px;
     overflow: hidden;
@@ -2088,6 +2100,9 @@ body > #spectating-indicator.is-watching {
 }
 .scorecard__groups th { padding-bottom: 0; font-size: var(--type-sm); }
 .scorecard__pair { border-bottom: 2px solid currentColor; }
+.scorecard th.scorecard__pairname { white-space: normal; vertical-align: bottom; line-height: 1.2; }
+.scorecard__line { display: inline-block; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; vertical-align: bottom; }
+.scorecard th.scorecard__dealerhead { padding-left: var(--space-1); }
 .scorecard th.is-team-a, .scorecard .scorecard__total.is-team-a { color: var(--team-a); }
 .scorecard th.is-team-b, .scorecard .scorecard__total.is-team-b { color: var(--team-b); }
 .scorecard th.is-team-c, .scorecard .scorecard__total.is-team-c { color: var(--gold); }
@@ -2106,7 +2121,9 @@ body > #spectating-indicator.is-watching {
 .scorecard__cell.is-fault .scorecard__arrow { color: var(--danger-text); }
 .scorecard__cell.is-bore { border-color: var(--primary-base); color: var(--primary-base); font-weight: var(--weight-semibold); }
 .scorecard__cell.is-bore.is-fault { border-color: var(--danger-text); color: var(--danger-text); }
-.scorecard__forbidden { margin-left: 3px; color: var(--danger-text); font-size: var(--type-xs); }
+/* Get Your Bid's Forbidden Bid under its cell: muted and struck (red is the fault's) */
+.scorecard__stack { display: inline-flex; flex-direction: column; align-items: center; }
+.scorecard__forbidden { color: var(--text-dim); font-size: 11px; line-height: 1.1; }
 .scorecard__none { color: var(--text-dim); }
 .scorecard__delta { color: var(--text-dim); font-size: 11px; line-height: 1.15; }
 .scorecard__total { font-weight: var(--weight-semibold); line-height: 1.15; }

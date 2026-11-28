@@ -777,7 +777,8 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
     // How many scorecard rows the game has (additive 2026-11-27;
     // game/scorecard.js): every deal, so a client knows the server keeps a
     // scorecard before the first hand ends (its rows come with each
-    // handComplete and every snapshot) and can tell it missed one. A count,
+    // handComplete and every snapshot; a missed handComplete is a seq gap,
+    // whose resync snapshot brings every row). A count,
     // not the rows: a deal's payload stays small (avatarPayloads' budget)
     const cardRows = Array.isArray(game.scorecard) ? game.scorecard.length : 0;
 

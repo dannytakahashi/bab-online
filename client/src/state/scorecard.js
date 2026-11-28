@@ -79,6 +79,22 @@ export function handLabel(handSize, trump) {
 const isBore = (b) => String(b).includes('B');
 
 /**
+ * A name without a bot persona's "🤖 " (the Dealer column, the Score
+ * columns' names and every spoken name; the player columns' headers keep
+ * it, so a bot is still marked once on the card).
+ */
+export function plainName(name) {
+  const s = String(name ?? '');
+  if (!s.startsWith('\u{1F916}')) return s;
+  const rest = s.slice(2).replace(/^[\s\uFE0F]+/, '');
+  return rest || s;
+}
+
+const BORE_WORDS = { B: 'a bore', '2B': 'a double bore', '3B': 'a triple bore', '4B': 'a quadruple bore' };
+/** A bore bid in words ("a double bore"). */
+export const boreWords = (bid) => BORE_WORDS[bid] || 'a bore';
+
+/**
  * The columns for the viewer: the base game's two pairs, mine first (me,
  * partner; then the next seat in turn and its partner; a spectator's seats
  * 1 and 3, then 2 and 4), each pair under its names in its team's colour
@@ -96,20 +112,28 @@ export function scorecardColumns({ solo = false, me = null, name = () => '' }) {
       solo: true,
       players: order.map((pos) => ({ position: pos, name: name(pos) || `P${pos}`, letter: seatLetter(pos, 3), mine: pos === me })),
       groups: [],
-      scores: order.map((pos) => ({ index: pos - 1, letter: seatLetter(pos, 3), label: name(pos) || `P${pos}` })),
+      scores: order.map((pos) => {
+        const n = plainName(name(pos) || `P${pos}`);
+        return { index: pos - 1, letter: seatLetter(pos, 3), label: n, lines: [n], spoken: n };
+      }),
     };
   }
   const a = seatsAround(viewer, 4);
   const pairs = [[viewer, team(viewer)], [a.opp1, a.opp2]];
   const groups = pairs.map((pair) => {
     const names = pair.map((p) => name(p) || `P${p}`);
-    return { positions: pair, letter: seatLetter(pair[0], 4), label: `${names[0]} & ${names[1]}`, spoken: `${names[0]} and ${names[1]}`, teamIndex: pair[0] % 2 === 1 ? 0 : 1 };
+    const plain = names.map(plainName);
+    return {
+      positions: pair, letter: seatLetter(pair[0], 4), label: `${names[0]} & ${names[1]}`, spoken: `${plain[0]} and ${plain[1]}`,
+      plain, teamIndex: pair[0] % 2 === 1 ? 0 : 1,
+    };
   });
   return {
     solo: false,
     players: pairs.flat().map((pos) => ({ position: pos, name: name(pos) || `P${pos}`, letter: seatLetter(pos, 4), mine: pos === me })),
     groups,
-    scores: groups.map((g) => ({ index: g.teamIndex, letter: g.letter, label: g.label, spoken: g.spoken })),
+    // the Score columns' names without the bot mark, over one line or two ("ivy &" / "hal")
+    scores: groups.map((g) => ({ index: g.teamIndex, letter: g.letter, label: `${g.plain[0]} & ${g.plain[1]}`, lines: [`${g.plain[0]} &`, g.plain[1]], spoken: g.spoken })),
   };
 }
 
@@ -136,7 +160,7 @@ export function cellOf(row, pos, { current = false } = {}) {
 
 function cellWords(name, c) {
   if (c.bid === null) return `${name} not bid yet`;
-  const bidWord = c.bore ? `bid ${c.bid === 'B' ? 'a bore' : `bore ${c.bid}`}` : `bid ${c.bid}`;
+  const bidWord = c.bore ? `bid ${boreWords(c.bid)}` : `bid ${c.bid}`;
   if (c.took === null) return `${name} ${bidWord}`;
   let s = `${name} ${bidWord}, took ${c.took}`;
   if (c.extra) {
@@ -177,7 +201,8 @@ export function buildScorecard({ rows = [], solo = false, me = null, name = () =
 function rowModel(r, cols, name, current) {
   const hand = handLabel(r.handSize, r.trump);
   const cells = cols.players.map((p) => cellOf(r, p.position, { current }));
-  const dealerName = int(r.dealer) ? (name(r.dealer) || `P${r.dealer}`) : '';
+  // the dealer's plain name (a narrow column; the player columns already mark a bot)
+  const dealerName = int(r.dealer) ? (plainName(name(r.dealer)) || `P${r.dealer}`) : '';
   const scores = current ? cols.scores.map(() => null) : cols.scores.map((s) => ({
     total: r.scores[s.index],
     delta: r.points[s.index],
@@ -186,7 +211,7 @@ function rowModel(r, cols, name, current) {
     letter: s.letter,
   }));
   const parts = [hand.spoken + '.', dealerName ? `Dealer ${dealerName}.` : ''];
-  cells.forEach((c, i) => parts.push(cellWords(cols.players[i].name, c) + '.'));
+  cells.forEach((c, i) => parts.push(cellWords(plainName(cols.players[i].name), c) + '.'));
   if (!current) {
     cols.scores.forEach((s, i) => {
       const sc = scores[i];

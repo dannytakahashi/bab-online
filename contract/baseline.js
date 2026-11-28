@@ -41,13 +41,18 @@ const DECODE_SOURCES = [
     'iOSClient/BABOnline/Models/Card.swift',
     // from 1.2.7 (41): Get Your Bid's wire types (GybStart and friends), reached from WirePayloads
     'iOSClient/BABOnline/State/Table/GetYourBid.swift',
+    // from 1.2.8 (51): the scorecard's handComplete row (LenientScorecardRow, ScorecardRow)
+    'iOSClient/BABOnline/State/Table/Scorecard.swift',
 ];
 /**
  * Sources added after the first frozen build: file -> the first build that reads it. An older
  * build's floor never read the file (its frozen `sources` lists only the others), so it is
  * skipped there; from that build on it is required like every other source.
  */
-const SOURCES_FROM = { 'iOSClient/BABOnline/State/Table/GetYourBid.swift': 41 };
+const SOURCES_FROM = {
+    'iOSClient/BABOnline/State/Table/GetYourBid.swift': 41,
+    'iOSClient/BABOnline/State/Table/Scorecard.swift': 51,
+};
 
 const git = (...args) => execFileSync('git', args, { cwd: ROOT, maxBuffer: 1 << 28 });
 const show = (sha, file) => git('show', `${sha}:${file}`).toString('utf8');

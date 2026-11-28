@@ -975,12 +975,9 @@ export class GameState {
     // is the feature); another game's deal starts a new card
     const otherGame = !!data.gameId && !!this.gameId && data.gameId !== this.gameId;
     if (otherGame) this.scorecard = null;
-    if (Number.isInteger(data.scorecardRows)) {
-      if (!this.scorecard) this.scorecard = [];
-      // fewer rows here than the server has: one was missed (the next
-      // snapshot brings it; the card shows what it has)
-      this.scorecardBehind = this.scorecard.length < data.scorecardRows;
-    }
+    // (a missed handComplete is a seq gap: the resync's snapshot brings
+    // every row, so the count is only the feature flag here)
+    if (Number.isInteger(data.scorecardRows) && !this.scorecard) this.scorecard = [];
     // a Get Your Bid table's deal says so, with the scores; another game's
     // deal without them is the base game
     if (data.gyb) this._applyGybTotals(data.gyb);
@@ -1416,7 +1413,6 @@ export class GameState {
     // ones); without them this game's card stays, another game has none
     if (Array.isArray(snap.scorecard)) {
       this.scorecard = snap.scorecard.map((r) => JSON.parse(JSON.stringify(r)));
-      this.scorecardBehind = false;
     } else if (!sameGame) this.scorecard = null;
     if (snap.gameId) this.gameId = snap.gameId;
     this.stage = snap.stage || null;

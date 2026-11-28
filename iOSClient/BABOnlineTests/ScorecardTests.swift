@@ -41,6 +41,16 @@ final class ScorecardTests: XCTestCase {
                                                       "team1OldScore": 0, "team2OldScore": 0, "seq": 4,
                                                       "scorecardRow": ["handNo": "x", "bids": 3]]))
         XCTAssertEqual(s.table.scorecard?.count, 1, "a malformed row is dropped, never a failed event")
+        // a row that decodes but the table cannot draw (a bid that is no bid, a hand 0) is dropped
+        // where it is used: LenientScorecardRow is only the try? wrapper the contract reader knows
+        var bad = rowDict(2); bad["bids"] = ["3", "X", "2", "1"]
+        var zero = rowDict(3); zero["handNo"] = 0
+        for (i, row) in [bad, zero].enumerated() {
+            TableReducer.reduce(&s, T.ev("handComplete", ["score": ["team1": 51, "team2": 33], "team1Tricks": 6, "team2Tricks": 6,
+                                                          "team1OldScore": 0, "team2OldScore": 0, "seq": 5 + i, "scorecardRow": row]))
+        }
+        XCTAssertEqual(s.table.scorecard?.map(\.handNo), [1], "an invalid row is never appended")
+        XCTAssertEqual(Scorecard.rows(fromJSON: [rowDict(1), bad, zero])?.map(\.handNo), [1], "nor kept from gameEnd's list")
     }
 
     func testTheDealSaysTheServerKeepsOneAndAnotherGameStartsANewCard() {
@@ -117,7 +127,87 @@ final class ScorecardTests: XCTestCase {
         XCTAssertTrue(m.rows[0].spoken.hasSuffix("ivy and hal 51. kim and jon 33."), "no delta on the first hand")
         let all = Scorecard.model(rows: rows, solo: false, me: 1, name: name)
         XCTAssertTrue(all.rows[2].spoken.contains("ivy bid a bore, took 4."))
-        XCTAssertTrue(all.rows[3].spoken.contains("kim bid bore 2B, took 4, set."))
+        XCTAssertTrue(all.rows[3].spoken.contains("kim bid a double bore, took 4, set."))
+    }
+
+    func testBoresAreSpokenInWords() {
+        XCTAssertEqual(["B", "2B", "3B", "4B"].map(Scorecard.boreWords), ["a bore", "a double bore", "a triple bore", "a quadruple bore"])
+    }
+
+    /// The took number is the cell's colour (a fault pill's red, a bore's green, a set bore's red),
+    /// gold only for extra tricks (review of PR #455: the took drew in the default white).
+    func testTheTookNumberIsTheCellsColour() {
+        XCTAssertEqual(Scorecard.cell(rows[1], 2).ink, .red)
+        XCTAssertEqual(Scorecard.cell(rows[1], 2).tookInk, .red, "kim 3 → 1 at fault: the 1 red too")
+        XCTAssertEqual(Scorecard.cell(rows[2], 1).tookInk, .green, "ivy B → 4: the 4 green")
+        XCTAssertEqual(Scorecard.cell(rows[3], 2).tookInk, .red, "kim 2B → 4 set: the 4 red")
+        XCTAssertEqual(Scorecard.cell(rows[0], 2).tookInk, .gold, "extra tricks: gold")
+        XCTAssertEqual(Scorecard.cell(rows[0], 1).tookInk, .plain)
+        XCTAssertEqual(Scorecard.cell(rows[0], 1).ink, .plain)
+    }
+
+    /// A bot's "🤖 " is kept on its column's header and dropped from the Dealer column, the Score
+    /// columns' names and every spoken name (VoiceOver read "robot face Mary").
+    func testABotsMarkStaysOnItsHeaderOnly() {
+        let bots: (Int) -> String = { [1: "ivy", 2: "\u{1F916} Mary", 3: "hal", 4: "jon"][$0] ?? "" }
+        let m = Scorecard.model(rows: Array(rows.prefix(2)), solo: false, me: 1, name: bots)
+        XCTAssertEqual(m.players.first { $0.position == 2 }?.name, "\u{1F916} Mary", "the player's column marks the bot")
+        XCTAssertEqual(m.pairs[1].label, "\u{1F916} Mary & jon")
+        XCTAssertEqual(m.scoreColumns[1].label, "Mary & jon")
+        XCTAssertEqual(m.scoreColumns.map(\.lines), [["ivy &", "hal"], ["Mary &", "jon"]])
+        XCTAssertEqual(m.rows[0].dealer, "Mary", "hand 12's dealer is the bot: its plain name")
+        XCTAssertFalse(m.rows[0].spoken.contains("\u{1F916}"), m.rows[0].spoken)
+        XCTAssertTrue(m.rows[0].spoken.contains("Dealer Mary. ") && m.rows[0].spoken.contains("Mary and jon"), m.rows[0].spoken)
+        XCTAssertEqual(Scorecard.plainName("\u{1F916}"), "\u{1F916}", "a name that is only the mark stays")
+        let gyb = Scorecard.model(rows: [], solo: true, me: 1, name: { [1: "ivy", 2: "kim", 3: "\u{1F916} Mary"][$0] ?? "" })
+        XCTAssertEqual(gyb.scoreColumns.map(\.label), ["ivy", "kim", "Mary"])
+    }
+
+    // MARK: - Widths
+
+    private func widths(_ width: CGFloat, one: [CGFloat], two: [CGFloat], players: Int = 4, dealer: CGFloat = 38,
+                        names: CGFloat = 24, twoLine: Bool = true) -> ScorecardWidths {
+        ScorecardWidths.solve(.init(width: width, hand: 34, dealerMin: 36, dealerMax: 84, dealerWant: dealer, playerMin: 44,
+                                    playerComfort: 48, scoreMin: 44, one: one, two: two, players: players, twoLineAllowed: twoLine,
+                                    dealerNames: names))
+    }
+
+    /// The pairs' names over the Score columns are never cut where the table has room (review of
+    /// PR #455: "jon & k…" on every device): one line on a wide card, two ("ivy &" / "hal") on a
+    /// phone, the players keeping their comfortable width.
+    func testTheScoreColumnsTakeTheirNamesWidth() {
+        // the iPad / the open Duo: one line each, nothing cut
+        let wide = widths(700, one: [52, 58], two: [30, 32])
+        XCTAssertTrue(wide.fits); XCTAssertFalse(wide.twoLine); XCTAssertFalse(wide.labelsCut)
+        XCTAssertEqual(wide.scores, [58, 64])
+        XCTAssertEqual(wide.dealer, 48, "the Dealer column its header's width and the gap after Hand")
+        XCTAssertFalse(wide.dealerCut)
+        // a 360 pt card on a phone: two lines, the players 48 or more
+        let phone = widths(360, one: [52, 58], two: [30, 32])
+        XCTAssertTrue(phone.fits); XCTAssertTrue(phone.twoLine); XCTAssertFalse(phone.labelsCut); XCTAssertFalse(phone.dealerCut)
+        XCTAssertGreaterThanOrEqual(phone.player, 48)
+        XCTAssertEqual(34 + phone.dealer + phone.scores.reduce(0, +) + phone.player * 4, 360, accuracy: 0.5, "the width, exactly")
+        // long names on a phone: cut, but the table still fits and the players keep their width
+        let long = widths(360, one: [190, 200], two: [100, 104])
+        XCTAssertTrue(long.fits); XCTAssertTrue(long.labelsCut)
+        XCTAssertGreaterThanOrEqual(long.player, 44)
+        XCTAssertEqual(34 + long.dealer + long.scores.reduce(0, +) + long.player * 4, 360, accuracy: 0.5)
+        // too narrow for the minimums: scrolls, every label whole
+        var axIn = ScorecardWidths.Input(width: 300, hand: 34, dealerMin: 36, dealerMax: 84, dealerWant: 38, playerMin: 44,
+                                         playerComfort: 48, scoreMin: 44, one: [90, 96], two: [50, 52], players: 4, twoLineAllowed: true)
+        axIn.pairs = [150, 170]
+        let ax = ScorecardWidths.solve(axIn)
+        XCTAssertFalse(ax.fits); XCTAssertFalse(ax.labelsCut)
+        XCTAssertEqual(ax.scores, [96, 102])
+        XCTAssertEqual(ax.player, 88, "scrolling, each pair's label spans its two players whole")
+        // Get Your Bid: three single names, never two lines
+        let gyb = widths(360, one: [20, 22, 30], two: [20, 22, 30], players: 3, twoLine: false)
+        XCTAssertTrue(gyb.fits); XCTAssertFalse(gyb.twoLine); XCTAssertFalse(gyb.labelsCut)
+        // a long dealer name gets its width where there is room, up to the cap
+        XCTAssertEqual(widths(700, one: [52, 58], two: [30, 32], dealer: 60).dealer, 70)
+        XCTAssertEqual(widths(700, one: [52, 58], two: [30, 32], dealer: 120).dealer, 84)
+        XCTAssertTrue(widths(700, one: [52, 58], two: [30, 32], dealer: 120, names: 120).dealerCut)
+        XCTAssertFalse(widths(700, one: [52, 58], two: [30, 32], dealer: 60, names: 60).dealerCut)
     }
 
     func testTheJokerHandAndTheSuitColours() {

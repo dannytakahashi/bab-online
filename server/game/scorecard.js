@@ -8,8 +8,9 @@
  * reader shows the same numbers:
  *
  *   - handComplete.scorecardRow: the row just finished (clients append it)
- *   - gameStart.scorecard: the rows so far, every deal (a new client's
- *     feature flag before the first row, and a resync each deal)
+ *   - gameStart.scorecardRows: a COUNT of the rows so far, every deal (a
+ *     new client's feature flag before the first row; the rows themselves
+ *     come only as handComplete.scorecardRow and in the snapshot)
  *   - snapshot v2 `scorecard`: the rows so far (a rejoin, reload, spectator)
  *   - gameEnd.scorecard: the whole game (the results' Scorecard tab)
  *   - the game's record (gameRecords.scorecard, for a later history view)
