@@ -327,7 +327,10 @@ leaves out the per-player stats). GameEndView shows the web score modal's
 stats (gameEnd `playerStats`: Player, Bids, Tricks, Faults, Avg HSI; one
 VoiceOver element per player; stacked at accessibility text sizes or where
 the five columns do not fit; none when the payload has no `playerStats`):
-`GameEndStatsTests`, `GameEndStatsUITests`.
+`GameEndStatsTests`, `GameEndStatsUITests` (it scrolls the results' own scroll view, never
+`app.swipeUp()`: on the open Duo XCUIApplication's frame is the portrait 669x951 while the
+window is landscape 951x669, and an app-relative swipe there never scrolls the results, so
+Return to Lobby looked unreachable at AX5 although a person's swipe reaches it).
 `game-lobby-bots` is the game lobby with two bots that are not ready (my seat
 ready): there removeBot and addBot change the list the way the server answers
 them (`UIFixture.emulateLobby`: a removal keeps the humans ready, server #248)
