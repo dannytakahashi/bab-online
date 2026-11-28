@@ -226,6 +226,7 @@
     "resume": {
       "kind": "trick",
       "inMs": 1100
-    }
+    },
+    "scorecard": []
   }
 }

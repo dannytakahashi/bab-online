@@ -39,6 +39,7 @@ struct TableSnapshot: Codable, Equatable {
     var log: [LogEntry]
     var resume: Resume?
     var bidClock: BidClock?
+    var scorecard: [ScorecardHand]?
 
     enum Stage: Codable, Equatable, Hashable {
         case created
@@ -643,6 +644,25 @@ struct TableSnapshot: Codable, Equatable {
         var position: Int
         var inMs: Int
         var durationMs: Int
+    }
+
+    struct ScorecardHand: Codable, Equatable {
+        var handNo: Int
+        var handSize: Int
+        var trump: Card?
+        var dealer: Int
+        var bids: [String]
+        var took: [Int]
+        var points: [Int]
+        var scores: [Int]
+        var faults: [Int]
+        var set: [Bool]?
+        var forbidden: ScorecardForbidden?
+    }
+
+    struct ScorecardForbidden: Codable, Equatable {
+        var position: Int
+        var bid: Int
     }
 }
 

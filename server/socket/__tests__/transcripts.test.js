@@ -334,8 +334,8 @@ describe('seat transcripts (wire characterization)', () => {
             'room:teamsAnnounced{resumeInMs,team1,team2}',
             'room:createUI{}',
             // CHANGED (V1_REMOVALS #6): no players (seat socket ids)
-            'h2:gameStart{currentHand,dealer,gameId,hand,hsiValues,playerInfo,position,score1,score2,trump}@p',
-            'h3:gameStart{currentHand,dealer,gameId,hand,hsiValues,playerInfo,position,score1,score2,trump}@p',
+            'h2:gameStart{currentHand,dealer,gameId,hand,hsiValues,playerInfo,position,score1,score2,scorecardRows,trump}@p',
+            'h3:gameStart{currentHand,dealer,gameId,hand,hsiValues,playerInfo,position,score1,score2,scorecardRows,trump}@p',
             // CHANGED (seat records): gameStart goes to connected owners only,
             // not to the dead socket of a seat in grace
         ]);

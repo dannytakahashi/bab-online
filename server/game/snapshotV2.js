@@ -319,6 +319,9 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
         // additive (2026-11-18): the RUNNING bid clock, relative to
         // serverTime; the key is absent otherwise (also in its pre-wait)
         ...(clock && { bidClock: clock }),
+        // additive (2026-11-27): the scorecard's rows so far
+        // (game/scorecard.js); [] before the first hand ends
+        scorecard: Array.isArray(game.scorecard) ? game.scorecard.map((r) => JSON.parse(JSON.stringify(r))) : [],
     };
 }
 

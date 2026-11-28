@@ -223,6 +223,7 @@
       "position": 2,
       "inMs": 15000,
       "durationMs": 30000
-    }
+    },
+    "scorecard": []
   }
 }
