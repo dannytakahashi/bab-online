@@ -4687,6 +4687,178 @@
       ],
       "notes": "Web: the Players page, search as you type. iOS from the build after 1.2.8 (49): the main room Players sheet (owner 2026-11-27), the same {query} (trimmed, never blank), debounced 300 ms; neither sends a scope. Joi since V1_REMOVALS #18 (2026-11-11). A blank query answers {success:false} and a trimmed query longer than 50 (the username max) an empty list, in the handler."
     },
+    "playerCards": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "usernames": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 50
+            },
+            "minItems": 1,
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "usernames"
+        ],
+        "additionalProperties": true
+      },
+      "status": "active",
+      "joi": "playerCards",
+      "rateLimit": "playerCards",
+      "sentBy": {
+        "web": true,
+        "ios": true
+      },
+      "examples": [
+        {
+          "usernames": [
+            "alan"
+          ]
+        },
+        {
+          "usernames": [
+            "alan",
+            "kim",
+            "alan"
+          ]
+        }
+      ],
+      "invalid": [
+        {},
+        {
+          "usernames": []
+        },
+        {
+          "usernames": "alan"
+        },
+        {
+          "usernames": [
+            ""
+          ]
+        },
+        {
+          "usernames": [
+            5
+          ]
+        },
+        {
+          "usernames": [
+            "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          ]
+        },
+        {
+          "usernames": [
+            "p0",
+            "p1",
+            "p2",
+            "p3",
+            "p4",
+            "p5",
+            "p6",
+            "p7",
+            "p8",
+            "p9",
+            "p10",
+            "p11",
+            "p12",
+            "p13",
+            "p14",
+            "p15",
+            "p16",
+            "p17",
+            "p18",
+            "p19",
+            "p20",
+            "p21",
+            "p22",
+            "p23",
+            "p24",
+            "p25",
+            "p26",
+            "p27",
+            "p28",
+            "p29",
+            "p30",
+            "p31",
+            "p32",
+            "p33",
+            "p34",
+            "p35",
+            "p36",
+            "p37",
+            "p38",
+            "p39",
+            "p40",
+            "p41",
+            "p42",
+            "p43",
+            "p44",
+            "p45",
+            "p46",
+            "p47",
+            "p48",
+            "p49",
+            "p50",
+            "p51",
+            "p52",
+            "p53",
+            "p54",
+            "p55",
+            "p56",
+            "p57",
+            "p58",
+            "p59",
+            "p60",
+            "p61",
+            "p62",
+            "p63",
+            "p64",
+            "p65",
+            "p66",
+            "p67",
+            "p68",
+            "p69",
+            "p70",
+            "p71",
+            "p72",
+            "p73",
+            "p74",
+            "p75",
+            "p76",
+            "p77",
+            "p78",
+            "p79",
+            "p80",
+            "p81",
+            "p82",
+            "p83",
+            "p84",
+            "p85",
+            "p86",
+            "p87",
+            "p88",
+            "p89",
+            "p90",
+            "p91",
+            "p92",
+            "p93",
+            "p94",
+            "p95",
+            "p96",
+            "p97",
+            "p98",
+            "p99",
+            "p100"
+          ]
+        }
+      ],
+      "notes": "New (2026-11-27): the pictures of the Players page's online list (web PlayerSearchPage, iOS from the build after 1.2.8 (49): the Players sheet), whose names come from the presence events (onlineUsers, names only). Sent while the list shows (an empty search box): once when the page opens for every listed name, then (debounced 300 ms) for the names a change of the list adds; at most 100 names a request (more go in further requests), each name asked at most once per opening of the page, so a server that never answers (one before this event) costs one request per change and nothing else. Answered by playerCardsResponse to this socket only. Repeats are answered once; an unknown name is simply absent. No clientHello cap: a client that never sends it never gets the reply."
+    },
     "getPlayerProfile": {
       "payload": {
         "type": "object",
@@ -10807,6 +10979,66 @@
       },
       "emittedFrom": [
         "server/socket/profileHandlers.js:searchPlayers"
+      ]
+    },
+    "playerCardsResponse": {
+      "payload": {
+        "anyOf": [
+          {
+            "variant": "success",
+            "type": "object",
+            "properties": {
+              "success": {
+                "const": true
+              },
+              "players": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/playerSearchRow"
+                }
+              },
+              "avatarUrls": {
+                "$ref": "#/$defs/avatarUrlsByUsername"
+              }
+            },
+            "required": [
+              "success",
+              "players"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "failure",
+            "type": "object",
+            "properties": {
+              "success": {
+                "const": false
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "success",
+              "message"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "status": "active",
+      "to": "self",
+      "notes": "New (2026-11-27): the answer to playerCards, to the asking socket only: searchPlayersResponse's rows (the same projection and mapping: customProfilePic null, a custom picture's URL in avatarUrls) for the named players that have an account, in the order asked, each once; merged accounts are left out as search leaves them out. Web folds avatarUrls into the rows (utils/avatar.js foldAvatarPayload) and draws the online list's pictures (PlayerSearchPage); iOS reads it in ProfileSocketHandler (PlayerSearchState.applyCards). A failure ({success:false, message}) leaves the initials.",
+      "clientReads": {
+        "web": [
+          "client/src/handlers/profileHandlers.js:registerProfileHandlers"
+        ],
+        "ios": [
+          "iOSClient/BABOnline/Networking/Handlers/ProfileSocketHandler.swift:register"
+        ]
+      },
+      "emittedFrom": [
+        "server/socket/profileHandlers.js:playerCards"
       ]
     },
     "playerProfileResponse": {

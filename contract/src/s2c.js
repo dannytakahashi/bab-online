@@ -921,6 +921,16 @@ const s2c = {
         clientReads: reads(W.profile, I.profile),
         emittedFrom: ['server/socket/profileHandlers.js:searchPlayers'],
     },
+    playerCardsResponse: {
+        payload: anyOf(
+            variant('success', obj({ success: konst(true), players: arr(ref('playerSearchRow')), avatarUrls: ref('avatarUrlsByUsername') }, { optional: ['avatarUrls'] })),
+            fail(),
+        ),
+        status: 'active', to: 'self',
+        notes: 'New (2026-11-27): the answer to playerCards, to the asking socket only: searchPlayersResponse\'s rows (the same projection and mapping: customProfilePic null, a custom picture\'s URL in avatarUrls) for the named players that have an account, in the order asked, each once; merged accounts are left out as search leaves them out. Web folds avatarUrls into the rows (utils/avatar.js foldAvatarPayload) and draws the online list\'s pictures (PlayerSearchPage); iOS reads it in ProfileSocketHandler (PlayerSearchState.applyCards). A failure ({success:false, message}) leaves the initials.',
+        clientReads: reads(W.profile, I.profile),
+        emittedFrom: ['server/socket/profileHandlers.js:playerCards'],
+    },
     playerProfileResponse: {
         payload: okFail({ profile: ref('profile'), avatarUrl: ref('avatarUrl'), scope: statsScope, badges: arr(ref('earnedBadge')) }, { optional: ['avatarUrl', 'scope', 'badges'] }),
         status: 'active', to: 'self',

@@ -34,15 +34,18 @@ final class PlayerSearchTests: XCTestCase {
 
     private var clock: Clock!
     private var sent: [String] = []
+    private var cardsSent: [[String]] = []
     private var connected = true
 
     private func makeState() -> PlayerSearchState {
         clock = Clock()
         sent = []
+        cardsSent = []
         connected = true
         let s = PlayerSearchState()
         s.schedule = { [unowned self] d, w in self.clock.schedule(d, w) }
         s.send = { [unowned self] in self.sent.append($0) }
+        s.sendCards = { [unowned self] in self.cardsSent.append($0) }
         s.isConnected = { [unowned self] in self.connected }
         return s
     }
@@ -312,6 +315,246 @@ final class PlayerSearchTests: XCTestCase {
         XCTAssertTrue(src.contains("SocketService.shared.emit(SocketEvents.Client.searchPlayers, [\"query\": query])"))
         XCTAssertEqual(SocketEvents.Client.searchPlayers, "searchPlayers")
         XCTAssertEqual(SocketEvents.Server.searchPlayersResponse, "searchPlayersResponse")
+    }
+
+    // MARK: - Player cards (the online list's pictures, 2026-11-27)
+
+    private func cardsReply(_ rows: [(String, Int)], urls: [String: String]? = nil) -> [String: Any] {
+        var d: [String: Any] = ["success": true,
+                                "players": rows.map { ["username": $0.0, "profilePic": $0.1, "customProfilePic": NSNull(), "gamesPlayed": 2, "wins": 1] }]
+        if let urls { d["avatarUrls"] = urls }
+        return d
+    }
+
+    func testOpeningAsksAtOnceForEveryListedName() {
+        let s = makeState()
+        XCTAssertEqual(cardsSent, [], "nothing before the sheet opens")
+        s.onlineChanged(["ivy", "kim"])
+        clock.advance(1)
+        XCTAssertEqual(cardsSent, [], "the list changing with the sheet closed asks nothing")
+        s.sheetOpened(online: ["ivy", "kim", "", "kim", "ora"])
+        XCTAssertEqual(cardsSent, [["ivy", "kim", "ora"]], "each name once, at once")
+    }
+
+    func testACardGivesItsRowThePicture() {
+        let s = makeState()
+        s.sheetOpened(online: ["ivy", "kim", "ora"])
+        XCTAssertEqual(PlayerSearchState.onlineRows(["ivy", "kim", "ora"], me: "ivy", cards: s.cards).map(\.pictureKey), [nil, nil, nil], "initials first")
+        s.applyCards(response: cardsReply([("kim", 12), ("ora", 9), ("ivy", 31), ("ora", 9)], urls: ["kim": "/avatar/kim?v=3"]))
+        let rows = PlayerSearchState.onlineRows(["ivy", "kim", "ora", "pat"], me: "ivy", cards: s.cards)
+        XCTAssertEqual(rows.map(\.pictureKey), ["31", "/avatar/kim?v=3", "9", nil], "the URL first, as a result row; an unknown name keeps its initial")
+        XCTAssertTrue(rows.allSatisfy(\.inOnlineList))
+        XCTAssertEqual(rows.map(\.spokenLabel), ["ivy, you, online", "kim, online", "ora, online", "pat, online"], "the same words with a picture")
+    }
+
+    func testAJoinIsAskedAfterThePauseAndALeaveAsksNothing() {
+        let s = makeState()
+        s.sheetOpened(online: ["ivy", "kim"])
+        s.onlineChanged(["ivy", "kim", "pat"])
+        clock.advance(0.2)
+        s.onlineChanged(["ivy", "kim", "pat", "quinn"])
+        clock.advance(0.29)
+        XCTAssertEqual(cardsSent.count, 1, "the pause starts again at each change")
+        clock.advance(0.01)
+        XCTAssertEqual(cardsSent, [["ivy", "kim"], ["pat", "quinn"]], "only the new names, in one request")
+        s.onlineChanged(["ivy"])
+        clock.advance(1)
+        XCTAssertEqual(cardsSent.count, 2)
+    }
+
+    func testAServerThatNeverAnswersCostsOneRequestPerChange() {
+        let s = makeState()
+        s.sheetOpened(online: ["ivy", "kim"])
+        for i in 0..<5 {
+            s.onlineChanged(["ivy", "kim", "p\(i)"])
+            clock.advance(0.3)
+        }
+        clock.advance(600)
+        XCTAssertEqual(cardsSent, [["ivy", "kim"], ["p0"], ["p1"], ["p2"], ["p3"], ["p4"]], "never a retry")
+        XCTAssertEqual(s.cards, [:])
+        // a failure reply changes nothing either
+        s.applyCards(response: ["success": false, "message": "Database error"])
+        s.applyCards(response: [:])
+        XCTAssertEqual(s.cards, [:])
+    }
+
+    func testCardsStayForTheSessionAndAReopenRefreshesThem() {
+        let s = makeState()
+        s.sheetOpened(online: ["ivy", "kim"])
+        s.applyCards(response: cardsReply([("kim", 12)]))
+        s.reset()
+        s.onlineChanged(["ivy", "kim", "pat"])
+        clock.advance(1)
+        XCTAssertEqual(cardsSent, [["ivy", "kim"]], "closed: nothing asked")
+        XCTAssertEqual(s.cards["kim"], "12", "kept: the reopened sheet draws it at once")
+        s.sheetOpened(online: ["ivy", "kim", "pat"])
+        XCTAssertEqual(cardsSent, [["ivy", "kim"], ["ivy", "kim", "pat"]], "a new opening asks for every card again")
+        s.applyCards(response: cardsReply([("kim", 40)]))
+        XCTAssertEqual(s.cards["kim"], "40", "a changed picture replaces the old one")
+    }
+
+    func testNothingIsAskedWhileASearchShowsAndTheListAsksWhenItComesBack() {
+        let s = makeState()
+        s.sheetOpened(online: ["ivy", "kim"])
+        s.setText("ki"); clock.advance(0.3)
+        s.apply(response: reply("ki", ["kim", "kip"]))
+        XCTAssertEqual(s.cards["kip"], "3", "a search result is a card too")
+        s.onlineChanged(["ivy", "kim", "pat"])
+        clock.advance(1)
+        XCTAssertEqual(cardsSent, [["ivy", "kim"]])
+        s.setText("")
+        clock.advance(0.3)
+        XCTAssertEqual(cardsSent, [["ivy", "kim"], ["pat"]])
+    }
+
+    func testOfflineAsksNothingAndTheReconnectsListAsks() {
+        let s = makeState()
+        connected = false
+        s.sheetOpened(online: ["ivy", "kim"])
+        XCTAssertEqual(cardsSent, [])
+        connected = true
+        // a reconnect brings the main room's list again (mainRoomJoined)
+        s.onlineChanged(["ivy", "kim"])
+        clock.advance(0.3)
+        XCTAssertEqual(cardsSent, [["ivy", "kim"]])
+    }
+
+    func testMoreThanAHundredNamesGoInRequestsOfAHundred() {
+        let s = makeState()
+        let names = (0..<230).map { "p\($0)" }
+        s.sheetOpened(online: names)
+        XCTAssertEqual(cardsSent.map(\.count), [100, 100, 30])
+        XCTAssertEqual(cardsSent.flatMap { $0 }, names)
+        XCTAssertEqual(PlayerSearchState.cardsBatch, 100, "the server's PLAYER_CARDS_MAX")
+    }
+
+    func testARefusedCardsRequestIsClaimedWithoutAToast() {
+        let s = makeState()
+        XCTAssertTrue(s.applyCardsServerError(["code": "rateLimit", "message": "Too many requests, please slow down", "handler": "playerCards"]))
+        XCTAssertTrue(s.applyCardsServerError(["code": "validation", "handler": "playerCards"]))
+        XCTAssertFalse(s.applyCardsServerError(["code": "rateLimit", "handler": "searchPlayers"]))
+        XCTAssertEqual(s.phase, .idle)
+    }
+
+    private let refusal: [String: Any] = ["code": "rateLimit", "message": "Too many requests, please slow down", "handler": "playerCards"]
+
+    func testARefusedRequestsNamesAreAskedOnceMoreAfterTheWindow() {
+        let s = makeState()
+        s.sheetOpened(online: ["ivy", "kim"])
+        s.onlineChanged(["ivy", "kim", "pat"])
+        clock.advance(0.3)
+        XCTAssertEqual(cardsSent, [["ivy", "kim"], ["pat"]])
+        s.applyCards(response: cardsReply([("ivy", 31), ("kim", 12)]))
+        // the 21st request of a burst of joins: refused by the rate limit
+        XCTAssertTrue(s.applyCardsServerError(refusal))
+        XCTAssertTrue(s.cardsHeld)
+        // joins meanwhile wait for the window
+        s.onlineChanged(["ivy", "kim", "pat", "quinn"])
+        clock.advance(9.5)
+        XCTAssertEqual(cardsSent.count, 2, "nothing asked inside the server's window")
+        clock.advance(0.6)
+        XCTAssertEqual(cardsSent, [["ivy", "kim"], ["pat"], ["pat", "quinn"]], "the unanswered name and the joiner, in one request")
+        s.applyCards(response: cardsReply([("pat", 7), ("quinn", 8)]))
+        XCTAssertEqual(PlayerSearchState.onlineRows(["ivy", "kim", "pat", "quinn"], me: "ivy", cards: s.cards).map(\.pictureKey), ["31", "12", "7", "8"])
+    }
+
+    func testARequestAlwaysRefusedIsOneRetryNeverALoop() {
+        let s = makeState()
+        s.sheetOpened(online: ["ivy", "kim"])
+        for _ in 0..<5 {
+            XCTAssertTrue(s.applyCardsServerError(refusal))
+            clock.advance(10)
+        }
+        clock.advance(600)
+        XCTAssertEqual(cardsSent, [["ivy", "kim"], ["ivy", "kim"]], "asked once more, then never again this opening")
+        // a joiner after the hold is still asked once
+        s.onlineChanged(["ivy", "kim", "rae"])
+        clock.advance(0.3)
+        XCTAssertEqual(cardsSent.last, ["rae"])
+        // and a reopening starts over
+        s.reset()
+        s.sheetOpened(online: ["ivy", "kim"])
+        XCTAssertEqual(cardsSent.last, ["ivy", "kim"])
+    }
+
+    func testARetryNeverAsksAgainForANameAnsweredMeanwhile() {
+        let s = makeState()
+        s.sheetOpened(online: ["ivy", "kim"])
+        s.onlineChanged(["ivy", "kim", "pat"])
+        clock.advance(0.3)
+        // the join's request is refused while the opening's answer is still on its way
+        XCTAssertTrue(s.applyCardsServerError(refusal))
+        s.applyCards(response: cardsReply([("ivy", 31), ("kim", 12)]))
+        clock.advance(10)
+        XCTAssertEqual(cardsSent, [["ivy", "kim"], ["pat"], ["pat"]])
+    }
+
+    func testARefusalWithTheSheetClosedOrDuringASearchAsksLater() {
+        let s = makeState()
+        XCTAssertTrue(s.applyCardsServerError(refusal))
+        XCTAssertFalse(s.cardsHeld, "closed: nothing to hold")
+        s.sheetOpened(online: ["ivy", "kim"])
+        s.setText("ki")
+        XCTAssertTrue(s.applyCardsServerError(refusal))
+        clock.advance(10)
+        XCTAssertEqual(cardsSent, [["ivy", "kim"]], "nothing while a search shows")
+        s.setText("")
+        clock.advance(0.3)
+        XCTAssertEqual(cardsSent, [["ivy", "kim"], ["ivy", "kim"]], "the list back: the retry")
+    }
+
+    func testANewSessionAsksAgainForTheNamesNeverAnswered() {
+        let s = makeState()
+        s.sheetOpened(online: ["ivy", "kim", "pat"])
+        s.applyCards(response: cardsReply([("ivy", 31), ("kim", 12)]))
+        // the socket drops and a reconnect restores the session with the same online list
+        s.sessionRestored()
+        clock.advance(0.2)
+        XCTAssertEqual(cardsSent.count, 1, "after the pause")
+        clock.advance(0.15)
+        XCTAssertEqual(cardsSent, [["ivy", "kim", "pat"], ["pat"]], "only the name whose answer never came")
+        s.sessionRestored()
+        clock.advance(0.3)
+        XCTAssertEqual(cardsSent.count, 3, "one request a session, not a loop")
+        s.reset()
+        s.sessionRestored()
+        clock.advance(1)
+        XCTAssertEqual(cardsSent.count, 3, "closed: nothing")
+    }
+
+    func testOpenedOfflineTheRestoredSessionAsksWithNoChangeOfTheList() {
+        let s = makeState()
+        connected = false
+        s.sheetOpened(online: ["ivy", "kim"])
+        XCTAssertEqual(cardsSent, [])
+        connected = true
+        s.sessionRestored()
+        clock.advance(0.3)
+        XCTAssertEqual(cardsSent, [["ivy", "kim"]])
+    }
+
+    func testANewSessionEndsARefusalsHold() {
+        let s = makeState()
+        s.sheetOpened(online: ["ivy", "kim"])
+        XCTAssertTrue(s.applyCardsServerError(refusal))
+        s.sessionRestored()
+        XCTAssertFalse(s.cardsHeld, "the new socket has its own rate limit")
+        clock.advance(0.3)
+        XCTAssertEqual(cardsSent, [["ivy", "kim"], ["ivy", "kim"]])
+        clock.advance(20)
+        XCTAssertEqual(cardsSent.count, 2, "the old hold's timer asks nothing more")
+    }
+
+    func testTheCardsWireMatchesTheServer() throws {
+        let ios = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let src = try String(contentsOf: ios.appendingPathComponent("BABOnline/State/PlayerSearchState.swift"), encoding: .utf8)
+        XCTAssertTrue(src.contains("SocketService.shared.emit(SocketEvents.Client.playerCards, [\"usernames\": usernames])"))
+        let server = try String(contentsOf: ios.appendingPathComponent("../server/socket/profileHandlers.js"), encoding: .utf8)
+        XCTAssertTrue(server.contains("const PLAYER_CARDS_MAX = \(PlayerSearchState.cardsBatch);"))
+        let web = try String(contentsOf: ios.appendingPathComponent("../client/src/ui/screens/PlayerSearchPage.js"), encoding: .utf8)
+        XCTAssertTrue(web.contains("export const PLAYER_CARDS_DEBOUNCE_MS = 300;"), "the same pause as the web's")
+        XCTAssertEqual(SocketEvents.Client.playerCards, "playerCards")
+        XCTAssertEqual(SocketEvents.Server.playerCardsResponse, "playerCardsResponse")
     }
 
     // MARK: - Leaderboard avatars

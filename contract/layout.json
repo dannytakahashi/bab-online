@@ -81,6 +81,7 @@
           "getProfile",
           "updateProfilePic",
           "searchPlayers",
+          "playerCards",
           "getPlayerProfile",
           "uploadProfilePic"
         ]
@@ -268,6 +269,7 @@
         "section": "Player Search & Profile Lookup",
         "events": [
           "searchPlayersResponse",
+          "playerCardsResponse",
           "playerProfileResponse"
         ]
       },
@@ -424,7 +426,8 @@
           "updateProfilePic",
           "uploadProfilePic",
           "getPlayerProfile",
-          "searchPlayers"
+          "searchPlayers",
+          "playerCards"
         ]
       },
       {
@@ -614,6 +617,7 @@
           "profilePicUploadResponse",
           "playerProfileResponse",
           "searchPlayersResponse",
+          "playerCardsResponse",
           "badgesAwarded"
         ]
       },

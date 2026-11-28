@@ -62,6 +62,7 @@ export const CLIENT_EVENTS = {
   GET_PROFILE: 'getProfile',
   UPDATE_PROFILE_PIC: 'updateProfilePic',
   SEARCH_PLAYERS: 'searchPlayers',
+  PLAYER_CARDS: 'playerCards',
   GET_PLAYER_PROFILE: 'getPlayerProfile',
   UPLOAD_PROFILE_PIC: 'uploadProfilePic',
 
@@ -196,6 +197,7 @@ export const SERVER_EVENTS = {
 
   // Player Search & Profile Lookup
   SEARCH_PLAYERS_RESPONSE: 'searchPlayersResponse',
+  PLAYER_CARDS_RESPONSE: 'playerCardsResponse',
   PLAYER_PROFILE_RESPONSE: 'playerProfileResponse',
 
   // Leaderboard
