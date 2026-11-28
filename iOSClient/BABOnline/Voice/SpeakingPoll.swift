@@ -38,6 +38,25 @@ enum SpeakingPoll {
         }
     }
 
+    /// A receiver's inbound-rtp packets and bytes (the SFU's downlink stall detector, step 10,
+    /// and the live probe); nil without an inbound-rtp.
+    static func inboundCounters(_ stats: [(type: String, values: [String: NSObject])]) -> (packets: Int, bytes: Int)? {
+        var best: (packets: Int, bytes: Int)?
+        for s in stats where s.type == "inbound-rtp" && kind(s.values) == "audio" {
+            let p = (s.values["packetsReceived"] as? NSNumber)?.intValue ?? 0
+            let b = (s.values["bytesReceived"] as? NSNumber)?.intValue ?? 0
+            // a mid that survived a close may show a tiny second stream: the one with most bytes
+            if best == nil || b > best!.bytes { best = (p, b) }
+        }
+        return best
+    }
+
+    /// A sender's outbound-rtp bytes (the live probe).
+    static func outboundBytes(_ stats: [(type: String, values: [String: NSObject])]) -> Int? {
+        stats.first { $0.type == "outbound-rtp" && kind($0.values) == "audio" }
+            .flatMap { ($0.values["bytesSent"] as? NSNumber)?.intValue }
+    }
+
     private static func kind(_ values: [String: NSObject]) -> String? {
         values["kind"] as? String
     }

@@ -34,6 +34,8 @@ extension AppPresence {
     /// The admin panel's reset link is covered (true) while the app is not in front: UIKit posts
     /// these on the main thread, before the app switcher's snapshot is taken (`scenePhase` read
     /// inside a sheet can lag behind it).
+    /// The app is about to be terminated (voice's SFU session sends its sfuLeave then).
+    nonisolated static let willTerminateNotification = UIApplication.willTerminateNotification
     nonisolated static let coverNotifications = [(UIApplication.willResignActiveNotification, true), (UIApplication.didBecomeActiveNotification, false)]
 }
 #endif

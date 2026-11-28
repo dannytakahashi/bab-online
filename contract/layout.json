@@ -456,6 +456,19 @@
         ]
       },
       {
+        "section": "Voice SFU (tournament room)",
+        "events": [
+          "sfuSession",
+          "sfuPush",
+          "sfuPull",
+          "sfuRenegotiate",
+          "sfuClose",
+          "sfuIceRestart",
+          "sfuResume",
+          "sfuLeave"
+        ]
+      },
+      {
         "section": "Snapshot v2",
         "events": [
           "requestSnapshot"
@@ -632,6 +645,14 @@
         ]
       },
       {
+        "section": "Voice SFU (tournament room)",
+        "events": [
+          "sfuReply",
+          "sfuRoster",
+          "sfuMember"
+        ]
+      },
+      {
         "section": "Connection",
         "events": [
           "connect",
@@ -657,18 +678,7 @@
   "exclude": {
     "web": {},
     "swift": {
-      "sessionSuperseded": "web only: iOS 1.1.0 never shares a saved session between live sockets (a different session gets forceLogout); the server never needs it to read this",
-      "sfuSession": "Cloudflare SFU voice (2026-11-26, server PR 1): iOS lists it in its SFU transport PR (PR 3), so the generated Swift stays unchanged until then",
-      "sfuPush": "Cloudflare SFU voice (2026-11-26, server PR 1): iOS lists it in its SFU transport PR (PR 3), so the generated Swift stays unchanged until then",
-      "sfuPull": "Cloudflare SFU voice (2026-11-26, server PR 1): iOS lists it in its SFU transport PR (PR 3), so the generated Swift stays unchanged until then",
-      "sfuRenegotiate": "Cloudflare SFU voice (2026-11-26, server PR 1): iOS lists it in its SFU transport PR (PR 3), so the generated Swift stays unchanged until then",
-      "sfuClose": "Cloudflare SFU voice (2026-11-26, server PR 1): iOS lists it in its SFU transport PR (PR 3), so the generated Swift stays unchanged until then",
-      "sfuIceRestart": "Cloudflare SFU voice (2026-11-26, server PR 1): iOS lists it in its SFU transport PR (PR 3), so the generated Swift stays unchanged until then",
-      "sfuResume": "Cloudflare SFU voice (2026-11-26, server PR 1): iOS lists it in its SFU transport PR (PR 3), so the generated Swift stays unchanged until then",
-      "sfuLeave": "Cloudflare SFU voice (2026-11-26, server PR 1): iOS lists it in its SFU transport PR (PR 3), so the generated Swift stays unchanged until then",
-      "sfuReply": "Cloudflare SFU voice (2026-11-26, server PR 1): iOS lists it in its SFU transport PR (PR 3), so the generated Swift stays unchanged until then",
-      "sfuRoster": "Cloudflare SFU voice (2026-11-26, server PR 1): iOS lists it in its SFU transport PR (PR 3), so the generated Swift stays unchanged until then",
-      "sfuMember": "Cloudflare SFU voice (2026-11-26, server PR 1): iOS lists it in its SFU transport PR (PR 3), so the generated Swift stays unchanged until then"
+      "sessionSuperseded": "web only: iOS 1.1.0 never shares a saved session between live sockets (a different session gets forceLogout); the server never needs it to read this"
     }
   }
 }
