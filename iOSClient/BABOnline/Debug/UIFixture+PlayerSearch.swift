@@ -14,7 +14,7 @@ import SwiftUI
 /// The online list's pictures (2026-11-27): `playerCards` is answered here too, with the
 /// server's playerCardsResponse shape (the same rows; `avatarUrls` for kim; a name with no
 /// account, "pat", absent) and decoding. `-uiPlayerCards`: `ok` (the default, 0.3 s), `slow`
-/// (after 2 s: the initials first, then the pictures in place), `silent` (never answers: a
+/// (after 6 s: the initials first, then the pictures in place), `silent` (never answers: a
 /// server from before playerCards). Every request is noted in the "players.cardsSent" probe
 /// ("ivy,kim,...|max" per request, "-" for none).
 extension UIFixture {
@@ -39,7 +39,7 @@ extension UIFixture {
         search.sendCards = { [weak search] names in
             PlayerCardsProbe.shared.note(names)
             guard playerCardsMode != "silent" else { return }
-            let delay: TimeInterval = playerCardsMode == "slow" ? 2 : 0.3
+            let delay: TimeInterval = playerCardsMode == "slow" ? 6 : 0.3
             let reply = playerCardsReply(names)
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { search?.applyCards(response: reply) }
         }
