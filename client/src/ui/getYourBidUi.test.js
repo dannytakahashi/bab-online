@@ -292,7 +292,7 @@ describe('the score modal', () => {
   it('Return to Lobby runs the callback', () => {
     const onReturnToLobby = vi.fn();
     showFinalScoreOverlay({ solo: { end, playerData, myPosition: 2 }, onReturnToLobby });
-    [...document.querySelectorAll('#finalScoreOverlay button')].find((b) => b.textContent === 'Return to Lobby').click();
+    [...document.querySelectorAll('#finalScoreOverlay .kit-modal__actions button')].find((b) => b.textContent === 'Return to Lobby').click();
     expect(onReturnToLobby).toHaveBeenCalledTimes(1);
   });
 });

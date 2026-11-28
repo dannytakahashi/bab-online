@@ -524,6 +524,47 @@ export function createGameLog({ onChatSubmit } = {}) {
     messageArea.innerHTML = '';
   };
 
+  /**
+   * The scorecard's entry (owner 2026-11-27): while the server keeps a
+   * scorecard, the whole score header is a button that opens it
+   * (Scorecard.openScorecardModal), named "Scorecard" for screen readers,
+   * with a small muted "›" after the hand label as the only visual hint.
+   * null: an older server, no scorecard: the header is as it was.
+   * @param {Function|null} onOpen
+   */
+  let scorecardOpen = null;
+  const openFromHeader = (e) => {
+    if (!scorecardOpen) return;
+    if (e.type === 'keydown') {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+    }
+    scorecardOpen();
+  };
+  scoreSection.addEventListener('click', openFromHeader);
+  scoreSection.addEventListener('keydown', openFromHeader);
+  const setScorecard = (onOpen) => {
+    const on = typeof onOpen === 'function';
+    scorecardOpen = on ? onOpen : null;
+    if (on === scoreSection.classList.contains('has-scorecard')) return;
+    scoreSection.classList.toggle('has-scorecard', on);
+    const label = handIndicator.querySelector('.log-hand__label');
+    if (on) {
+      scoreSection.setAttribute('role', 'button');
+      scoreSection.setAttribute('tabindex', '0');
+      scoreSection.setAttribute('aria-label', 'Scorecard');
+      scoreSection.title = 'Scorecard';
+      const more = document.createElement('span');
+      more.className = 'log-hand__more';
+      more.setAttribute('aria-hidden', 'true');
+      more.textContent = '›';
+      label?.appendChild(more);
+    } else {
+      for (const a of ['role', 'tabindex', 'aria-label', 'title']) scoreSection.removeAttribute(a);
+      label?.querySelector('.log-hand__more')?.remove();
+    }
+  };
+
   const updateHandIndicator = (handSize) => {
     const el = container.querySelector('#hand-indicator-value');
     if (el) el.textContent = handSize.toString();
@@ -681,6 +722,7 @@ export function createGameLog({ onChatSubmit } = {}) {
     updateFullScore,
     updateNames,
     updateHandIndicator,
+    setScorecard,
     showTrickIndicator,
     hideTrickIndicator,
     updateTrickIndicator,

@@ -5,6 +5,7 @@
 import { team, rotate } from '../../utils/positions.js';
 import { el, createButton, openModal } from '../kit/index.js';
 import { soloOutcome, soloResultRows, soloWinnerLine } from '../../state/gyb.js';
+import { createResultTabs } from './Scorecard.js';
 
 /** A seat's username in playerData, or null (not seated / not known yet). */
 function seatUsername(playerData, pos) {
@@ -205,11 +206,15 @@ let scoreModal = null;
  * @param {Object} [options.solo] - a Get Your Bid game (three players, no
  *   teams): {end: gameEnd.gyb, playerData, myPosition (null: a spectator)};
  *   the modal then lists the three players by score (showSoloResult)
+ * @param {HTMLElement} [options.scorecard] - the game's scorecard
+ *   (Scorecard.renderScorecard; owner 2026-11-27): the modal then opens
+ *   with a "Summary | Scorecard" control over the body, Summary first and
+ *   shown (the summary itself unchanged). None (an older server): as before
  * @returns {Object} { overlay, destroy }
  */
-export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onReturnToLobby, buttonText, isSpectator, teamName, oppName, solo = null }) {
+export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onReturnToLobby, buttonText, isSpectator, teamName, oppName, solo = null, scorecard = null }) {
   removeFinalScoreOverlay();
-  if (solo) return showSoloResult({ solo, onReturnToLobby, buttonText, isSpectator });
+  if (solo) return showSoloResult({ solo, onReturnToLobby, buttonText, isSpectator, scorecard });
 
   // Determine winner message (the title's color is its class: table.css .result-modal)
   let resultMsg;
@@ -265,13 +270,15 @@ export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onRetu
 
   // Return button: the primary action (never red: ui-d2)
   const returnBtn = createButton({ label: buttonText || 'Return to Lobby', variant: 'primary', size: 'lg' });
+  // the Summary | Scorecard control (only with a scorecard)
+  const shown = scorecard ? createResultTabs(body, scorecard) : body;
   // Cut for a buck's strip at a tournament's last table (setScoreModalCut)
-  body.push(cutStrip(returnBtn, buttonText || 'Return to Lobby'));
+  shown.push(cutStrip(returnBtn, buttonText || 'Return to Lobby'));
 
   const modal = openModal({
     id: 'finalScoreOverlay',
     title: resultMsg,
-    body,
+    body: shown,
     actions: [returnBtn],
     dismissible: false,
     initialFocus: returnBtn,
@@ -297,7 +304,7 @@ export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onRetu
  * the winner by name under it, then the three players best first with their
  * score and how many of the hands they got their bid exactly.
  */
-function showSoloResult({ solo, onReturnToLobby, buttonText, isSpectator }) {
+function showSoloResult({ solo, onReturnToLobby, buttonText, isSpectator, scorecard = null }) {
   const { end, playerData, myPosition = null } = solo;
   const outcome = soloOutcome(end, isSpectator ? null : myPosition);
   const title = { victory: 'VICTORY', defeat: 'DEFEAT', tie: 'TIE GAME', neutral: 'GAME OVER' }[outcome];
@@ -319,11 +326,12 @@ function showSoloResult({ solo, onReturnToLobby, buttonText, isSpectator }) {
   body.push(table);
 
   const returnBtn = createButton({ label: buttonText || 'Return to Lobby', variant: 'primary', size: 'lg' });
-  body.push(cutStrip(returnBtn, buttonText || 'Return to Lobby'));
+  const shown = scorecard ? createResultTabs(body, scorecard) : body;
+  shown.push(cutStrip(returnBtn, buttonText || 'Return to Lobby'));
   const modal = openModal({
     id: 'finalScoreOverlay',
     title,
-    body,
+    body: shown,
     actions: [returnBtn],
     dismissible: false,
     initialFocus: returnBtn,

@@ -138,7 +138,7 @@ describe('Cut for a buck on the page', () => {
     socket.fire('gameEnd', { score: { team1: 300, team2: 120 }, playerStats: {}, tournamentId: 't1' });
     await settle();
     expect(page.session.screen).toBe('gameEnd');
-    const button = () => document.querySelector('#finalScoreOverlay .kit-modal__actions button') || document.querySelector('#finalScoreOverlay button');
+    const button = () => document.querySelector('#finalScoreOverlay .kit-modal__actions button') || document.querySelector('#finalScoreOverlay .kit-modal__actions button');
     expect(button().textContent).toBe('Return to Tournament');
     expect(document.getElementById('cutStrip').hidden).toBe(true);
 

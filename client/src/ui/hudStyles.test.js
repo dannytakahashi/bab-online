@@ -15,6 +15,7 @@ const HUD_FILES = [
   'src/ui/components/ConnectionBanner.js', 'src/ui/components/ChatBubble.js', 'src/ui/tableHud.js', 'src/ui/transitionOverlay.js',
   'src/ui/components/SpectatorBadge.js', 'src/ui/drawHud.js', 'src/ui/components/SoundToggle.js', 'src/ui/handA11y.js',
   'src/phaser/managers/CardManager.js', 'src/ui/components/AssistCard.js', 'src/ui/components/TutorialButton.js', 'src/ui/seatPlates.js',
+  'src/ui/components/Scorecard.js',
 ];
 
 const HEX = /#[0-9a-fA-F]{3,8}\b/g;

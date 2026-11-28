@@ -2050,3 +2050,64 @@ body > #spectating-indicator.is-watching {
 .hud-seat-badge[data-badge="help"] .hud-seat-badge__bulb { display: block; }
 .hud-seat-badge[data-badge="tutorial"] { color: var(--primary-base); }
 .hud-seat-badge[data-badge="tutorial"] .hud-seat-badge__cap { display: block; }
+
+/* ---------- The scorecard (owner 2026-11-27; ui/components/Scorecard.js) ----------
+   One row per hand: "bid → took" per player under each pair's names, then
+   each pair's score, the hand's points (small, muted) above the new total.
+   Gold = extra tricks (the over-trick pip's colour), red pill = at fault,
+   green outline = a bore, red pill + red outline = a bore that was set.
+   Pair names and scores in their team's colour; player cells neutral. */
+
+/* the score header opens it while the server keeps one (GameLog.setScorecard) */
+.log-score.has-scorecard { cursor: pointer; border-radius: var(--radius-sm); }
+.log-score.has-scorecard:hover { background: rgb(var(--text-primary-rgb) / 0.04); }
+.log-score.has-scorecard:focus-visible { outline: 2px solid var(--primary-base); outline-offset: 2px; }
+.log-hand__more { margin-left: 3px; color: var(--text-dim); }
+
+.scorecard-modal { width: min(640px, 100%); }
+.scorecard-modal__body { width: 100%; }
+
+.result-tabs.scope-control { max-width: 320px; margin-bottom: var(--space-4); }
+.result-tabs__panel[hidden] { display: none; }
+
+.scorecard { width: 100%; overflow-x: auto; color: var(--text-primary); }
+.scorecard__empty { margin: var(--space-4) 0; color: var(--text-dim); text-align: center; }
+.scorecard__table { width: 100%; min-width: 360px; border-collapse: collapse; table-layout: fixed; font-size: var(--type-sm); font-variant-numeric: tabular-nums; }
+.scorecard__col-hand { width: 48px; }
+.scorecard__col-dealer { width: 56px; }
+.scorecard__col-score { width: 68px; }
+.scorecard th {
+    padding: 3px 2px;
+    overflow: hidden;
+    color: var(--text-dim);
+    font-size: var(--type-xs);
+    font-weight: var(--weight-semibold);
+    text-align: center;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.scorecard__groups th { padding-bottom: 0; font-size: var(--type-sm); }
+.scorecard__pair { border-bottom: 2px solid currentColor; }
+.scorecard th.is-team-a, .scorecard .scorecard__total.is-team-a { color: var(--team-a); }
+.scorecard th.is-team-b, .scorecard .scorecard__total.is-team-b { color: var(--team-b); }
+.scorecard th.is-team-c, .scorecard .scorecard__total.is-team-c { color: var(--gold); }
+.scorecard__head th { padding-bottom: var(--space-1); border-bottom: 1px solid var(--line-subtle); }
+.scorecard th.scorecard__hand, .scorecard td.scorecard__hand { text-align: left; padding-left: var(--space-1); }
+.scorecard td { padding: 6px 2px; border-top: 1px solid var(--line-subtle); text-align: center; vertical-align: middle; }
+.scorecard td.scorecard__hand { color: var(--text-dim); white-space: nowrap; }
+.scorecard__suit { margin-left: 4px; color: var(--text-primary); }
+.scorecard__suit.is-red { color: var(--danger-text); }
+.scorecard__suit.is-joker { font-size: var(--type-xs); font-weight: var(--weight-bold); }
+.scorecard td.scorecard__dealer { overflow: hidden; color: var(--text-secondary); font-size: var(--type-xs); white-space: nowrap; text-overflow: ellipsis; }
+.scorecard__cell { display: inline-flex; align-items: baseline; gap: 2px; padding: 1px 5px; border: 1.5px solid transparent; border-radius: 7px; white-space: nowrap; }
+.scorecard__arrow { color: var(--text-dim); font-size: var(--type-xs); }
+.scorecard__took.is-extra { color: var(--gold); font-weight: var(--weight-semibold); }
+.scorecard__cell.is-fault { background: rgb(var(--danger-text-rgb) / 0.18); color: var(--danger-text); }
+.scorecard__cell.is-fault .scorecard__arrow { color: var(--danger-text); }
+.scorecard__cell.is-bore { border-color: var(--primary-base); color: var(--primary-base); font-weight: var(--weight-semibold); }
+.scorecard__cell.is-bore.is-fault { border-color: var(--danger-text); color: var(--danger-text); }
+.scorecard__forbidden { margin-left: 3px; color: var(--danger-text); font-size: var(--type-xs); }
+.scorecard__none { color: var(--text-dim); }
+.scorecard__delta { color: var(--text-dim); font-size: 11px; line-height: 1.15; }
+.scorecard__total { font-weight: var(--weight-semibold); line-height: 1.15; }
+.scorecard__row.is-current td { background: rgb(var(--text-primary-rgb) / 0.05); }

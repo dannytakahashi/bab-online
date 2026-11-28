@@ -205,7 +205,7 @@ describe('the real page: the loop follows the table (recorded game, events-bots-
     expect(document.querySelectorAll('.turn-glow')).toHaveLength(0);
     replay.advance(200);
     expect(game.loop.running).toBe(true);
-    document.querySelector('#finalScoreOverlay button').click();
+    document.querySelector('#finalScoreOverlay .kit-modal__actions button').click();
     expect(page.session.screen).toBe(SCREEN.MAIN_ROOM);
     replay.advance(50);
     expect(game.loop.running).toBe(false);
