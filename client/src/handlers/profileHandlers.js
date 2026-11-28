@@ -16,6 +16,7 @@
  * @param {Function} callbacks.onCustomProfilePicUploaded - Called when custom pic is uploaded
  * @param {Function} callbacks.onCustomProfilePicUploadError - Called on custom pic upload error
  * @param {Function} callbacks.onSearchPlayersResult - Called with search results
+ * @param {Function} callbacks.onPlayerCards - Called with the rows of a playerCardsResponse (the Players page's online list pictures)
  * @param {Function} callbacks.onPlayerProfileReceived - Called with (profile, scope, badges) of another player
  * @param {Function} callbacks.onBadgesAwarded - Called with the badges this player just earned ([{id, name, description}])
  * @param {Function} callbacks.onPlayerProfileError - Called when another player's profile fails (no toast today)
@@ -29,6 +30,7 @@ export function registerProfileHandlers(socketManager, callbacks = {}) {
     onCustomProfilePicUploaded,
     onCustomProfilePicUploadError,
     onSearchPlayersResult,
+    onPlayerCards,
     onPlayerProfileReceived,
     onPlayerProfileError,
     onBadgesAwarded,
@@ -79,6 +81,13 @@ export function registerProfileHandlers(socketManager, callbacks = {}) {
       console.warn('Player search failed:', data.message);
       onSearchPlayersResult?.([], data.query);
     }
+  });
+
+  // Player cards (2026-11-27): the pictures of the Players page's online
+  // list; a failure keeps the initials (nothing shown, nothing retried)
+  socketManager.on('playerCardsResponse', (data) => {
+    if (data?.success && Array.isArray(data.players)) onPlayerCards?.(data.players);
+    else console.warn('Player cards failed:', data?.message);
   });
 
   // Player profile response (viewing another player)

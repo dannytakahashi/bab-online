@@ -3,7 +3,8 @@ import Foundation
 /// `profileResponse`, `profilePicUpdateResponse`, `profilePicUploadResponse` and
 /// `playerProfileResponse` -> ProfileState (decoding and failures: ProfileState's apply functions);
 /// `badgesAwarded` (private, the clientHello cap `badges`) -> the badge toast's queue (BadgeAwards);
-/// `searchPlayersResponse` -> the Players sheet's search (PlayerSearchState, owner 2026-11-27).
+/// `searchPlayersResponse` -> the Players sheet's search (PlayerSearchState, owner 2026-11-27);
+/// `playerCardsResponse` -> the Players sheet's online list pictures (PlayerSearchState.applyCards).
 final class ProfileSocketHandler {
     private let socket: SocketService
     private let profileState: ProfileState
@@ -31,11 +32,16 @@ final class ProfileSocketHandler {
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async { self.playerSearch.apply(response: dict) }
         }
+        socket.on(SocketEvents.Server.playerCardsResponse) { [weak self] data, _ in
+            guard let self, let dict = data.first as? [String: Any] else { return }
+            DispatchQueue.main.async { self.playerSearch.applyCards(response: dict) }
+        }
         // a rate-limited profile request or search is answered with serverError: the waiting
-        // request fails with it (no toast)
+        // request fails with it (no toast); a refused playerCards just keeps the initials
         socket.claimProfileServerError = { [weak self] dict in
             guard let self else { return false }
             return self.profileState.applyServerError(dict) || self.playerSearch.applyServerError(dict)
+                || self.playerSearch.applyCardsServerError(dict)
         }
     }
 

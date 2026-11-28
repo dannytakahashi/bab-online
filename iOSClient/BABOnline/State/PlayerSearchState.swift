@@ -25,8 +25,11 @@ struct PlayerSearchResult: Identifiable, Equatable {
 /// you type over c2s `searchPlayers {query}` -> s2c `searchPlayersResponse`, as the web's
 /// PlayerSearchPage does it: the trimmed text, 300 ms after the last keystroke (Search on the
 /// keyboard sends at once), and only the reply whose echoed `query` is the latest one sent is
-/// shown (replies can finish out of order). An empty field shows the online players instead.
-/// Main thread only (the socket handler hops to it).
+/// shown (replies can finish out of order). An empty field shows the online players instead,
+/// each with its picture: the online list is names only, so while it shows the sheet asks for
+/// the listed players' cards (c2s `playerCards {usernames}` -> s2c `playerCardsResponse`, the
+/// search rows of those players, 2026-11-27) and a row shows the name's initial until its card
+/// is known. Main thread only (the socket handler hops to it).
 final class PlayerSearchState: ObservableObject {
     static let shared = PlayerSearchState()
 
@@ -66,6 +69,9 @@ final class PlayerSearchState: ObservableObject {
     var send: (String) -> Void = { query in
         SocketService.shared.emit(SocketEvents.Client.searchPlayers, ["query": query])
     }
+    var sendCards: ([String]) -> Void = { usernames in
+        SocketService.shared.emit(SocketEvents.Client.playerCards, ["usernames": usernames])
+    }
     var isConnected: () -> Bool = { SocketService.shared.isConnected }
     /// Runs `work` after `delay` seconds; the returned closure cancels it.
     var schedule: (TimeInterval, @escaping () -> Void) -> () -> Void = { delay, work in
@@ -89,6 +95,38 @@ final class PlayerSearchState: ObservableObject {
 
     /// The query of the latest searchPlayers sent (nil: none, or the field was cleared since).
     private(set) var latestQuery: String?
+
+    // MARK: Player cards (the online list's pictures)
+
+    /// username -> the picture AvatarImageView loads (PlayerSearchResult.pictureKey), from
+    /// playerCardsResponse and search results; kept for the app's session, so a reopened sheet
+    /// draws the known pictures at once while it asks again.
+    @Published private(set) var cards: [String: String] = [:]
+    /// The names asked for since the sheet opened: each at most once per opening, so a server
+    /// that never answers (one from before playerCards) costs one request per change of the list
+    /// and nothing else. Cleared when the sheet opens, which refreshes every listed card. Two
+    /// cases ask a name again within an opening (review of PR #454): a refused request (the
+    /// rate limit, during a burst of joins) and a new session (a reconnect), each below.
+    private(set) var cardsAsked = Set<String>()
+    /// The names a reply has brought back since the sheet opened (a name with no account never
+    /// comes back: it counts as unanswered, and is asked again at most as often as below).
+    private(set) var cardsAnswered = Set<String>()
+    /// The names asked again after a refusal since the sheet opened: each at most once, so a
+    /// request the server always refuses is one retry, never a loop.
+    private(set) var cardsRetried = Set<String>()
+    /// After a refusal nothing is asked for `cardsRetryDelay` (the server's rate-limit window,
+    /// playerCards 20 per 10 s); then what is unasked goes in one request.
+    private(set) var cardsHeld = false
+    var cardsRetryDelay: TimeInterval = 10
+    private var cancelRetry: (() -> Void)?
+    /// The online list as the sheet last showed it (the main room's, in its order).
+    private var online: [String] = []
+    private var sheetOpen = false
+    private var cancelCards: (() -> Void)?
+    /// The server's limit per playerCards request (profileHandlers PLAYER_CARDS_MAX).
+    static let cardsBatch = 100
+    /// The pause after a change of the online list before asking (the search's 300 ms).
+    var cardsDebounce: TimeInterval = 0.3
     private var cancelDebounce: (() -> Void)?
     private var cancelProgress: (() -> Void)?
     private var cancelTimeout: (() -> Void)?
@@ -129,18 +167,136 @@ final class PlayerSearchState: ObservableObject {
         search()
     }
 
-    /// The sheet closed: nothing typed, nothing waiting.
+    /// The sheet closed: nothing typed, nothing waiting (the cards stay for the next opening).
     func reset() {
         cancelDebounce?()
         cancelDebounce = nil
         text = ""
         clear()
+        sheetOpen = false
+        cancelCards?()
+        cancelCards = nil
+        endHold()
     }
 
     private func clear() {
         latestQuery = nil
         phase = .idle
         stopTimers()
+        // the online list is back: the names it gained meanwhile, after the pause
+        if sheetOpen { scheduleCards() }
+    }
+
+    // MARK: - Player cards
+
+    /// The sheet opened on `online`: every listed name's card is asked for at once (known
+    /// pictures show meanwhile).
+    func sheetOpened(online: [String]) {
+        sheetOpen = true
+        cardsAsked = []
+        cardsAnswered = []
+        cardsRetried = []
+        endHold()
+        self.online = online
+        askForCards()
+    }
+
+    /// The main room's online list changed while the sheet is up: the new names' cards after
+    /// the pause (a leave asks for nothing).
+    func onlineChanged(_ online: [String]) {
+        self.online = online
+        guard sheetOpen else { return }
+        scheduleCards()
+    }
+
+    /// A new session while the sheet is up (SocketService.isSessionReady again: a reconnect's
+    /// restore): the names sent and never answered are asked again, as are the names the sheet
+    /// could not ask while offline, after the pause. A reply lost with the old socket would
+    /// otherwise leave their initials until the sheet reopened, and the reconnect's online list
+    /// is often the same one (no onChange). The new socket has a fresh rate limit, so a hold ends.
+    func sessionRestored() {
+        guard sheetOpen else { return }
+        cardsAsked.formIntersection(cardsAnswered)
+        endHold()
+        scheduleCards()
+    }
+
+    private func scheduleCards() {
+        guard !cardsHeld else { return }
+        cancelCards?()
+        cancelCards = schedule(cardsDebounce) { [weak self] in self?.askForCards() }
+    }
+
+    /// The listed names not asked for since the sheet opened, 100 a request; only while the
+    /// online list shows (an empty field) and a request can be sent.
+    private func askForCards() {
+        cancelCards?()
+        cancelCards = nil
+        guard sheetOpen, !cardsHeld, phase == .idle, isConnected() else { return }
+        var seen = Set<String>()
+        let names = online.filter { !$0.isEmpty && !cardsAsked.contains($0) && !cardsAnswered.contains($0) && seen.insert($0).inserted }
+        var start = 0
+        while start < names.count {
+            let batch = Array(names[start..<min(start + Self.cardsBatch, names.count)])
+            cardsAsked.formUnion(batch)
+            sendCards(batch)
+            start += Self.cardsBatch
+        }
+    }
+
+    /// playerCardsResponse: each row's picture remembered (the rows on screen redraw). A failure
+    /// reply keeps the initials, and nothing is asked again until the list changes, a new
+    /// session or the sheet reopens.
+    func applyCards(response dict: [String: Any]) {
+        guard dict["success"] as? Bool == true, let rows = dict["players"] as? [Any] else { return }
+        let results = rows.compactMap { ($0 as? [String: Any]).flatMap { PlayerSearchResult.from($0, avatarUrls: Self.urls(dict)) } }
+        cardsAnswered.formUnion(results.map(\.username))
+        remember(results)
+    }
+
+    /// serverError for playerCards (the rate limit, a refused payload): claimed, so a background
+    /// request never shows a toast; the initials stay for now. The names asked and not answered
+    /// (the refused request's among them; the server does not say which it was) are asked once
+    /// more, `cardsRetryDelay` later, with whatever joined meanwhile, in one request; a name
+    /// already asked again after a refusal is not, so this is one retry, never a loop.
+    func applyCardsServerError(_ dict: [String: Any]) -> Bool {
+        guard dict["handler"] as? String == SocketEvents.Client.playerCards else { return false }
+        guard sheetOpen else { return true }
+        let again = cardsAsked.subtracting(cardsAnswered).subtracting(cardsRetried)
+        cardsAsked.subtract(again)
+        cardsRetried.formUnion(again)
+        if !cardsHeld {
+            cardsHeld = true
+            cancelCards?()
+            cancelCards = nil
+            cancelRetry = schedule(cardsRetryDelay) { [weak self] in
+                guard let self else { return }
+                self.cancelRetry = nil
+                self.cardsHeld = false
+                self.askForCards()
+            }
+        }
+        return true
+    }
+
+    private func endHold() {
+        cancelRetry?()
+        cancelRetry = nil
+        cardsHeld = false
+    }
+
+    private func remember(_ results: [PlayerSearchResult]) {
+        var next = cards
+        for r in results { next[r.username] = r.pictureKey }
+        if next != cards { cards = next }
+    }
+
+    private static func urls(_ dict: [String: Any]) -> [String: String] {
+        var urls: [String: String] = [:]
+        for (name, url) in dict["avatarUrls"] as? [String: Any] ?? [:] {
+            if let url = url as? String { urls[name] = url }
+        }
+        return urls
     }
 
     private func search() {
@@ -209,13 +365,11 @@ final class PlayerSearchState: ObservableObject {
         if let echoed = dict["query"] as? String, echoed != latest { return false }
         latestQuery = nil
         if dict["success"] as? Bool == true, let rows = dict["players"] as? [Any] {
-            var urls: [String: String] = [:]
-            for (name, url) in dict["avatarUrls"] as? [String: Any] ?? [:] {
-                if let url = url as? String { urls[name] = url }
-            }
             var seen = Set<String>()
-            let results = rows.compactMap { ($0 as? [String: Any]).flatMap { PlayerSearchResult.from($0, avatarUrls: urls) } }
+            let results = rows.compactMap { ($0 as? [String: Any]).flatMap { PlayerSearchResult.from($0, avatarUrls: Self.urls(dict)) } }
                 .filter { seen.insert($0.username).inserted }
+            // a result row is a card too (the same row shape): the online list can use it
+            remember(results)
             show(results)
         } else {
             stopTimers()
@@ -238,8 +392,11 @@ final class PlayerSearchState: ObservableObject {
 
     struct Row: Identifiable, Equatable {
         let username: String
-        /// Nil for the online list (names only, as the server sends it).
+        /// The picture to load; nil on an online row whose card is not known yet (the initial).
         let pictureKey: String?
+        /// A row of the online list (an empty field), not a search result: no online dot (every
+        /// row is online) and the `online.<name>` identifier.
+        var inOnlineList = false
         let isOnline: Bool
         /// My own name is just my name (my profile lives in the Account sheet).
         let isMe: Bool
@@ -254,11 +411,12 @@ final class PlayerSearchState: ObservableObject {
         }
     }
 
-    /// The online list's rows (an empty field), in the server's order.
-    static func onlineRows(_ online: [String], me: String) -> [Row] {
+    /// The online list's rows (an empty field), in the server's order, each with its card's
+    /// picture when known.
+    static func onlineRows(_ online: [String], me: String, cards: [String: String] = [:]) -> [Row] {
         var seen = Set<String>()
         return online.filter { !$0.isEmpty && seen.insert($0).inserted }
-            .map { Row(username: $0, pictureKey: nil, isOnline: true, isMe: !me.isEmpty && $0 == me) }
+            .map { Row(username: $0, pictureKey: cards[$0], inOnlineList: true, isOnline: true, isMe: !me.isEmpty && $0 == me) }
     }
 
     /// Search results as rows: the online dot from the main room's list.
