@@ -161,6 +161,11 @@ private struct TournamentLobbyScreen: View {
                                       watching: SocketService.shared.gameState?.isSpectator ?? false,
                                       voice: .shared)
         }
+        #if DEBUG
+        .overlay(alignment: .bottomLeading) {
+            if SfuProbeView.isOn { SfuProbeView() }  // live checks only (-sfuProbe YES)
+        }
+        #endif
         .sheet(isPresented: $showVoicePanel) {
             VoicePanelSheet()
                 .presentationDetents([.medium])

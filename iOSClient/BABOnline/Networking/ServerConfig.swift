@@ -91,9 +91,13 @@ enum ClientHello {
     /// `getYourBid` (iOS 1.2.7 (42); `GybRules.cap`, $defs.clientCapGetYourBid): this build shows
     /// a Get Your Bid lobby and its three-seat table, so the server lists, seats and shows them
     /// and sends the additive `mode` / `gyb` keys (State/Table/GetYourBid.swift).
+    /// `sfuVoice` (PR 3; `SfuPolicy.cap`, $defs.clientCapSfuVoice): this build runs the tournament
+    /// room on the Cloudflare SFU (`SfuVoice`: sfuRoster / sfuMember / sfuReply, the c2s sfu*
+    /// requests) when the server's `VOICE_SFU=tournament` makes it an SFU room; a server with the
+    /// flag off ignores it, and the room is the mesh exactly as before.
     static let caps = ["avatarUrl", "casualSpectators", "playAgain", "assist", "tutorial", ShoulderRules.cap,
                        TournamentVoice.cap, TournamentPairingRules.cap, TournamentVoice.statusCap, Badges.cap, CutForABuck.cap,
-                       GybRules.cap]
+                       GybRules.cap, SfuPolicy.cap]
 
     static func payload(version: String = AppInfo.version, build: String = AppInfo.build) -> [String: Any] {
         ["client": "ios", "version": String(version.prefix(32)), "build": String(build.prefix(64)), "caps": caps]
