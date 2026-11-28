@@ -917,8 +917,8 @@ const s2c = {
         ),
         status: 'active', to: 'self',
         added: ['avatarUrls', 'query'],
-        notes: 'query (2026-11-15) echoes the request\'s query so web search-as-you-type ignores a stale reply; iOS never sends searchPlayers.',
-        clientReads: reads(W.profile, []),
+        notes: 'query (2026-11-15) echoes the request\'s query so search as you type (web; iOS from the build after 1.2.8 (49), the Players sheet) ignores a stale reply.',
+        clientReads: reads(W.profile, I.profile),
         emittedFrom: ['server/socket/profileHandlers.js:searchPlayers'],
     },
     playerProfileResponse: {

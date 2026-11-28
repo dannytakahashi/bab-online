@@ -3,7 +3,10 @@
  *
  * A kit Modal with a search input (search as you type) and a results list
  * for finding players; a result is a button that opens that player's
- * profile. Classes from styles/screens.css (item 18b); usernames as text.
+ * profile. With the box empty it lists who is online (the main room's list,
+ * owner 2026-11-27, as the iOS Players sheet), each a button that opens the
+ * profile too; your own name is just your name. Classes from
+ * styles/screens.css (item 18b); usernames as text.
  */
 
 import { profileAvatarSrc, applyAvatarImg } from '../../utils/avatar.js';
@@ -19,6 +22,8 @@ let searchModal = null;
  * one whose echoed query is not this one is stale and dropped.
  */
 let latestQuery = null;
+/** Who is online (the main room's list, read when drawn) and who I am. */
+let onlineSource = { getOnlineUsers: () => [], me: null };
 
 /**
  * Get the appropriate profile picture source.
@@ -35,13 +40,63 @@ function hint(text) {
 }
 
 /**
+ * A profile request for `username`, closing the page first (as a result row).
+ */
+function openProfile(username) {
+  const socket = currentSocket;
+  removePlayerSearchPage();
+  if (socket) {
+    socket.emit('getPlayerProfile', scopePayload({ username }));
+  }
+}
+
+/**
+ * The empty box: "Online now · N" and a row per online player (names only:
+ * the online list carries no pictures), or the hint when nobody is listed.
+ */
+function onlineChildren() {
+  const seen = new Set();
+  const users = (onlineSource.getOnlineUsers() || []).filter((u) => typeof u === 'string' && u && !seen.has(u) && seen.add(u));
+  if (users.length === 0) return [hint('Search for a player by username')];
+  const heading = el('div', {
+    className: 'room-list__heading search-results__heading',
+    attrs: { id: 'playerSearchOnlineHeading', role: 'heading', 'aria-level': '3' },
+    text: `Online now \u00B7 ${users.length}`,
+  });
+  const rows = users.map((username) => {
+    const name = el('div', { className: 'search-result__name', text: username });
+    if (username === onlineSource.me) {
+      // my own profile is the Profile page: my name is just my name
+      return el('div', {
+        className: 'search-result search-result--me',
+        dataset: { username },
+        children: [el('div', { className: 'search-result__info', children: [name, el('div', { className: 'search-result__stats', text: 'You' })] })],
+      });
+    }
+    const row = el('button', {
+      className: 'search-result',
+      attrs: { type: 'button', 'aria-label': `${username}, online` },
+      dataset: { username },
+      children: [el('div', { className: 'search-result__info', children: [name] })],
+    });
+    row.addEventListener('click', () => openProfile(username));
+    return row;
+  });
+  return [heading, ...rows];
+}
+
+/**
  * Show the player search modal.
  *
  * @param {Object} socket - Socket instance
+ * @param {Object} [options]
+ * @param {Function} [options.getOnlineUsers] - the main room's online usernames
+ * @param {string} [options.me] - the signed-in player
  */
-export function showPlayerSearchPage(socket) {
+export function showPlayerSearchPage(socket, { getOnlineUsers = () => [], me = null } = {}) {
   removePlayerSearchPage();
   currentSocket = socket;
+  onlineSource = { getOnlineUsers, me };
 
   // Search row (input + button)
   const searchInput = el('input', {
@@ -86,11 +141,17 @@ export function showPlayerSearchPage(socket) {
     children: [searchInput, createButton({ label: 'Search', variant: 'primary', onClick: doSearch })],
   });
 
-  // Results container
+  // Results container. Not a live region: the online list redraws on every
+  // join and leave, and a screen reader would read it all out each time. A
+  // search's answer is announced by the status line alone ("3 players found").
   const results = el('div', {
     className: 'search-results',
-    attrs: { id: 'playerSearchResults', 'aria-live': 'polite' },
-    children: [hint('Search for a player by username')],
+    attrs: { id: 'playerSearchResults' },
+    children: onlineChildren(),
+  });
+  const status = el('div', {
+    className: 'visually-hidden',
+    attrs: { id: 'playerSearchStatus', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' },
   });
 
   searchModal = openModal({
@@ -100,13 +161,14 @@ export function showPlayerSearchPage(socket) {
     id: 'playerSearchPageOverlay',
     dialogId: 'playerSearchPageModal',
     className: 'page-modal',
-    body: [searchRow, results],
+    body: [searchRow, status, results],
     initialFocus: searchInput,
     onClose: () => {
       clearTimeout(debounceTimer);
       searchModal = null;
       currentSocket = null;
       latestQuery = null;
+      onlineSource = { getOnlineUsers: () => [], me: null };
     },
   });
 }
@@ -126,6 +188,12 @@ export function updatePlayerSearchResults(players, query) {
   return true;
 }
 
+/** The visually hidden status line: what a search found, or nothing. */
+function announce(text) {
+  const status = document.getElementById('playerSearchStatus');
+  if (status && status.textContent !== text) status.textContent = text;
+}
+
 function renderResults(players) {
   const container = document.getElementById('playerSearchResults');
   if (!container) return;
@@ -135,9 +203,16 @@ function renderResults(players) {
   if (!players || players.length === 0) {
     const input = document.getElementById('playerSearchInput');
     const query = input?.value?.trim();
-    container.appendChild(hint(query ? 'No players found' : 'Search for a player by username'));
+    if (query) {
+      container.appendChild(hint('No players found'));
+      announce('No players found');
+    } else {
+      container.replaceChildren(...onlineChildren());
+      announce('');
+    }
     return;
   }
+  announce(players.length === 1 ? '1 player found' : `${players.length} players found`);
 
   players.forEach((player) => {
     const gp = player.gamesPlayed || 0;
@@ -161,15 +236,27 @@ function renderResults(players) {
         }),
       ],
     });
-    row.addEventListener('click', () => {
-      const socket = currentSocket;
-      removePlayerSearchPage();
-      if (socket) {
-        socket.emit('getPlayerProfile', scopePayload({ username: player.username }));
-      }
-    });
+    row.addEventListener('click', () => openProfile(player.username));
     container.appendChild(row);
   });
+}
+
+/**
+ * The main room's online list changed: redraw it if the page shows it (an
+ * empty box), keeping focus on the row it was on when that player is still
+ * listed.
+ */
+export function refreshPlayerSearchOnline() {
+  const container = document.getElementById('playerSearchResults');
+  const input = document.getElementById('playerSearchInput');
+  if (!container || !input || input.value.trim()) return;
+  const focused = container.contains(document.activeElement) ? document.activeElement?.dataset?.username : null;
+  container.replaceChildren(...onlineChildren());
+  if (focused) {
+    const again = [...container.querySelectorAll('button.search-result')].find((b) => b.dataset.username === focused);
+    if (again) again.focus();
+    else input.focus();
+  }
 }
 
 /**

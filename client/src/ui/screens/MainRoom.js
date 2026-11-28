@@ -10,7 +10,7 @@ import { generateDistinctColor } from '../../utils/colors.js';
 import { el, createButton, createPanel, createChip, openModal } from '../kit/index.js';
 import { GYB_MODE, GYB_NAME, GYB_BLURB } from '../../state/gyb.js';
 import { chatLine, chatForm, appendChatLine, scrollChatToEnd, followChatOnResize } from './common.js';
-import { showPlayerSearchPage } from './PlayerSearchPage.js';
+import { showPlayerSearchPage, refreshPlayerSearchOnline } from './PlayerSearchPage.js';
 import { showAdminPanel, removeAdminPanel } from './AdminPanel.js';
 import { isAdmin, onAdminChange } from '../../admin/adminApi.js';
 import { scopePayload } from '../../state/statsScope.js';
@@ -318,7 +318,8 @@ export function showMainRoom(data, socket, username = null) {
   // Stats pages ask for the device's stats scope (state/statsScope.js)
   navButton('Leaderboard', () => socket.emit('getLeaderboard', scopePayload()));
   navButton('Records', () => socket.emit('getRecords', scopePayload()));
-  navButton('Players', () => showPlayerSearchPage(socket));
+  // Players: search, and who is online while the box is empty
+  navButton('Players', () => showPlayerSearchPage(socket, { getOnlineUsers: () => currentOnlineUsers, me: currentUsername }));
   navButton('Profile', () => socket.emit('getProfile', scopePayload()));
   // Admins only (display: the server checks every admin request)
   const adminButton = createButton({
@@ -331,6 +332,10 @@ export function showMainRoom(data, socket, username = null) {
 
   // Store online users from initial data
   currentOnlineUsers = data.onlineUsers || [];
+  // a rebuild in place (a reconnect's mainRoomJoined) keeps an open Players
+  // page: its online list follows the fresh one (a no-op when it is closed
+  // or a search shows)
+  refreshPlayerSearchOnline();
 
   // The count is a button so the player list opens on focus as well as hover
   const onlineWrap = el('div', { className: 'online-count' });
@@ -494,6 +499,7 @@ export function updateMainRoomOnlineCount(count, onlineUsers) {
   if (onlineUsers) {
     currentOnlineUsers = onlineUsers;
     renderOnlinePopover(document.getElementById('onlinePlayersTooltip'));
+    refreshPlayerSearchOnline();
   }
   const countEl = document.getElementById('mainRoomOnlineCount');
   if (countEl) {

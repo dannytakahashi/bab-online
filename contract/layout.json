@@ -423,7 +423,8 @@
           "getProfile",
           "updateProfilePic",
           "uploadProfilePic",
-          "getPlayerProfile"
+          "getPlayerProfile",
+          "searchPlayers"
         ]
       },
       {
@@ -612,6 +613,7 @@
           "profilePicUpdateResponse",
           "profilePicUploadResponse",
           "playerProfileResponse",
+          "searchPlayersResponse",
           "badgesAwarded"
         ]
       },
@@ -655,8 +657,6 @@
   "exclude": {
     "web": {},
     "swift": {
-      "searchPlayers": "player search is web only (the owner declined it for iOS, 2026-11-15); iOS 1.2.2 has the profile events",
-      "searchPlayersResponse": "player search is web only (the owner declined it for iOS, 2026-11-15); iOS 1.2.2 has the profile events",
       "sessionSuperseded": "web only: iOS 1.1.0 never shares a saved session between live sockets (a different session gets forceLogout); the server never needs it to read this",
       "sfuSession": "Cloudflare SFU voice (2026-11-26, server PR 1): iOS lists it in its SFU transport PR (PR 3), so the generated Swift stays unchanged until then",
       "sfuPush": "Cloudflare SFU voice (2026-11-26, server PR 1): iOS lists it in its SFU transport PR (PR 3), so the generated Swift stays unchanged until then",

@@ -4666,7 +4666,7 @@
       "rateLimit": "searchPlayers",
       "sentBy": {
         "web": true,
-        "ios": false
+        "ios": true
       },
       "examples": [
         {
@@ -4685,7 +4685,7 @@
           "query": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
         }
       ],
-      "notes": "Joi since V1_REMOVALS #18 (2026-11-11). A blank query answers {success:false} and a trimmed query longer than 50 (the username max) an empty list, in the handler."
+      "notes": "Web: the Players page, search as you type. iOS from the build after 1.2.8 (49): the main room Players sheet (owner 2026-11-27), the same {query} (trimmed, never blank), debounced 300 ms; neither sends a scope. Joi since V1_REMOVALS #18 (2026-11-11). A blank query answers {success:false} and a trimmed query longer than 50 (the username max) an empty list, in the handler."
     },
     "getPlayerProfile": {
       "payload": {
@@ -10796,12 +10796,14 @@
         "avatarUrls",
         "query"
       ],
-      "notes": "query (2026-11-15) echoes the request's query so web search-as-you-type ignores a stale reply; iOS never sends searchPlayers.",
+      "notes": "query (2026-11-15) echoes the request's query so search as you type (web; iOS from the build after 1.2.8 (49), the Players sheet) ignores a stale reply.",
       "clientReads": {
         "web": [
           "client/src/handlers/profileHandlers.js:registerProfileHandlers"
         ],
-        "ios": []
+        "ios": [
+          "iOSClient/BABOnline/Networking/Handlers/ProfileSocketHandler.swift:register"
+        ]
       },
       "emittedFrom": [
         "server/socket/profileHandlers.js:searchPlayers"
