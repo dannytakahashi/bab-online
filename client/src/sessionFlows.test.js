@@ -563,6 +563,11 @@ describe('identity and errors', () => {
         .toEqual({ text: "That wasn't accepted. Try again.", type: 'warning' });
     });
 
+    it('the Players page\'s picture requests (playerCards) never toast: a refusal keeps the initials', () => {
+      expect(fire({ code: 'rateLimit', message: 'Too many requests, please slow down', handler: 'playerCards' })).toBeNull();
+      expect(fire({ code: 'validation', message: 'Validation failed', handler: 'playerCards' })).toBeNull();
+    });
+
     it('a rate limit is a nudge (amber); a server failure is red', () => {
       expect(fire({ code: 'rateLimit', message: 'Too many requests, please slow down', handler: 'chatMessage' }))
         .toEqual({ text: 'Too many requests. Please slow down.', type: 'warning' });

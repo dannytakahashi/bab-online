@@ -6,7 +6,8 @@
  * shows only the reply to the latest one sent.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { showPlayerSearchPage, updatePlayerSearchResults, removePlayerSearchPage, refreshPlayerSearchOnline as refreshNow } from './PlayerSearchPage.js';
+import { showPlayerSearchPage, updatePlayerSearchResults, removePlayerSearchPage, refreshPlayerSearchOnline as refreshNow, updatePlayerCards, _resetPlayerCardsForTests, PLAYER_CARDS_MAX } from './PlayerSearchPage.js';
+import { foldAvatarPayload } from '../../utils/avatar.js';
 import { registerProfileHandlers } from '../../handlers/profileHandlers.js';
 
 const row = (username) => ({ username, profilePic: 1, customProfilePic: null, gamesPlayed: 2, wins: 1 });
@@ -24,6 +25,7 @@ function type(text) {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  _resetPlayerCardsForTests();
   document.body.replaceChildren();
   socket = { emit: vi.fn(() => socket) };
   showPlayerSearchPage(socket);
@@ -172,5 +174,148 @@ describe('the empty box lists who is online (2026-11-27)', () => {
     removePlayerSearchPage();
     showPlayerSearchPage(socket, { getOnlineUsers: () => [], me: 'ivy' });
     expect(results()).toMatch(/Search for a player by username/);
+  });
+});
+
+describe('the online list shows pictures (playerCards, 2026-11-27)', () => {
+  let online;
+  const cardCalls = () => socket.emit.mock.calls.filter(([e]) => e === 'playerCards').map(([, d]) => d.usernames);
+  const rowOf = (u) => document.querySelector(`#playerSearchResults .search-result[data-username="${u}"]`);
+  const pic = (u) => rowOf(u)?.firstElementChild;
+  const card = (username, profilePic, customProfilePic = null) => ({ username, profilePic, customProfilePic, gamesPlayed: 3, wins: 1 });
+  const open = () => {
+    showPlayerSearchPage(socket, { getOnlineUsers: () => online, me: 'ivy' });
+    input = document.getElementById('playerSearchInput');
+  };
+
+  beforeEach(() => {
+    removePlayerSearchPage();
+    document.body.replaceChildren();
+    socket.emit.mockClear();
+    online = ['ivy', 'kim', 'ora'];
+    open();
+  });
+
+  it('opening asks at once for every listed name; each row shows its initial until its card comes', () => {
+    expect(cardCalls()).toEqual([['ivy', 'kim', 'ora']]);
+    for (const [u, letter] of [['ivy', 'I'], ['kim', 'K'], ['ora', 'O']]) {
+      expect(pic(u).tagName).toBe('SPAN');
+      expect(pic(u).className).toBe('search-result__initial');
+      expect(pic(u).textContent).toBe(letter);
+      expect(pic(u).getAttribute('aria-hidden')).toBe('true');
+    }
+  });
+
+  it('a card swaps the initial for the search results\' picture in place: same row, same label, focus kept', () => {
+    const kim = rowOf('kim');
+    kim.focus();
+    const data = foldAvatarPayload('playerCardsResponse', { success: true, players: [card('kim', 12), card('ivy', 31), card('ora', 9, null)], avatarUrls: { ora: '/avatar/ora?v=00000000000000aa' } });
+    updatePlayerCards(data.players);
+    expect(rowOf('kim')).toBe(kim);
+    expect(document.activeElement).toBe(kim);
+    expect(kim.getAttribute('aria-label')).toBe('kim, online');
+    expect(pic('kim').tagName).toBe('IMG');
+    expect(pic('kim').getAttribute('src')).toBe('assets/avatars/v1/profile12.webp');
+    expect(pic('kim').getAttribute('alt')).toBe('');
+    expect(pic('ora').getAttribute('src')).toBe('/avatar/ora?v=00000000000000aa');
+    // my own row too, still not a button and still "You"
+    expect(pic('ivy').getAttribute('src')).toBe('assets/avatars/v1/profile31.webp');
+    expect(rowOf('ivy').tagName).toBe('DIV');
+    expect(rowOf('ivy').textContent).toContain('You');
+    // the same markup as a result row: an <img> then the info
+    expect([...kim.children].map((c) => c.className || c.tagName)).toEqual(['IMG', 'search-result__info']);
+  });
+
+  it('a join is asked for after the pause, only the new name; a redraw keeps the rows and pictures it had', () => {
+    updatePlayerCards([card('kim', 12)]);
+    const kimPic = pic('kim');
+    online = ['ivy', 'kim', 'ora', 'pat'];
+    refreshNow();
+    expect(pic('kim')).toBe(kimPic);
+    expect(pic('pat').tagName).toBe('SPAN');
+    vi.advanceTimersByTime(299);
+    expect(cardCalls()).toHaveLength(1);
+    // a second change inside the pause: one request for both
+    online = ['ivy', 'kim', 'ora', 'pat', 'quinn'];
+    refreshNow();
+    vi.advanceTimersByTime(300);
+    expect(cardCalls()).toEqual([['ivy', 'kim', 'ora'], ['pat', 'quinn']]);
+    // a leave asks for nothing
+    online = ['ivy', 'kim'];
+    refreshNow();
+    vi.advanceTimersByTime(1000);
+    expect(cardCalls()).toHaveLength(2);
+  });
+
+  it('an old server that never answers: initials, no error, and every name asked once per opening', () => {
+    for (let i = 0; i < 5; i++) {
+      online = ['ivy', 'kim', 'ora', `p${i}`];
+      refreshNow();
+      vi.advanceTimersByTime(300);
+    }
+    expect(cardCalls()).toEqual([['ivy', 'kim', 'ora'], ['p0'], ['p1'], ['p2'], ['p3'], ['p4']]);
+    vi.advanceTimersByTime(60000);
+    expect(cardCalls()).toHaveLength(6);
+    expect(pic('kim').tagName).toBe('SPAN');
+    // a failure reply changes nothing either
+    updatePlayerCards(undefined);
+    updatePlayerCards([]);
+    expect(pic('kim').tagName).toBe('SPAN');
+  });
+
+  it('cards are kept for the session: a reopened page draws them at once and asks again (a refresh)', () => {
+    updatePlayerCards([card('kim', 12)]);
+    removePlayerSearchPage();
+    socket.emit.mockClear();
+    open();
+    expect(pic('kim').tagName).toBe('IMG');
+    expect(pic('kim').getAttribute('src')).toBe('assets/avatars/v1/profile12.webp');
+    expect(cardCalls()).toEqual([['ivy', 'kim', 'ora']]);
+    // a changed picture replaces the old one in place
+    updatePlayerCards([card('kim', 40)]);
+    expect(pic('kim').getAttribute('src')).toBe('assets/avatars/v1/profile40.webp');
+  });
+
+  it('a search result is a card too; nothing is asked while a search shows, the list asks when it comes back', () => {
+    type('ki');
+    updatePlayerSearchResults([card('kim', 12)], 'ki');
+    online = ['ivy', 'kim', 'ora', 'pat'];
+    refreshNow();
+    vi.advanceTimersByTime(1000);
+    expect(cardCalls()).toEqual([['ivy', 'kim', 'ora']]);
+    type('');
+    expect(pic('kim').getAttribute('src')).toBe('assets/avatars/v1/profile12.webp');
+    vi.advanceTimersByTime(300);
+    expect(cardCalls()).toEqual([['ivy', 'kim', 'ora'], ['pat']]);
+  });
+
+  it('more than 100 names go in requests of 100', () => {
+    removePlayerSearchPage();
+    socket.emit.mockClear();
+    online = Array.from({ length: 230 }, (_, i) => `p${i}`);
+    open();
+    expect(cardCalls().map((u) => u.length)).toEqual([PLAYER_CARDS_MAX, PLAYER_CARDS_MAX, 30]);
+    expect(cardCalls().flat()).toEqual(online);
+  });
+
+  it('closing the page drops a pending request; an empty list asks nothing', () => {
+    online = ['ivy', 'kim', 'ora', 'pat'];
+    refreshNow();
+    removePlayerSearchPage();
+    vi.advanceTimersByTime(1000);
+    expect(cardCalls()).toHaveLength(1);
+    socket.emit.mockClear();
+    online = [];
+    open();
+    expect(cardCalls()).toEqual([]);
+  });
+
+  it('the handler passes a success\'s rows and drops a failure', () => {
+    const handlers = new Map();
+    const onPlayerCards = vi.fn();
+    registerProfileHandlers({ on: (e, fn) => handlers.set(e, fn) }, { onPlayerCards });
+    handlers.get('playerCardsResponse')({ success: true, players: [card('kim', 12)] });
+    handlers.get('playerCardsResponse')({ success: false, message: 'Database error' });
+    expect(onPlayerCards.mock.calls).toEqual([[[card('kim', 12)]]]);
   });
 });

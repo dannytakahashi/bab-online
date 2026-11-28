@@ -66,7 +66,7 @@ import { setIsAdmin } from './admin/adminApi.js';
 import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase, setReadyDeadlinePassed, updateTournamentPairings, setTournamentTotalRounds, configureTournamentLobby, syncTournamentCut, showTournamentFinal, setTournamentCutTalking, isTournamentCutShowing, setTournamentVoiceFull, isTournamentFinished } from './ui/screens/TournamentLobby.js';
 import { applyCutEvent, restoreCut, clearCut, getCutState, getCutTournamentId } from './ui/cut/cutStore.js';
 import { STAGE as CUT_STAGE, winnerLine as cutWinnerLine } from './state/cutForABuck.js';
-import { updatePlayerSearchResults } from './ui/screens/PlayerSearchPage.js';
+import { updatePlayerSearchResults, updatePlayerCards } from './ui/screens/PlayerSearchPage.js';
 import { showTournamentResultsOverlay } from './ui/components/TournamentScoreboard.js';
 import { showResignationDialog, dismissResignationDialog } from './ui/components/ResignationDialog.js';
 import { SCREENS, initializeUIManager } from './ui/UIManager.js';
@@ -1393,6 +1393,12 @@ function initializeApp() {
   // failure (V1_REMOVALS #1; the v1 `error` twin is gone since phase B)
   const onServerFailure = (payload) => {
     const failure = failureOf(payload);
+    // the Players page's picture requests are background reads: a refusal
+    // (the rate limit) keeps the initials, never a toast
+    if (failure.handler === 'playerCards') {
+      console.warn('Player cards refused:', failure.type);
+      return;
+    }
     routeTableError(failure);
     // A restore finding its place gone (e.g. after a server restart) is
     // expected: logged, not reported as an error
@@ -2600,6 +2606,9 @@ function initializeApp() {
     },
     onSearchPlayersResult: (players, query) => {
       updatePlayerSearchResults(players, query);
+    },
+    onPlayerCards: (players) => {
+      updatePlayerCards(players);
     },
     onPlayerProfileReceived: (profile, scope, badges) => {
       if (isStaleScopeReply(scope)) return;

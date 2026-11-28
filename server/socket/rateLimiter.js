@@ -56,6 +56,10 @@ class RateLimiter {
             getLeaderboard: { max: 10, windowMs: 10000 },
             getRecords: { max: 10, windowMs: 10000 },
             searchPlayers: { max: 30, windowMs: 10000 },
+            // The Players page's online list pictures: one request when the
+            // page opens (100 names each) and one per change of the list,
+            // debounced 300 ms by both clients
+            playerCards: { max: 20, windowMs: 10000 },
             getPlayerProfile: { max: 30, windowMs: 10000 },
             // Custom picture uploads (each one is decoded + re-encoded)
             uploadProfilePic: { max: 5, windowMs: 60000 },

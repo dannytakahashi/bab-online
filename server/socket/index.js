@@ -174,6 +174,11 @@ function setupSocketHandlers(io) {
         socket.on('searchPlayers', (data) =>
             asyncHandler('searchPlayers', profileHandlers.searchPlayers)(socket, io, data)
         );
+        // The Players page's online list pictures (2026-11-27): the search
+        // rows of the named players, to this socket only
+        socket.on('playerCards', (data) =>
+            asyncHandler('playerCards', profileHandlers.playerCards)(socket, io, data)
+        );
         socket.on('getPlayerProfile', (data) =>
             asyncHandler('getPlayerProfile', profileHandlers.getPlayerProfile)(socket, io, data)
         );

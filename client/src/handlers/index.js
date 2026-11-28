@@ -99,6 +99,7 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onCustomProfilePicUploaded,
     onCustomProfilePicUploadError,
     onSearchPlayersResult,
+    onPlayerCards,
     onPlayerProfileReceived,
     onBadgesAwarded,
     // Leaderboard callbacks
@@ -208,6 +209,7 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onCustomProfilePicUploaded,
     onCustomProfilePicUploadError,
     onSearchPlayersResult,
+    onPlayerCards,
     onPlayerProfileReceived,
     onBadgesAwarded,
   });

@@ -129,10 +129,16 @@ const schemas = {
         botSocketId: Joi.string().min(5).max(200).pattern(/^bot:/).required()
     }).required(),
 
-    // Profile lookups (web only). The handler answers a blank query and a
+    // Profile lookups (web and iOS). The handler answers a blank query and a
     // query longer than any username itself; these only bound the input
     searchPlayers: Joi.object({
         query: Joi.string().allow('').max(500).required()
+    }).required(),
+    // The Players page's online list pictures (2026-11-27): up to 100
+    // usernames (profileHandlers PLAYER_CARDS_MAX), each a username's length
+    // (sign-in's bounds); repeats are allowed and answered once
+    playerCards: Joi.object({
+        usernames: Joi.array().items(Joi.string().min(1).max(50)).min(1).max(100).required()
     }).required(),
     getPlayerProfile: Joi.object({
         username: Joi.string().min(1).max(100).required(),
