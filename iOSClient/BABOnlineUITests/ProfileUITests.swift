@@ -389,7 +389,7 @@ final class ProfileUITests: XCTestCase {
         let online = app.buttons.matching(NSPredicate(format: "label == %@", "7 online")).firstMatch
         XCTAssertTrue(online.waitForExistence(timeout: 5))
         online.tap()
-        XCTAssertTrue(app.navigationBars["Online Players"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Players"].waitForExistence(timeout: 5))
         XCTAssertFalse(element(app, "online.ivy").exists, "my own row is just my name")
         let row = element(app, "online.ora")
         XCTAssertTrue(row.waitForExistence(timeout: 3))

@@ -22,6 +22,12 @@ struct LeaderboardEntry: Identifiable, Equatable {
     /// The server's population-average row (profileHandlers getLeaderboard): shown, never ranked.
     let isPopulation: Bool
 
+    /// Whether a tap on this row's avatar opens the player's profile (owner 2026-11-27): any
+    /// player's row but my own (my profile is in the Account sheet) and never the population row.
+    func offersProfile(me: String) -> Bool {
+        !isPopulation && !username.isEmpty && username != me
+    }
+
     /// 1-based rank of the row at `index`, counting only player rows (the
     /// population row is unranked, like the web LeaderboardPage).
     static func rank(at index: Int, in rows: [LeaderboardEntry]) -> Int? {

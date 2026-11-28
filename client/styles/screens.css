@@ -2105,6 +2105,21 @@
     background: var(--surface-3);
 }
 
+/* the empty box's online list (2026-11-27): the heading, and my own row,
+   which is not a button */
+.search-results__heading {
+    margin: 0;
+}
+
+.search-result--me {
+    min-height: 44px;
+    cursor: default;
+}
+
+.search-result--me:hover {
+    background: var(--surface-2);
+}
+
 .search-result img {
     flex-shrink: 0;
     width: 40px;
