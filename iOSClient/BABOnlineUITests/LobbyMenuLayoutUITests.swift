@@ -566,7 +566,15 @@ final class LobbyMenuLayoutUITests: XCTestCase {
                 let l = leave.frame, e = end.frame
                 print("\(what): leave \(l) end \(e)")
                 if abs(l.midY - e.midY) < 2 {
-                    print("\(what): End \(e.width > e.height * 2.5 ? "words" : "icon")")
+                    // End's words are known to fit at AX1 (with or without the mic) and at AX3
+                    // without it on every tested width; at AX3 with the mic and at AX5 the
+                    // documented trade-off lets End fall back to its icon, so those only print.
+                    let showsWords = e.width > e.height * 2.5
+                    if tag == "ax1" || (tag == "ax3" && !voice) {
+                        XCTAssertTrue(showsWords, "\(what): End Tournament shows its words, \(e)")
+                    } else {
+                        print("\(what): End \(showsWords ? "words" : "icon")")
+                    }
                     XCTAssertGreaterThan(l.width, l.height * 1.6, "\(what): Leave shows its word, \(l)")
                     let window = app.windows.firstMatch.frame
                     XCTAssertTrue(window.contains(e) && window.contains(l), "\(what): both whole on screen")
