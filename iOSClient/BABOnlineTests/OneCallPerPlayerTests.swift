@@ -18,6 +18,8 @@ final class OneCallPerPlayerTests: XCTestCase {
         var byId: [String: VoiceChatManager] = [:]
         var names: [String: String] = [:]
         var offers: [(from: String, to: String)] = []
+        /// Every trickled candidate's sender and target, in order.
+        var candidateTargets: [(from: String, to: String)] = []
         private var held: [(from: String, to: String, candidate: RTCIceCandidate)] = []
 
         func offer(from: String, to: String, _ sdp: RTCSessionDescription) {
@@ -37,6 +39,7 @@ final class OneCallPerPlayerTests: XCTestCase {
         }
 
         func candidate(from: String, to: String, _ c: RTCIceCandidate) {
+            candidateTargets.append((from, to))
             held.append((from, to, c))
             DispatchQueue.main.async { MainActor.assumeIsolated { self.flush() } }
         }
@@ -196,5 +199,121 @@ final class OneCallPerPlayerTests: XCTestCase {
         try await waitUntil("offered again", timeout: VoiceChatManager.rekeyVerify + 8) { c.relay.offers.count == 2 }
         XCTAssertEqual(c.relay.offers.last?.to, "B2")
         try await waitUntil("one call again, heard") { c.amy.callIds == ["B2"] && c.bob.callIds == ["A2"] }
+    }
+
+    // MARK: - Review 2026-11-27
+
+    /// Do this call's inbound audio packets grow over half a second?
+    private func packetsGrow(_ pc: RTCPeerConnection) async throws -> Bool {
+        func packets() async -> Int {
+            await withCheckedContinuation { cont in
+                pc.statistics { report in
+                    let n = report.statistics.values
+                        .filter { $0.type == "inbound-rtp" }
+                        .reduce(0) { $0 + (($1.values["packetsReceived"] as? NSNumber)?.intValue ?? 0) }
+                    cont.resume(returning: n)
+                }
+            }
+        }
+        let a = await packets()
+        try await sleep(0.5)
+        let b = await packets()
+        return b > a
+    }
+
+    /// The hand-off's ids, for both sides (amy A2, bob B2).
+    private func handOff(_ c: (relay: Relay, amy: VoiceChatManager, bob: VoiceChatManager, sa: Sid, sb: Sid,
+                               da: ToneAudioDevice, db: ToneAudioDevice)) {
+        c.sa.id = "A2"
+        c.sb.id = "B2"
+        c.relay.byId = ["A2": c.amy, "B2": c.bob]
+        c.relay.names = ["A2": "amy", "B2": "bob"]
+    }
+
+    /// A moved call's own signaling (its delegate: ICE candidates) goes to the player's NEW socket
+    /// id. Before, the delegate kept the old id (it was looked up by a string-literal
+    /// associated-object key, which found nothing), so an ICE restart's candidates went to B1.
+    func testTheCandidatesOfAMovedCallGoToTheNewId() async throws {
+        let c = try await call()
+        handOff(c)
+        c.amy.connectToPeer("B2", username: "bob")
+        c.bob.peerJoined("A2", username: "amy")
+        try await waitUntil("both moved") { c.amy.callIds == ["B2"] && c.bob.callIds == ["A2"] }
+        let pc = try XCTUnwrap(c.amy.connection(of: "B2"))
+        let before = c.relay.candidateTargets.count
+        // an ICE restart on the moved call gathers new candidates
+        pc.restartIce()
+        let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+        let offer = try await pc.offer(for: constraints)
+        try await pc.setLocalDescription(offer)
+        try await waitUntil("new candidates") { c.relay.candidateTargets.count > before }
+        try await sleep(0.3)
+        let targets = c.relay.candidateTargets[before...].filter { $0.from == "A2" }.map(\.to)
+        XCTAssertFalse(targets.isEmpty)
+        XCTAssertEqual(Set(targets), ["B2"], "the moved call's candidates go to bob's new socket")
+    }
+
+    /// A moved call that later fails (a network change) reaches the recovery under the new id:
+    /// amy (A2 < B2) restarts it with a new offer to B2. Before, its ICE state was reported under
+    /// B1 and ignored, so the call was never restarted nor marked unavailable.
+    func testAnIceFailureAfterAMoveIsRecovered() async throws {
+        let c = try await call()
+        handOff(c)
+        c.amy.connectToPeer("B2", username: "bob")
+        c.bob.peerJoined("A2", username: "amy")
+        try await waitUntil("both moved") { c.amy.callIds == ["B2"] && c.bob.callIds == ["A2"] }
+        let pc = try XCTUnwrap(c.amy.connection(of: "B2"))
+        XCTAssertEqual(c.relay.offers.count, 1)
+        // what WebRTC reports when the moved call's ICE fails
+        pc.delegate?.peerConnection(pc, didChange: RTCIceConnectionState.failed)
+        try await waitUntil("restarted with a new offer to B2") { c.relay.offers.count == 2 }
+        XCTAssertEqual(c.relay.offers.last?.from, "A2")
+        XCTAssertEqual(c.relay.offers.last?.to, "B2")
+        try await waitUntil("one call again, heard") {
+            c.amy.callIds == ["B2"] && c.bob.callIds == ["A2"] && c.amy.connection(of: "B2") !== pc
+        }
+    }
+
+    /// Two reconnects in a row: bob is announced on B2, then on B3 within one flow sample. amy
+    /// keeps ONE call, on bob's newest id (before: 2 calls, then one keyed by the stale B2).
+    func testTwoReconnectsInARowSettleOnTheNewestId() async throws {
+        let c = try await call()
+        let amyPc = try XCTUnwrap(c.amy.connection(of: "B1"))
+        handOff(c)
+        c.amy.connectToPeer("B2", username: "bob")
+        c.bob.peerJoined("A2", username: "amy")
+        try await sleep(0.2)
+        // bob drops again: B3
+        c.sb.id = "B3"
+        c.relay.byId = ["A2": c.amy, "B3": c.bob]
+        c.relay.names = ["A2": "amy", "B3": "bob"]
+        c.amy.connectToPeer("B3", username: "bob")
+        try await waitUntil("moved to B3") { c.amy.callIds == ["B3"] }
+        try await sleep(VoiceChatManager.rekeyVerify + VoiceChatManager.livenessSample + 1)
+        XCTAssertEqual(c.amy.callIds, ["B3"], "one call, on bob's newest socket")
+        XCTAssertTrue(c.amy.connection(of: "B3") === amyPc, "the same connection")
+        XCTAssertEqual(c.relay.offers.count, 1, "no new offer")
+        let hearsBob = try await hears(c.da)
+        XCTAssertTrue(hearsBob)
+    }
+
+    /// A player who sends no audio (a muted web tab with a suspended AudioContext, a spectator):
+    /// the call is still alive (its transport answers), so it moves rather than closing. Before,
+    /// only inbound packets counted, and the call was closed and offered anew (a gap of seconds).
+    func testACallFromAPlayerWhoSendsNoAudioStillMoves() async throws {
+        let c = try await call()
+        let amyPc = try XCTUnwrap(c.amy.connection(of: "B1"))
+        // bob's side sends no audio packet at all from now on (his device records nothing)
+        c.db.recordsNothing = true
+        try await sleep(0.5)
+        let still = try await packetsGrow(amyPc)
+        XCTAssertFalse(still, "bob sends no audio now")
+        handOff(c)
+        c.amy.connectToPeer("B2", username: "bob")
+        try await waitUntil("moved", timeout: VoiceChatManager.flowSample + VoiceChatManager.livenessSample + 3) {
+            c.amy.callIds == ["B2"] && c.amy.connection(of: "B2") === amyPc
+        }
+        XCTAssertEqual(amyPc.signalingState, .stable, "kept, not closed")
+        XCTAssertEqual(c.relay.offers.count, 1, "no new offer")
     }
 }

@@ -22,8 +22,9 @@
  * so joining voice never prompts; the first unmute (setMuted(false)) asks
  * for it (getUserMedia) and a refusal stays muted (`micDenied`, listen
  * only). Every call carries an audio sender from the start: the
- * microphone's track, else a silent track (`_silentSource`: an empty
- * MediaStreamAudioDestinationNode of the session's AudioContext), so an
+ * microphone's track, else a silent track (`_silentSource`: a
+ * MediaStreamAudioDestinationNode of the session's AudioContext fed by a
+ * zero-gain oscillator, so a muted tab sends silence as iOS does), so an
  * unmute only swaps the sender's track (replaceTrack): no renegotiation,
  * no call is re-created, and every peer (shipped iOS builds included) sees
  * an ordinary sendrecv call from the first offer. Muting again keeps the
@@ -95,6 +96,15 @@ export const REOFFER_DELAY_MS = 300;
  * long. Else it is closed and the new socket's call replaces it.
  */
 export const FLOW_SAMPLE_MS = 600;
+/**
+ * A call whose inbound audio did not grow over FLOW_SAMPLE_MS (the player
+ * sends nothing: a muted tab whose AudioContext is suspended, an older web
+ * build's muted tab, a spectator) is still kept when its transport hears the
+ * other end within this long: ICE consent pings and their answers (every
+ * 2.5 s on the selected pair) and RTCP. A closed far end sends none of them.
+ */
+export const LIVENESS_SAMPLE_MS = 3000;
+const LIVENESS_STEP_MS = 400;
 /** A call moved to a new socket id is checked again this much later; silent then, it is offered again. */
 export const REKEY_VERIFY_MS = 4000;
 // Audio elements unlocked by the session's first gesture (WebKit plays an
@@ -158,6 +168,10 @@ export class VoiceChatManager {
     this._silent = null;
     this._modeChain = Promise.resolve();
     this._reofferPending = new Set();
+    // One call per player: the socket id each player was last announced on
+    // (voicePeerList, voicePeerJoined, their offer); a call only ever moves
+    // toward it, never back to an older one
+    this._latestId = new Map(); // username -> socketId
     this._reofferTimer = null;
     this._modeCallbacks = [];
 
@@ -462,12 +476,33 @@ export class VoiceChatManager {
       const dest = ctx.createMediaStreamDestination();
       const track = dest.stream?.getAudioTracks?.()[0];
       if (!track) return null;
-      this._silent = { stream: dest.stream, track, dest };
+      // A zero-gain tone into it: an empty destination sends no packets at
+      // all (Chromium, measured 2026-11-27), so a muted tab's calls looked
+      // dead from the other end ("One call per player after a reconnect");
+      // with this a muted tab sends silence, as iOS does
+      const tone = this._silentTone(ctx, dest);
+      this._silent = { stream: dest.stream, track, dest, tone };
     } catch (err) {
       console.warn('[Voice] no silent track:', err?.message);
       return null;
     }
     return this._silent;
+  }
+
+  /** A zero-gain oscillator playing into `dest` (null where the context cannot make one). */
+  _silentTone(ctx, dest) {
+    if (typeof ctx.createOscillator !== 'function' || typeof ctx.createGain !== 'function') return null;
+    try {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      osc.connect(gain);
+      gain.connect(dest);
+      osc.start();
+      return { osc, gain };
+    } catch (err) {
+      return null;
+    }
   }
 
   /** What a call sends: the microphone, else the silent track, else nothing (the fallback). */
@@ -620,7 +655,7 @@ export class VoiceChatManager {
     if (!this.active || !peer) return;
     const username = peer.username;
     this._closePeer(socketId, { keepRecovery: true });
-    this.connectToPeer(socketId, username);
+    this.connectToPeer(socketId, username, { again: true });
   }
 
   /**
@@ -628,7 +663,7 @@ export class VoiceChatManager {
    * Called when we receive voicePeerList — we initiate to existing peers.
    * Listen-only: a recvonly audio transceiver instead of the mic track.
    */
-  async connectToPeer(socketId, username) {
+  async connectToPeer(socketId, username, { again = false } = {}) {
     if (!this.active) {
       console.log('[Voice] buffering connectToPeer', socketId, username);
       this._pendingPeers.push({ socketId, username });
@@ -652,6 +687,8 @@ export class VoiceChatManager {
     // so nobody was told the old ones left, and the calls kept their media)
     // is moved to the new id while its audio still flows (no gap, no offer:
     // the other end does the same at its voicePeerJoined), else closed
+    // (a re-offer or restart of a call is no announcement of the player)
+    if (!again) this._noteLatest(username, socketId);
     if (this._otherCallOf(username, socketId)) {
       if (await this._adoptCall(username, socketId, { verify: true })) return;
       // answered meanwhile (the player's own offer), or stopped
@@ -739,6 +776,7 @@ export class VoiceChatManager {
 
     // One call per player: an offer is a new call from this player, so a
     // call to them on an older socket id goes (its mute and volume carry)
+    this._noteLatest(username, fromSocketId);
     this._replaceOtherCalls(username, fromSocketId);
 
     // If we already have a connection, close it and recreate (a restart
@@ -833,8 +871,21 @@ export class VoiceChatManager {
    * one is closed (their offer makes the new call).
    */
   async peerJoined(socketId, username) {
-    if (!this.active || this.peers.has(socketId) || !this._otherCallOf(username, socketId)) return;
+    if (!this.active) return;
+    this._noteLatest(username, socketId);
+    if (this.peers.has(socketId) || !this._otherCallOf(username, socketId)) return;
     await this._adoptCall(username, socketId, { verify: false });
+  }
+
+  /** The player was announced on `socketId` (their newest socket). */
+  _noteLatest(username, socketId) {
+    if (username && username !== 'Unknown' && username !== this._localUsername) this._latestId.set(username, socketId);
+  }
+
+  /** A newer socket of this player than `socketId` was announced: its own check decides. */
+  _superseded(username, socketId) {
+    const latest = this._latestId.get(username);
+    return latest !== undefined && latest !== socketId;
   }
 
   /** The socket id of another call to this player (not `socketId`), or null. */
@@ -864,63 +915,99 @@ export class VoiceChatManager {
    * offered again if it went silent (the other end may have closed its side).
    */
   async _adoptCall(username, socketId, { verify }) {
-    const oldId = this._otherCallOf(username, socketId);
-    const peer = oldId ? this.peers.get(oldId) : null;
-    if (!peer) return this.peers.has(socketId);
-    const flowing = await this._isFlowing(peer);
-    if (!this.active) return true;
-    // moved or closed meanwhile (a concurrent list or offer for this player)
-    if (this.peers.get(oldId) !== peer) return this.peers.has(socketId);
-    if (this.peers.has(socketId)) {
+    // looked up again after each check: a concurrent list, offer or move for
+    // this player may have changed their calls meanwhile
+    for (let round = 0; round < 4; round++) {
+      const oldId = this._otherCallOf(username, socketId);
+      const peer = oldId ? this.peers.get(oldId) : null;
+      if (!peer) return this.peers.has(socketId);
+      const flowing = await this._isFlowing(peer);
+      if (!this.active) return true;
+      // a newer socket of theirs was announced meanwhile (two reconnects in
+      // a row): that announcement's own check moves or replaces the call,
+      // never this older id
+      if (this._superseded(username, socketId)) return true;
+      if (this.peers.has(socketId)) {
+        this._replaceOtherCalls(username, socketId);
+        return true;
+      }
+      // moved or closed meanwhile: look again
+      if (this.peers.get(oldId) !== peer) continue;
+      if (flowing) {
+        this._rekeyPeer(oldId, socketId);
+        // any further stale call to them goes
+        this._replaceOtherCalls(username, socketId);
+        if (verify) this._verifyMovedCall(socketId, peer);
+        return true;
+      }
       this._replaceOtherCalls(username, socketId);
-      return true;
-    }
-    if (flowing) {
-      this._rekeyPeer(oldId, socketId);
-      // any further stale call to them (two reconnects in a row) goes
-      this._replaceOtherCalls(username, socketId);
-      if (verify) this._verifyMovedCall(socketId, peer);
-      return true;
+      return false;
     }
     this._replaceOtherCalls(username, socketId);
-    return false;
+    return this.peers.has(socketId);
   }
 
-  /** Is this call up and receiving audio (inbound packets grow over FLOW_SAMPLE_MS)? */
+  /**
+   * Is this call up and still hearing the other end? Its inbound audio
+   * packets grow over FLOW_SAMPLE_MS, or (a player who sends no audio:
+   * muted with no running AudioContext, an older muted tab, a spectator)
+   * its transport receives anything (consent pings, their answers, RTCP)
+   * within LIVENESS_SAMPLE_MS.
+   */
   async _isFlowing(peer) {
     const pc = peer?.connection;
     if (!pc || pc.signalingState === 'closed') return false;
     const up = pc.connectionState === 'connected' || pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed';
     if (!up) return false;
-    const before = await this._inboundPackets(pc);
-    if (before === null) return false;
+    const before = await this._callCounters(pc);
+    if (before.packets === null && before.transport === null) return false;
     await new Promise((resolve) => setTimeout(resolve, FLOW_SAMPLE_MS));
-    if (pc.signalingState === 'closed') return false;
-    const after = await this._inboundPackets(pc);
-    return after !== null && after > before;
-  }
-
-  /** The audio packets a call received so far (inbound-rtp), or null (no stats, no inbound stream). */
-  async _inboundPackets(pc) {
-    if (typeof pc.getStats !== 'function') return null;
-    try {
-      const report = await pc.getStats();
-      let packets = null;
-      report.forEach((s) => {
-        if (s.type === 'inbound-rtp' && (s.kind ?? s.mediaType) === 'audio') packets = (packets ?? 0) + (s.packetsReceived || 0);
-      });
-      return packets;
-    } catch (err) {
-      return null;
+    for (let waited = FLOW_SAMPLE_MS; ; waited += LIVENESS_STEP_MS) {
+      if (pc.signalingState === 'closed') return false;
+      const now = await this._callCounters(pc);
+      if (now.packets !== null && now.packets > (before.packets ?? 0)) return true;
+      if (now.transport === null) return false;
+      if (before.transport !== null && now.transport > before.transport) return true;
+      if (waited >= LIVENESS_SAMPLE_MS) return false;
+      await new Promise((resolve) => setTimeout(resolve, LIVENESS_STEP_MS));
     }
   }
 
-  /** A moved call still silent REKEY_VERIFY_MS later is offered again (a new call on the new id). */
+  /**
+   * What a call received so far: its audio packets (inbound-rtp; null with
+   * no inbound stream yet) and its transport's receipts (the succeeded
+   * candidate pairs' bytes, STUN requests and responses; null with none).
+   */
+  async _callCounters(pc) {
+    const none = { packets: null, transport: null };
+    if (typeof pc.getStats !== 'function') return none;
+    try {
+      const report = await pc.getStats();
+      let packets = null;
+      let transport = null;
+      report.forEach((s) => {
+        if (s.type === 'inbound-rtp' && (s.kind ?? s.mediaType) === 'audio') packets = (packets ?? 0) + (s.packetsReceived || 0);
+        if (s.type === 'candidate-pair' && (s.state === 'succeeded' || s.nominated)) {
+          transport = (transport ?? 0) + (s.bytesReceived || 0) + (s.requestsReceived || 0) + (s.responsesReceived || 0);
+        }
+      });
+      return { packets, transport };
+    } catch (err) {
+      return none;
+    }
+  }
+
+  /**
+   * A moved call still silent REKEY_VERIFY_MS later is offered again (a new
+   * call on the new id), unless the player was announced on a newer socket
+   * since or holds another call (that announcement decides).
+   */
   _verifyMovedCall(socketId, peer) {
     setTimeout(async () => {
       if (!this.active || this.peers.get(socketId) !== peer) return;
       if (await this._isFlowing(peer)) return;
       if (!this.active || this.peers.get(socketId) !== peer) return;
+      if (this._superseded(peer.username, socketId) || this._otherCallOf(peer.username, socketId)) return;
       console.log('[Voice] the call moved to', socketId, 'is silent: a new call');
       this._reoffer(socketId);
     }, REKEY_VERIFY_MS);
@@ -1427,9 +1514,11 @@ export class VoiceChatManager {
     this._wantTalk = false;
     this.micDenied = false;
     this._silent?.track?.stop?.();
+    try { this._silent?.tone?.osc?.stop?.(); this._silent?.tone?.gain?.disconnect?.(); } catch (e) { /* ignore */ }
     this._silent = null;
     this._modeChain = Promise.resolve();
     this._reofferPending.clear();
+    this._latestId.clear();
     if (this._reofferTimer) {
       clearTimeout(this._reofferTimer);
       this._reofferTimer = null;
@@ -1600,7 +1689,7 @@ export class VoiceChatManager {
       this.ensureIceServers().then(() => {
         if (!this.active || this.peers.get(socketId) !== peer) return;
         this._closePeer(socketId, { keepRecovery: true });
-        this.connectToPeer(socketId, username);
+        this.connectToPeer(socketId, username, { again: true });
       });
     } else {
       console.log(`[Voice] connection to ${socketId} failed: waiting for its restart`);

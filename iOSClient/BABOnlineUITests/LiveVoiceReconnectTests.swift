@@ -46,8 +46,7 @@ final class LiveVoiceReconnectTests: XCTestCase {
             let name = app.textFields["Username"]
             XCTAssertTrue(name.waitForExistence(timeout: 10))
             name.tap(); name.typeText(user)
-            app.secureTextFields["Password"].tap(); app.secureTextFields["Password"].typeText(pass)
-            app.secureTextFields["Confirm Password"].tap(); app.secureTextFields["Confirm Password"].typeText(pass)
+            fillPasswords(app, pass)
         }
         for _ in 0..<3 where !newGame.exists {
             sleep(1)
@@ -108,6 +107,42 @@ final class LiveVoiceReconnectTests: XCTestCase {
         }
         shot("3-end")
         app.terminate()
+    }
+
+    /// iOS AutoFill's "Use Strong Password?" sheet (a new-password field on a simulator that has
+    /// not answered it yet) takes the keyboard after the first character typed, so the password
+    /// lands short and Register stays off ("Passwords do not match"; 2026-11-28 runs: 1 of 20).
+    /// Dismiss it and type both fields again until Register is on (as `LiveCutForABuckTests`).
+    private func fillPasswords(_ app: XCUIApplication, _ pass: String) {
+        let register = app.buttons.matching(NSPredicate(format: "label == %@", "Register")).firstMatch
+        let clear = String(repeating: XCUIKeyboardKey.delete.rawValue, count: pass.count + 8)
+        for attempt in 0..<4 {
+            if attempt > 0 && register.exists && register.isEnabled { return }
+            for id in ["Password", "Confirm Password"] {
+                let field = app.secureTextFields[id]
+                field.tap()
+                dismissAutoFill(app, wait: 1.5)
+                if attempt > 0 { field.tap(); field.typeText(clear) }
+                field.typeText(pass)
+            }
+            dismissAutoFill(app)
+            sleep(1)
+        }
+    }
+
+    private func dismissAutoFill(_ app: XCUIApplication, wait: TimeInterval = 0) {
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let labels = ["Close", "Not Now", "Choose My Own Password", "Don\u{2019}t Use"]
+        let deadline = Date().addingTimeInterval(wait)
+        repeat {
+            for root in [app, springboard] {
+                for label in labels {
+                    let b = root.buttons[label]
+                    if b.exists && b.isHittable { b.tap(); return }
+                }
+            }
+            if Date() < deadline { usleep(200_000) }
+        } while Date() < deadline
     }
 
     /// The pages' names: `TEST_RUNNER_BAB_LIVE_PEERS`, else the host script's `pages.json` in the ctl dir.

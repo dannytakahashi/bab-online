@@ -11,7 +11,7 @@
  * and an offer from the player replaces any older call of theirs.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { VoiceChatManager, FLOW_SAMPLE_MS, REKEY_VERIFY_MS } from './VoiceChatManager.js';
+import { VoiceChatManager, FLOW_SAMPLE_MS, REKEY_VERIFY_MS, LIVENESS_SAMPLE_MS } from './VoiceChatManager.js';
 import { CLIENT_EVENTS } from '../constants/events.js';
 import { getGameState } from '../state/GameState.js';
 import { forgetSessionMute } from './voiceSessionMute.js';
@@ -64,9 +64,17 @@ class FakePC {
   setConfiguration(c) { this.config = c; }
   close() { this.signalingState = 'closed'; this.connectionState = 'closed'; this.flowing = false; }
   // inbound audio: the packets grow on every read while the far end sends
+  // `sendsNothing`: the far end is up but sends no audio (a muted tab with a
+  // suspended AudioContext, a spectator): no inbound-rtp at all, only its
+  // transport's consent pings (one each 2.5 s, as Chromium's selected pair)
   async getStats() {
-    if (this.flowing) this.packets = (this.packets || 0) + 25;
-    const rows = [{ type: 'inbound-rtp', kind: 'audio', packetsReceived: this.packets || 0 }];
+    if (this.flowing && !this.sendsNothing) this.packets = (this.packets || 0) + 25;
+    const rows = [];
+    if (!this.sendsNothing) rows.push({ type: 'inbound-rtp', kind: 'audio', packetsReceived: this.packets || 0 });
+    if (this.withTransport) {
+      if (this.flowing) this.pings = Math.floor(Date.now() / 2500);
+      rows.push({ type: 'candidate-pair', state: 'succeeded', nominated: true, bytesReceived: 0, requestsReceived: this.pings || 0, responsesReceived: this.pings || 0 });
+    }
     return { forEach: (fn) => rows.forEach(fn) };
   }
   /** Test helper: the call is up and receives audio. */
@@ -340,6 +348,161 @@ describe('an offer from a player I still have a call with on an old socket id', 
     await vm.handleOffer('x9', OFFER, undefined);
     expect(pc.signalingState).not.toBe('closed');
     expect(livePcs()).toHaveLength(2);
+    vm.shutdown();
+  });
+});
+
+describe('a muted tab sends silence (review 2026-11-27: an empty destination sends no packets)', () => {
+  it('the silent track carries a zero-gain tone, stopped at shutdown', async () => {
+    const made = { osc: [], gain: [] };
+    const Base = window.AudioContext;
+    window.AudioContext = function AudioContext() {
+      const ctx = Base();
+      ctx.createOscillator = () => {
+        const osc = { connected: [], started: false, stopped: false, connect(n) { this.connected.push(n); }, start() { this.started = true; }, stop() { this.stopped = true; } };
+        made.osc.push(osc);
+        return osc;
+      };
+      ctx.createGain = () => {
+        const g = { gain: { value: 1 }, connected: [], connect(n) { this.connected.push(n); }, disconnect() { this.disconnected = true; } };
+        made.gain.push(g);
+        return g;
+      };
+      return ctx;
+    };
+    const vm = new VoiceChatManager();
+    const sm = fakeSocketManager('a1');
+    await start(vm, sm);
+    await vm.connectToPeer('b1', 'bob');
+    const pc = vm.peers.get('b1').connection;
+    expect(pc.added[0].track.id).toMatch(/^silent-/);
+    expect(made.osc).toHaveLength(1);
+    expect(made.osc[0].started).toBe(true);
+    expect(made.osc[0].connected).toEqual([made.gain[0]]);
+    expect(made.gain[0].gain.value).toBe(0);
+    expect(made.gain[0].connected).toEqual([vm._silent.dest]);
+    vm.shutdown();
+    expect(made.osc[0].stopped).toBe(true);
+  });
+});
+
+describe('after a hand-off: a player who sends no audio (muted, a spectator)', () => {
+  /** alice's call to bob, up, whose far end sends no audio but answers its consent pings. */
+  async function withQuietBob() {
+    const r = await withCallToBob();
+    r.pc.sendsNothing = true;
+    r.pc.withTransport = true;
+    return r;
+  }
+
+  it('the list: the call still hears their transport, so it moves (no offer, no gap), not closed', async () => {
+    const { vm, sm, pc } = await withQuietBob();
+    sm.id = 'a2';
+    const p = vm.connectToPeer('b2', 'bob');
+    await vi.advanceTimersByTimeAsync(LIVENESS_SAMPLE_MS);
+    await p;
+    expect(livePcs()).toEqual([pc]);
+    expect([...vm.peers.keys()]).toEqual(['b2']);
+    expect(sm.offers()).toHaveLength(1);
+    // still alive at the check: kept, no re-offer
+    await vi.advanceTimersByTimeAsync(REKEY_VERIFY_MS + LIVENESS_SAMPLE_MS);
+    expect(livePcs()).toEqual([pc]);
+    expect(sm.offers()).toHaveLength(1);
+    vm.shutdown();
+  });
+
+  it('voicePeerJoined: the same move (so the talker does not drop the muted player\'s call)', async () => {
+    const { vm, sm, pc } = await withQuietBob();
+    sm.id = 'a2';
+    const p = vm.peerJoined('b2', 'bob');
+    await vi.advanceTimersByTimeAsync(LIVENESS_SAMPLE_MS);
+    await p;
+    expect(livePcs()).toEqual([pc]);
+    expect([...vm.peers.keys()]).toEqual(['b2']);
+    vm.shutdown();
+  });
+
+  it('a far end that is gone (no pings either) is still closed and offered anew', async () => {
+    const { vm, sm, pc } = await withQuietBob();
+    pc.flowing = false; // nothing at all comes back
+    sm.id = 'a2';
+    const p = vm.connectToPeer('b2', 'bob');
+    await vi.advanceTimersByTimeAsync(LIVENESS_SAMPLE_MS);
+    await p;
+    expect(pc.signalingState).toBe('closed');
+    expect(livePcs()).toHaveLength(1);
+    expect(sm.offers().at(-1).data.targetSocketId).toBe('b2');
+    vm.shutdown();
+  });
+});
+
+describe('two reconnects in a row: the player announced on two new ids within one check', () => {
+  it('the list for b2, then for b3 200 ms later: one call, on b3, no offer', async () => {
+    const { vm, sm, pc } = await withCallToBob();
+    sm.id = 'a2';
+    const p1 = vm.connectToPeer('b2', 'bob');
+    await vi.advanceTimersByTimeAsync(200);
+    sm.id = 'a3';
+    const p2 = vm.connectToPeer('b3', 'bob');
+    await vi.advanceTimersByTimeAsync(FLOW_SAMPLE_MS);
+    await Promise.all([p1, p2]);
+    expect(livePcs()).toEqual([pc]);
+    expect([...vm.peers.keys()]).toEqual(['b3']);
+    expect(sm.offers()).toHaveLength(1);
+    // the moved call's check later neither re-offers nor moves it back
+    await vi.advanceTimersByTimeAsync(REKEY_VERIFY_MS + LIVENESS_SAMPLE_MS);
+    expect(livePcs()).toEqual([pc]);
+    expect([...vm.peers.keys()]).toEqual(['b3']);
+    expect(sm.offers()).toHaveLength(1);
+    pc.onicecandidate({ candidate: { candidate: 'c' } });
+    expect(sm.candidates().at(-1).data.targetSocketId).toBe('b3');
+    vm.shutdown();
+  });
+
+  it('voicePeerJoined for b2, then for b3: one call, on b3', async () => {
+    const { vm, sm, pc } = await withCallToBob();
+    sm.id = 'a2';
+    const p1 = vm.peerJoined('b2', 'bob');
+    await vi.advanceTimersByTimeAsync(200);
+    const p2 = vm.peerJoined('b3', 'bob');
+    await vi.advanceTimersByTimeAsync(FLOW_SAMPLE_MS);
+    await Promise.all([p1, p2]);
+    expect(livePcs()).toEqual([pc]);
+    expect([...vm.peers.keys()]).toEqual(['b3']);
+    vm.shutdown();
+  });
+
+  it('a silent old call: closed once, one new call offered to b3 only', async () => {
+    const { vm, sm, pc } = await withCallToBob();
+    pc.flowing = false;
+    sm.id = 'a2';
+    const p1 = vm.connectToPeer('b2', 'bob');
+    await vi.advanceTimersByTimeAsync(200);
+    const p2 = vm.connectToPeer('b3', 'bob');
+    await vi.advanceTimersByTimeAsync(FLOW_SAMPLE_MS);
+    await Promise.all([p1, p2]);
+    expect(pc.signalingState).toBe('closed');
+    expect(livePcs()).toHaveLength(1);
+    expect([...vm.peers.keys()]).toEqual(['b3']);
+    expect(sm.offers().map((o) => o.data.targetSocketId)).toEqual(['b1', 'b3']);
+    vm.shutdown();
+  });
+
+  it('a newer id announced after the move, while the moved call went silent: settles on the newest id', async () => {
+    const { vm, sm, pc } = await withCallToBob();
+    sm.id = 'a2';
+    const p1 = vm.connectToPeer('b2', 'bob');
+    await vi.advanceTimersByTimeAsync(FLOW_SAMPLE_MS);
+    await p1;
+    expect([...vm.peers.keys()]).toEqual(['b2']);
+    await vi.advanceTimersByTimeAsync(REKEY_VERIFY_MS - 300);
+    pc.flowing = false;
+    const p2 = vm.connectToPeer('b3', 'bob');
+    await vi.advanceTimersByTimeAsync(LIVENESS_SAMPLE_MS + REKEY_VERIFY_MS);
+    await p2;
+    expect(livePcs()).toHaveLength(1);
+    expect([...vm.peers.keys()]).toEqual(['b3']);
+    expect(sm.offers().map((o) => o.data.targetSocketId)).toEqual(['b1', 'b3']);
     vm.shutdown();
   });
 });
